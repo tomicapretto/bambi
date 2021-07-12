@@ -124,7 +124,7 @@
   <h3 id="searchlabel">Quick search</h3>
     <div class="searchformwrapper">
     <form class="search" action="search.html" method="get">
-      <input type="text" name="q" aria-labelledby="searchlabel" />
+      <input type="text" name="q" aria-labelledby="searchlabel" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"/>
       <input type="submit" value="Go" />
     </form>
     </div>
@@ -204,6 +204,7 @@
  | <a href="#C"><strong>C</strong></a>
  | <a href="#F"><strong>F</strong></a>
  | <a href="#G"><strong>G</strong></a>
+ | <a href="#L"><strong>L</strong></a>
  | <a href="#M"><strong>M</strong></a>
  | <a href="#P"><strong>P</strong></a>
  | <a href="#S"><strong>S</strong></a>
@@ -252,7 +253,7 @@
   <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api_reference.html#bambi.models.Model.fit">fit() (bambi.models.Model method)</a>
 </li>
-      <li><a href="api_reference.html#bambi.priors.PriorScaler.fit_mle">fit_mle() (bambi.priors.PriorScaler method)</a>
+      <li><a href="api_reference.html#bambi.priors.PriorScalerMLE.fit_mle">fit_mle() (bambi.priors.PriorScalerMLE method)</a>
 </li>
   </ul></td>
 </tr></table>
@@ -260,15 +261,21 @@
 <h2 id="G">G</h2>
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
-      <li><a href="api_reference.html#bambi.priors.PriorFactory.get">get() (bambi.priors.PriorFactory method)</a>
-</li>
-      <li><a href="api_reference.html#bambi.priors.PriorScaler.get_slope_stats">get_slope_stats() (bambi.priors.PriorScaler method)</a>
+      <li><a href="api_reference.html#bambi.priors.PriorScalerMLE.get_slope_stats">get_slope_stats() (bambi.priors.PriorScalerMLE method)</a>
 </li>
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api_reference.html#bambi.models.Model.graph">graph() (bambi.models.Model method)</a>
 </li>
       <li><a href="api_reference.html#bambi.models.Model.group_specific_terms">group_specific_terms (bambi.models.Model property)</a>
+</li>
+  </ul></td>
+</tr></table>
+
+<h2 id="L">L</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api_reference.html#bambi.priors.Likelihood">Likelihood (class in bambi.priors)</a>
 </li>
   </ul></td>
 </tr></table>
@@ -303,9 +310,9 @@
   <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api_reference.html#bambi.models.Model.prior_predictive">prior_predictive() (bambi.models.Model method)</a>
 </li>
-      <li><a href="api_reference.html#bambi.priors.PriorFactory">PriorFactory (class in bambi.priors)</a>
-</li>
       <li><a href="api_reference.html#bambi.priors.PriorScaler">PriorScaler (class in bambi.priors)</a>
+</li>
+      <li><a href="api_reference.html#bambi.priors.PriorScalerMLE">PriorScalerMLE (class in bambi.priors)</a>
 </li>
   </ul></td>
 </tr></table>
@@ -313,7 +320,7 @@
 <h2 id="S">S</h2>
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
-      <li><a href="api_reference.html#bambi.priors.PriorScaler.scale_common">scale_common() (bambi.priors.PriorScaler method)</a>
+      <li><a href="api_reference.html#bambi.priors.PriorScalerMLE.scale_common">scale_common() (bambi.priors.PriorScalerMLE method)</a>
 </li>
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
@@ -367,7 +374,7 @@
     
     <div class="footer-item">
       <p class="sphinx-version">
-Created using <a href="http://sphinx-doc.org/">Sphinx</a> 4.0.2.<br/>
+Created using <a href="http://sphinx-doc.org/">Sphinx</a> 4.1.0.<br/>
 </p>
     </div>
     
