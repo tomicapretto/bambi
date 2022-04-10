@@ -7,26 +7,23 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Index &#8212; Bambi 0.7.1 documentation</title>
     
-    <link href="_static/styles/theme.css?digest=1999514e3f237ded88cf" rel="stylesheet">
+  <!-- Loaded before other Sphinx assets -->
+  <link href="_static/styles/theme.css?digest=1999514e3f237ded88cf" rel="stylesheet">
 <link href="_static/styles/pydata-sphinx-theme.css?digest=1999514e3f237ded88cf" rel="stylesheet">
-  
+
     
-    <link rel="stylesheet"
-      href="_static/vendor/fontawesome/5.13.0/css/all.min.css">
-    <link rel="preload" as="font" type="font/woff2" crossorigin
-      href="_static/vendor/fontawesome/5.13.0/webfonts/fa-solid-900.woff2">
-    <link rel="preload" as="font" type="font/woff2" crossorigin
-      href="_static/vendor/fontawesome/5.13.0/webfonts/fa-brands-400.woff2">
-  
-    
-      
-  
-    
+  <link rel="stylesheet"
+    href="_static/vendor/fontawesome/5.13.0/css/all.min.css">
+  <link rel="preload" as="font" type="font/woff2" crossorigin
+    href="_static/vendor/fontawesome/5.13.0/webfonts/fa-solid-900.woff2">
+  <link rel="preload" as="font" type="font/woff2" crossorigin
+    href="_static/vendor/fontawesome/5.13.0/webfonts/fa-brands-400.woff2">
+
     <link rel="stylesheet" type="text/css" href="_static/pygments.css" />
-    <link rel="stylesheet" type="text/css" href="_static/styles/pydata-sphinx-theme.css" />
     
-    <link rel="preload" as="script" href="_static/scripts/pydata-sphinx-theme.js?digest=1999514e3f237ded88cf">
-  
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="_static/scripts/pydata-sphinx-theme.js?digest=1999514e3f237ded88cf">
+
     <script data-url_root="./" id="documentation_options" src="_static/documentation_options.js"></script>
     <script src="_static/jquery.js"></script>
     <script src="_static/underscore.js"></script>
@@ -41,7 +38,7 @@
     <!-- Google Analytics -->
     
   </head>
-  <body data-spy="scroll" data-target="#bd-toc-nav" data-offset="80">
+  <body data-spy="scroll" data-target="#bd-toc-nav" data-offset="60">
     
     <div class="container-fluid" id="banner"></div>
 
@@ -281,20 +278,16 @@
   <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api_reference.html#bambi.models.Model.fit">fit() (bambi.models.Model method)</a>
 </li>
-      <li><a href="api_reference.html#bambi.priors.PriorScalerMLE.fit_mle">fit_mle() (bambi.priors.PriorScalerMLE method)</a>
-</li>
   </ul></td>
 </tr></table>
 
 <h2 id="G">G</h2>
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
-      <li><a href="api_reference.html#bambi.priors.PriorScalerMLE.get_slope_stats">get_slope_stats() (bambi.priors.PriorScalerMLE method)</a>
+      <li><a href="api_reference.html#bambi.models.Model.graph">graph() (bambi.models.Model method)</a>
 </li>
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
-      <li><a href="api_reference.html#bambi.models.Model.graph">graph() (bambi.models.Model method)</a>
-</li>
       <li><a href="api_reference.html#bambi.models.Model.group_specific_terms">group_specific_terms (bambi.models.Model property)</a>
 </li>
   </ul></td>
@@ -350,15 +343,13 @@
 </li>
       <li><a href="api_reference.html#bambi.models.Model.predict">predict() (bambi.models.Model method)</a>
 </li>
-      <li><a href="api_reference.html#bambi.priors.Prior">Prior (class in bambi.priors)</a>
-</li>
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api_reference.html#bambi.priors.Prior">Prior (class in bambi.priors)</a>
+</li>
       <li><a href="api_reference.html#bambi.models.Model.prior_predictive">prior_predictive() (bambi.models.Model method)</a>
 </li>
       <li><a href="api_reference.html#bambi.priors.PriorScaler">PriorScaler (class in bambi.priors)</a>
-</li>
-      <li><a href="api_reference.html#bambi.priors.PriorScalerMLE">PriorScalerMLE (class in bambi.priors)</a>
 </li>
   </ul></td>
 </tr></table>
@@ -366,8 +357,6 @@
 <h2 id="S">S</h2>
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
-      <li><a href="api_reference.html#bambi.priors.PriorScalerMLE.scale_common">scale_common() (bambi.priors.PriorScalerMLE method)</a>
-</li>
       <li><a href="api_reference.html#bambi.families.Family.set_alias">set_alias() (bambi.families.Family method)</a>
 
       <ul>
@@ -412,8 +401,9 @@
       </div>
     </div>
   
-    <script src="_static/scripts/pydata-sphinx-theme.js?digest=1999514e3f237ded88cf"></script>
-  <footer class="footer mt-5 mt-md-0">
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script src="_static/scripts/pydata-sphinx-theme.js?digest=1999514e3f237ded88cf"></script>
+<footer class="footer mt-5 mt-md-0">
   <div class="container">
     
     <div class="footer-item">
@@ -424,7 +414,7 @@
     
     <div class="footer-item">
       <p class="sphinx-version">
-Created using <a href="http://sphinx-doc.org/">Sphinx</a> 4.4.0.<br>
+Created using <a href="http://sphinx-doc.org/">Sphinx</a> 4.5.0.<br>
 </p>
     </div>
     
