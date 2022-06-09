@@ -1,18 +1,22 @@
 
 <!DOCTYPE html>
 
-<html>
+<html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="generator" content="Docutils 0.17.1: http://docutils.sourceforge.net/" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="generator" content="Docutils 0.18.1: http://docutils.sourceforge.net/" />
 
-    <title>Hierarchical Linear Regression (Pigs dataset) &#8212; Bambi 0.8.0 documentation</title>
-    
+    <title>Hierarchical Linear Regression (Pigs dataset) &#8212; Bambi 0.9.0 documentation</title>
+<script>
+  document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+  document.documentElement.dataset.theme = localStorage.getItem("theme") || "light"
+</script>
+
   <!-- Loaded before other Sphinx assets -->
-  <link href="../_static/styles/theme.css?digest=1999514e3f237ded88cf" rel="stylesheet">
-<link href="../_static/styles/pydata-sphinx-theme.css?digest=1999514e3f237ded88cf" rel="stylesheet">
+  <link href="../_static/styles/theme.css?digest=92025949c220c2e29695" rel="stylesheet">
+<link href="../_static/styles/pydata-sphinx-theme.css?digest=92025949c220c2e29695" rel="stylesheet">
 
-    
+
   <link rel="stylesheet"
     href="../_static/vendor/fontawesome/5.13.0/css/all.min.css">
   <link rel="preload" as="font" type="font/woff2" crossorigin
@@ -21,13 +25,14 @@
     href="../_static/vendor/fontawesome/5.13.0/webfonts/fa-brands-400.woff2">
 
     <link rel="stylesheet" type="text/css" href="../_static/pygments.css" />
-    
+
   <!-- Pre-loaded scripts that we'll load fully later -->
-  <link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=1999514e3f237ded88cf">
+  <link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=92025949c220c2e29695">
 
     <script data-url_root="../" id="documentation_options" src="../_static/documentation_options.js"></script>
     <script src="../_static/jquery.js"></script>
     <script src="../_static/underscore.js"></script>
+    <script src="../_static/_sphinx_javascript_frameworks_compat.js"></script>
     <script src="../_static/doctools.js"></script>
     <script crossorigin="anonymous" integrity="sha256-Ae2Vz/4ePdIu6ZyI/5ZGsYnb+m0JlOmKPjt6XZ9JJkA=" src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.4/require.min.js"></script>
     <script>window.MathJax = {"tex": {"inlineMath": [["$", "$"], ["\\(", "\\)"]], "processEscapes": true}, "options": {"ignoreHtmlClass": "tex2jax_ignore|mathjax_ignore|document", "processHtmlClass": "tex2jax_process|mathjax_process|math|output_area"}}</script>
@@ -36,32 +41,40 @@
     <link rel="search" title="Search" href="../search.html" />
     <link rel="next" title="Hierarchical Linear Regression (Sleepstudy example)" href="sleepstudy.html" />
     <link rel="prev" title="Regression splines (Cherry blossom example)" href="splines_cherry_blossoms.html" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="docsearch:language" content="None">
-    
-
-    <!-- Google Analytics -->
-    
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="docsearch:language" content="en">
   </head>
-  <body data-spy="scroll" data-target="#bd-toc-nav" data-offset="60">
-    
-    <div class="container-fluid" id="banner"></div>
+  
+  
+  <body data-spy="scroll" data-target="#bd-toc-nav" data-offset="180" data-default-mode="">
+    <div class="bd-header-announcement container-fluid" id="banner">
+      
+
+    </div>
 
     
-    <nav class="navbar navbar-light navbar-expand-lg bg-light fixed-top bd-navbar" id="navbar-main"><div class="container-xl">
+    <nav class="bd-header navbar navbar-light navbar-expand-lg bg-light fixed-top bd-navbar" id="navbar-main"><div class="bd-header__inner container-xl">
 
   <div id="navbar-start">
     
     
-<a class="navbar-brand" href="../index.html">
-<p class="title">Bambi</p>
-</a>
+  
 
+
+<a class="navbar-brand logo" href="../index.html">
+  
+  
+  
+  
+  
+    <p class="title logo__title">Bambi 0.9.0 documentation</p>
+  
+</a>
     
   </div>
 
   <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbar-collapsible" aria-controls="navbar-collapsible" aria-expanded="false" aria-label="Toggle navigation">
-    <span class="navbar-toggler-icon"></span>
+    <span class="fas fa-bars"></span>
   </button>
 
   
@@ -103,6 +116,14 @@
     <div id="navbar-end">
       
       <div class="navbar-end-item">
+        <span id="theme-switch" class="btn btn-sm btn-outline-primary navbar-btn rounded-circle">
+    <a class="theme-switch" data-mode="light"><i class="fas fa-sun"></i></a>
+    <a class="theme-switch" data-mode="dark"><i class="far fa-moon"></i></a>
+    <a class="theme-switch" data-mode="auto"><i class="fas fa-adjust"></i></a>
+</span>
+      </div>
+      
+      <div class="navbar-end-item">
         <ul id="navbar-icon-links" class="navbar-nav" aria-label="Icon Links">
         <li class="nav-item">
           <a class="nav-link" href="https://github.com/bambinos/bambi" rel="noopener" target="_blank" title="GitHub"><span><i class="fab fa-github-square"></i></span>
@@ -121,13 +142,13 @@
     </nav>
     
 
-    <div class="container-xl">
-      <div class="row">
+    <div class="bd-container container-xl">
+      <div class="bd-container__inner row">
           
-            
-            <!-- Only show if we have sidebars configured, else just a small margin  -->
-            <div class="col-12 col-md-3 bd-sidebar">
-              <div class="sidebar-start-items">
+
+<!-- Only show if we have sidebars configured, else just a small margin  -->
+<div class="bd-sidebar-primary col-12 col-md-3 bd-sidebar">
+  <div class="sidebar-start-items">
 <div id="searchbox" style="display: none" role="search">
   <h3 id="searchlabel">Quick search</h3>
     <div class="searchformwrapper">
@@ -137,7 +158,7 @@
     </form>
     </div>
 </div>
-<script>$('#searchbox').show(0);</script>
+<script>document.getElementById('searchbox').style.display = "block"</script>
 
   
 
@@ -186,19 +207,20 @@
   </nav>
 
 
-              </div>
-              <div class="sidebar-end-items">
-              </div>
-            </div>
-            
-          
+  </div>
+  <div class="sidebar-end-items">
+  </div>
+</div>
+
 
           
-          <div class="d-none d-xl-block col-xl-2 bd-toc">
-            
-              
-              <div class="toc-item">
-                
+
+
+<div class="bd-sidebar-secondary d-none d-xl-block col-xl-2 bd-toc">
+  
+    
+    <div class="toc-item">
+      
 <div class="tocsection onthispage mt-5 pt-1 pb-3">
     <i class="fas fa-list"></i> On this page
 </div>
@@ -223,23 +245,21 @@
 </ul>
 
 </nav>
-              </div>
-              
-              <div class="toc-item">
-                
-              </div>
-              
-            
-          </div>
-          
+    </div>
+    
+    <div class="toc-item">
+      
+    </div>
+    
+  
+</div>
+
 
           
           
-            
-          
-          <main class="col-12 col-md-9 col-xl-7 py-md-5 pl-md-5 pr-md-4 bd-content" role="main">
+          <div class="bd-content col-12 col-md-9 col-xl-7">
               
-              <div>
+              <article class="bd-article" role="main">
                 
   
 <style>
@@ -456,6 +476,7 @@ div.nboutput.container div.output_area > div[class^='highlight']{
 }
 
 /* Some additional styling taken form the Jupyter notebook CSS */
+.jp-RenderedHTMLCommon table,
 div.rendered_html table {
   border: none;
   border-collapse: collapse;
@@ -464,10 +485,14 @@ div.rendered_html table {
   font-size: 12px;
   table-layout: fixed;
 }
+.jp-RenderedHTMLCommon thead,
 div.rendered_html thead {
   border-bottom: 1px solid black;
   vertical-align: bottom;
 }
+.jp-RenderedHTMLCommon tr,
+.jp-RenderedHTMLCommon th,
+.jp-RenderedHTMLCommon td,
 div.rendered_html tr,
 div.rendered_html th,
 div.rendered_html td {
@@ -479,20 +504,23 @@ div.rendered_html td {
   max-width: none;
   border: none;
 }
+.jp-RenderedHTMLCommon th,
 div.rendered_html th {
   font-weight: bold;
 }
+.jp-RenderedHTMLCommon tbody tr:nth-child(odd),
 div.rendered_html tbody tr:nth-child(odd) {
   background: #f5f5f5;
 }
+.jp-RenderedHTMLCommon tbody tr:hover,
 div.rendered_html tbody tr:hover {
   background: rgba(66, 165, 245, 0.2);
 }
 </style>
 <section id="Hierarchical-Linear-Regression-(Pigs-dataset)">
-<h1>Hierarchical Linear Regression (Pigs dataset)<a class="headerlink" href="#Hierarchical-Linear-Regression-(Pigs-dataset)" title="Permalink to this headline">#</a></h1>
+<h1>Hierarchical Linear Regression (Pigs dataset)<a class="headerlink" href="#Hierarchical-Linear-Regression-(Pigs-dataset)" title="Permalink to this heading">#</a></h1>
 <div class="nbinput nblast docutils container">
-<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[4]:
+<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[1]:
 </pre></div>
 </div>
 <div class="input_area highlight-ipython3 notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span> <span class="nn">arviz</span> <span class="k">as</span> <span class="nn">az</span>
@@ -504,7 +532,7 @@ div.rendered_html tbody tr:hover {
 </div>
 </div>
 <div class="nbinput nblast docutils container">
-<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[5]:
+<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[2]:
 </pre></div>
 </div>
 <div class="input_area highlight-ipython3 notranslate"><div class="highlight"><pre><span></span><span class="n">az</span><span class="o">.</span><span class="n">style</span><span class="o">.</span><span class="n">use</span><span class="p">(</span><span class="s2">&quot;arviz-darkgrid&quot;</span><span class="p">)</span>
@@ -517,9 +545,9 @@ div.rendered_html tbody tr:hover {
 <div class="line">We’ll use a multi-level dataset included with <code class="docutils literal notranslate"><span class="pre">statsmodels</span></code> containing <a class="reference external" href="https://www.rdocumentation.org/packages/doBy/versions/4.6-2/topics/data-dietox">the growth curve of pigs</a>. Since the weight of each pig is measured multiple times, we’ll estimate a model that allows varying intercepts and slopes for time, for each pig.</div>
 </div>
 <section id="Load-data">
-<h2>Load data<a class="headerlink" href="#Load-data" title="Permalink to this headline">#</a></h2>
+<h2>Load data<a class="headerlink" href="#Load-data" title="Permalink to this heading">#</a></h2>
 <div class="nbinput docutils container">
-<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[6]:
+<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[3]:
 </pre></div>
 </div>
 <div class="input_area highlight-ipython3 notranslate"><div class="highlight"><pre><span></span><span class="c1"># Load up data from statsmodels</span>
@@ -529,7 +557,7 @@ div.rendered_html tbody tr:hover {
 </div>
 </div>
 <div class="nboutput nblast docutils container">
-<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[6]:
+<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[3]:
 </pre></div>
 </div>
 <div class="output_area rendered_html docutils container">
@@ -638,7 +666,7 @@ div.rendered_html tbody tr:hover {
 </div>
 </section>
 <section id="Model">
-<h2>Model<a class="headerlink" href="#Model" title="Permalink to this headline">#</a></h2>
+<h2>Model<a class="headerlink" href="#Model" title="Permalink to this heading">#</a></h2>
 <div class="math notranslate nohighlight">
 \[Y_i = \beta_{0, i} + \beta_{1, i} X + \epsilon_i\]</div>
 <p>with</p>
@@ -651,7 +679,7 @@ div.rendered_html tbody tr:hover {
 <p>We use the formula syntax to specify the model. Previously, you had to specify common and group specific components separately. Now, thanks to <a class="reference external" href="https://github.com/bambinos/formulae">formulae</a>, you can specify model formulas just as you would do with R packages like <a class="reference external" href="https://CRAN.R-project.org/package=lme4">lme4</a> and <a class="reference external" href="https://CRAN.R-project.org/package=brms">brms</a>. In a nutshell, the term on the left side tells <code class="docutils literal notranslate"><span class="pre">Weight</span></code> is the response variable, <code class="docutils literal notranslate"><span class="pre">Time</span></code> on the right-hand side tells we
 include a main effect for the variable <code class="docutils literal notranslate"><span class="pre">Time</span></code>, and <code class="docutils literal notranslate"><span class="pre">(Time|Pig)</span></code> indicates we want to allow a each pig to have its own slope for <code class="docutils literal notranslate"><span class="pre">Time</span></code> as well as its own intercept (which is implicit). If we only wanted different intercepts, we would have written <code class="docutils literal notranslate"><span class="pre">Weight</span> <span class="pre">~</span> <span class="pre">Time</span> <span class="pre">+</span> <span class="pre">(1</span> <span class="pre">|</span> <span class="pre">Pig)</span></code> and if we wanted slopes specific to each pig without including a pig specific intercept, we would write <code class="docutils literal notranslate"><span class="pre">Weight</span> <span class="pre">~</span> <span class="pre">Time</span> <span class="pre">+</span> <span class="pre">(0</span> <span class="pre">+</span> <span class="pre">Time</span> <span class="pre">|</span> <span class="pre">Pig)</span></code>.</p>
 <div class="nbinput docutils container">
-<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[7]:
+<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[4]:
 </pre></div>
 </div>
 <div class="input_area highlight-ipython3 notranslate"><div class="highlight"><pre><span></span><span class="n">model</span> <span class="o">=</span> <span class="n">bmb</span><span class="o">.</span><span class="n">Model</span><span class="p">(</span><span class="s2">&quot;Weight ~ Time + (Time|Pig)&quot;</span><span class="p">,</span> <span class="n">data</span><span class="p">)</span>
@@ -666,29 +694,34 @@ include a main effect for the variable <code class="docutils literal notranslate
 <div class="highlight"><pre>
 Auto-assigning NUTS sampler...
 Initializing NUTS using jitter+adapt_diag...
-Multiprocess sampling (2 chains in 2 jobs)
-NUTS: [Weight_sigma, Time|Pig_offset, Time|Pig_sigma, 1|Pig_offset, 1|Pig_sigma, Time, Intercept]
+Multiprocess sampling (4 chains in 4 jobs)
+NUTS: [Intercept, Time, 1|Pig_sigma, 1|Pig_offset, Time|Pig_sigma, Time|Pig_offset, Weight_sigma]
 </pre></div></div>
 </div>
 <div class="nboutput docutils container">
 <div class="prompt empty docutils container">
 </div>
 <div class="output_area rendered_html docutils container">
+<style>
+    /* Turns off some styling */
+    progress {
+        /* gets rid of default border in Firefox and Opera. */
+        border: none;
+        /* Needs to be in here for Safari polyfill so background images work as expected. */
+        background-size: auto;
+    }
+    .progress-bar-interrupted, .progress-bar-interrupted::-webkit-progress-bar {
+        background: #F44336;
+    }
+</style></div>
+</div>
+<div class="nboutput docutils container">
+<div class="prompt empty docutils container">
+</div>
+<div class="output_area rendered_html docutils container">
 <div>
-    <style>
-        /* Turns off some styling */
-        progress {
-            /* gets rid of default border in Firefox and Opera. */
-            border: none;
-            /* Needs to be in here for Safari polyfill so background images work as expected. */
-            background-size: auto;
-        }
-        .progress-bar-interrupted, .progress-bar-interrupted::-webkit-progress-bar {
-            background: #F44336;
-        }
-    </style>
-  <progress value='4000' class='' max='4000' style='width:300px; height:20px; vertical-align: middle;'></progress>
-  100.00% [4000/4000 00:19<00:00 Sampling 2 chains, 0 divergences]
+  <progress value='8000' class='' max='8000' style='width:300px; height:20px; vertical-align: middle;'></progress>
+  100.00% [8000/8000 00:14<00:00 Sampling 4 chains, 0 divergences]
 </div></div>
 </div>
 <div class="nboutput nblast docutils container">
@@ -696,13 +729,12 @@ NUTS: [Weight_sigma, Time|Pig_offset, Time|Pig_sigma, 1|Pig_offset, 1|Pig_sigma,
 </div>
 <div class="output_area stderr docutils container">
 <div class="highlight"><pre>
-Sampling 2 chains for 1_000 tune and 1_000 draw iterations (2_000 + 2_000 draws total) took 20 seconds.
-The number of effective samples is smaller than 25% for some parameters.
+Sampling 4 chains for 1_000 tune and 1_000 draw iterations (4_000 + 4_000 draws total) took 15 seconds.
 </pre></div></div>
 </div>
 <p>We can print the model to have a summary of the details</p>
 <div class="nbinput docutils container">
-<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[8]:
+<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[5]:
 </pre></div>
 </div>
 <div class="input_area highlight-ipython3 notranslate"><div class="highlight"><pre><span></span><span class="n">model</span>
@@ -710,7 +742,7 @@ The number of effective samples is smaller than 25% for some parameters.
 </div>
 </div>
 <div class="nboutput nblast docutils container">
-<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[8]:
+<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[5]:
 </pre></div>
 </div>
 <div class="output_area docutils container">
@@ -730,8 +762,6 @@ Priors:
 
   Auxiliary parameters
     sigma ~ HalfStudentT(nu: 4, sigma: 24.9644)
-
-
 ------
 * To see a plot of the priors call the .plot_priors() method.
 * To see a summary or plot of the posterior pass the object returned by .fit() to az.summary() or az.plot_trace()
@@ -739,7 +769,7 @@ Priors:
 </div>
 <p>Since we have not specified prior distributions for the parameters in the model, Bambi has chosen sensible defaults for us. We can explore these priors through samples generated from them with a call to <code class="docutils literal notranslate"><span class="pre">Model.plot_priors()</span></code>, which plots a kernel density estimate for each prior.</p>
 <div class="nbinput docutils container">
-<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[9]:
+<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[6]:
 </pre></div>
 </div>
 <div class="input_area highlight-ipython3 notranslate"><div class="highlight"><pre><span></span><span class="n">model</span><span class="o">.</span><span class="n">plot_priors</span><span class="p">();</span>
@@ -756,7 +786,7 @@ Priors:
 <p>Now we are ready to check the results. Using <code class="docutils literal notranslate"><span class="pre">az.plot_trace()</span></code> we get traceplots that show the values sampled from the posteriors and density estimates that gives us an idea of the shape of the posterior distribution of our parameters.</p>
 <p>In this case it is very convenient to use <code class="docutils literal notranslate"><span class="pre">compact=True</span></code>. We tell ArviZ to plot all the group specific posteriors in the same panel which saves space and makes it easier to compare group specific posteriors. Thus, we’ll have a panel with all the group specific intercepts, and another panel with all the group specific slopes. If we used <code class="docutils literal notranslate"><span class="pre">compact=False</span></code>, which is the default, we would end up with a huge number of panels which would make the plot unreadable.</p>
 <div class="nbinput docutils container">
-<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[10]:
+<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[7]:
 </pre></div>
 </div>
 <div class="input_area highlight-ipython3 notranslate"><div class="highlight"><pre><span></span><span class="c1"># Plot posteriors</span>
@@ -783,7 +813,7 @@ Priors:
 </div>
 <p>The plots generated by <code class="docutils literal notranslate"><span class="pre">az.plot_trace()</span></code> are enough to be confident that the sampler did a good job and conclude about plausible values for the distribution of each parameter in the model. But if we want to, and it is a good idea to do it, we can get umerical summaries for the posteriors with <code class="docutils literal notranslate"><span class="pre">az.summary()</span></code>.</p>
 <div class="nbinput docutils container">
-<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[11]:
+<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[8]:
 </pre></div>
 </div>
 <div class="input_area highlight-ipython3 notranslate"><div class="highlight"><pre><span></span><span class="n">az</span><span class="o">.</span><span class="n">summary</span><span class="p">(</span><span class="n">results</span><span class="p">,</span> <span class="n">var_names</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;Intercept&quot;</span><span class="p">,</span> <span class="s2">&quot;Time&quot;</span><span class="p">,</span> <span class="s2">&quot;1|Pig_sigma&quot;</span><span class="p">,</span> <span class="s2">&quot;Time|Pig_sigma&quot;</span><span class="p">,</span> <span class="s2">&quot;Weight_sigma&quot;</span><span class="p">])</span>
@@ -791,7 +821,7 @@ Priors:
 </div>
 </div>
 <div class="nboutput nblast docutils container">
-<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[11]:
+<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[8]:
 </pre></div>
 </div>
 <div class="output_area rendered_html docutils container">
@@ -827,63 +857,63 @@ Priors:
   <tbody>
     <tr>
       <th>Intercept</th>
-      <td>15.745</td>
-      <td>0.557</td>
-      <td>14.673</td>
-      <td>16.746</td>
-      <td>0.024</td>
-      <td>0.017</td>
-      <td>525.0</td>
-      <td>823.0</td>
-      <td>1.00</td>
+      <td>15.729</td>
+      <td>0.567</td>
+      <td>14.680</td>
+      <td>16.780</td>
+      <td>0.019</td>
+      <td>0.013</td>
+      <td>899.0</td>
+      <td>1456.0</td>
+      <td>1.0</td>
     </tr>
     <tr>
       <th>Time</th>
-      <td>6.942</td>
-      <td>0.084</td>
-      <td>6.779</td>
-      <td>7.093</td>
-      <td>0.004</td>
+      <td>6.938</td>
+      <td>0.082</td>
+      <td>6.784</td>
+      <td>7.090</td>
       <td>0.003</td>
-      <td>417.0</td>
-      <td>821.0</td>
-      <td>1.01</td>
+      <td>0.002</td>
+      <td>650.0</td>
+      <td>1049.0</td>
+      <td>1.0</td>
     </tr>
     <tr>
       <th>1|Pig_sigma</th>
-      <td>4.519</td>
-      <td>0.428</td>
-      <td>3.701</td>
-      <td>5.317</td>
-      <td>0.017</td>
+      <td>4.529</td>
+      <td>0.431</td>
+      <td>3.721</td>
+      <td>5.328</td>
       <td>0.012</td>
-      <td>681.0</td>
-      <td>907.0</td>
-      <td>1.00</td>
+      <td>0.008</td>
+      <td>1378.0</td>
+      <td>2165.0</td>
+      <td>1.0</td>
     </tr>
     <tr>
       <th>Time|Pig_sigma</th>
-      <td>0.662</td>
-      <td>0.062</td>
-      <td>0.545</td>
-      <td>0.774</td>
+      <td>0.663</td>
+      <td>0.061</td>
+      <td>0.560</td>
+      <td>0.783</td>
       <td>0.002</td>
-      <td>0.002</td>
-      <td>696.0</td>
-      <td>887.0</td>
-      <td>1.00</td>
+      <td>0.001</td>
+      <td>1443.0</td>
+      <td>2099.0</td>
+      <td>1.0</td>
     </tr>
     <tr>
       <th>Weight_sigma</th>
-      <td>2.461</td>
-      <td>0.065</td>
-      <td>2.339</td>
+      <td>2.460</td>
+      <td>0.066</td>
+      <td>2.341</td>
       <td>2.581</td>
       <td>0.001</td>
       <td>0.001</td>
-      <td>2613.0</td>
-      <td>1572.0</td>
-      <td>1.00</td>
+      <td>5000.0</td>
+      <td>2992.0</td>
+      <td>1.0</td>
     </tr>
   </tbody>
 </table>
@@ -891,7 +921,7 @@ Priors:
 </div>
 </section>
 <section id="Estimated-regression-line">
-<h2>Estimated regression line<a class="headerlink" href="#Estimated-regression-line" title="Permalink to this headline">#</a></h2>
+<h2>Estimated regression line<a class="headerlink" href="#Estimated-regression-line" title="Permalink to this heading">#</a></h2>
 <p>Here we’ll visualize the regression equations we have sampled for a particular pig and then we’ll compare the mean regression equation for all the 72 pigs in the dataset.</p>
 <p>In the following plot we can see the 2000 linear regressions we have sampled for the pig ‘4601’. The mean regression line is plotted in black and the observed weights for this pig are respresented by the blue dots.</p>
 <div class="nbinput docutils container">
@@ -1003,20 +1033,21 @@ Priors:
 </div>
 <div class="output_area docutils container">
 <div class="highlight"><pre>
-Last updated: Tue Jul 27 2021
+Last updated: Wed Jun 01 2022
 
 Python implementation: CPython
-Python version       : 3.8.5
-IPython version      : 7.18.1
+Python version       : 3.9.7
+IPython version      : 8.3.0
 
-json       : 2.0.9
-statsmodels: 0.12.2
-matplotlib : 3.3.3
-bambi      : 0.5.0
-arviz      : 0.11.2
-numpy      : 1.20.1
+numpy      : 1.21.5
+sys        : 3.9.7 (default, Sep 16 2021, 13:09:58)
+[GCC 7.5.0]
+arviz      : 0.12.1
+statsmodels: 0.13.2
+bambi      : 0.7.1
+matplotlib : 3.5.1
 
-Watermark: 2.1.0
+Watermark: 2.3.0
 
 </pre></div></div>
 </div>
@@ -1024,51 +1055,55 @@ Watermark: 2.1.0
 </section>
 
 
-              </div>
+              </article>
               
-              
-              <!-- Previous / next buttons -->
-<div class='prev-next-area'>
-    <a class='left-prev' id="prev-link" href="splines_cherry_blossoms.html" title="previous page">
-        <i class="fas fa-angle-left"></i>
-        <div class="prev-next-info">
-            <p class="prev-next-subtitle">previous</p>
-            <p class="prev-next-title">Regression splines (Cherry blossom example)</p>
-        </div>
-    </a>
-    <a class='right-next' id="next-link" href="sleepstudy.html" title="next page">
-    <div class="prev-next-info">
-        <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Hierarchical Linear Regression (Sleepstudy example)</p>
-    </div>
-    <i class="fas fa-angle-right"></i>
-    </a>
-</div>
-              
-          </main>
-          
 
+              
+              <footer class="bd-footer-article">
+                  <!-- Previous / next buttons -->
+<div class='prev-next-area'>
+  <a class='left-prev' id="prev-link" href="splines_cherry_blossoms.html" title="previous page">
+      <i class="fas fa-angle-left"></i>
+      <div class="prev-next-info">
+          <p class="prev-next-subtitle">previous</p>
+          <p class="prev-next-title">Regression splines (Cherry blossom example)</p>
+      </div>
+  </a>
+  <a class='right-next' id="next-link" href="sleepstudy.html" title="next page">
+  <div class="prev-next-info">
+      <p class="prev-next-subtitle">next</p>
+      <p class="prev-next-title">Hierarchical Linear Regression (Sleepstudy example)</p>
+  </div>
+  <i class="fas fa-angle-right"></i>
+  </a>
+</div>
+              </footer>
+              
+          </div>
+          
       </div>
     </div>
+
+  
   
   <!-- Scripts loaded after <body> so the DOM is not blocked -->
-  <script src="../_static/scripts/pydata-sphinx-theme.js?digest=1999514e3f237ded88cf"></script>
-<footer class="footer mt-5 mt-md-0">
-  <div class="container">
-    
-    <div class="footer-item">
-      <p class="copyright">
+  <script src="../_static/scripts/pydata-sphinx-theme.js?digest=92025949c220c2e29695"></script>
+
+<footer class="bd-footer"><div class="bd-footer__inner container">
+  
+  <div class="footer-item">
+    <p class="copyright">
     &copy; Copyright 2022, The developers of Bambi.<br>
 </p>
-    </div>
-    
-    <div class="footer-item">
-      <p class="sphinx-version">
-Created using <a href="http://sphinx-doc.org/">Sphinx</a> 4.5.0.<br>
-</p>
-    </div>
-    
   </div>
+  
+  <div class="footer-item">
+    <p class="sphinx-version">
+Created using <a href="http://sphinx-doc.org/">Sphinx</a> 5.0.1.<br>
+</p>
+  </div>
+  
+</div>
 </footer>
   </body>
 </html>

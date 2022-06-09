@@ -1,18 +1,22 @@
 
 <!DOCTYPE html>
 
-<html>
+<html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="generator" content="Docutils 0.17.1: http://docutils.sourceforge.net/" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="generator" content="Docutils 0.18.1: http://docutils.sourceforge.net/" />
 
-    <title>Negative Binomial Regression (Students absence example) &#8212; Bambi 0.8.0 documentation</title>
-    
+    <title>Negative Binomial Regression (Students absence example) &#8212; Bambi 0.9.0 documentation</title>
+<script>
+  document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+  document.documentElement.dataset.theme = localStorage.getItem("theme") || "light"
+</script>
+
   <!-- Loaded before other Sphinx assets -->
-  <link href="../_static/styles/theme.css?digest=1999514e3f237ded88cf" rel="stylesheet">
-<link href="../_static/styles/pydata-sphinx-theme.css?digest=1999514e3f237ded88cf" rel="stylesheet">
+  <link href="../_static/styles/theme.css?digest=92025949c220c2e29695" rel="stylesheet">
+<link href="../_static/styles/pydata-sphinx-theme.css?digest=92025949c220c2e29695" rel="stylesheet">
 
-    
+
   <link rel="stylesheet"
     href="../_static/vendor/fontawesome/5.13.0/css/all.min.css">
   <link rel="preload" as="font" type="font/woff2" crossorigin
@@ -21,13 +25,14 @@
     href="../_static/vendor/fontawesome/5.13.0/webfonts/fa-brands-400.woff2">
 
     <link rel="stylesheet" type="text/css" href="../_static/pygments.css" />
-    
+
   <!-- Pre-loaded scripts that we'll load fully later -->
-  <link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=1999514e3f237ded88cf">
+  <link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=92025949c220c2e29695">
 
     <script data-url_root="../" id="documentation_options" src="../_static/documentation_options.js"></script>
     <script src="../_static/jquery.js"></script>
     <script src="../_static/underscore.js"></script>
+    <script src="../_static/_sphinx_javascript_frameworks_compat.js"></script>
     <script src="../_static/doctools.js"></script>
     <script crossorigin="anonymous" integrity="sha256-Ae2Vz/4ePdIu6ZyI/5ZGsYnb+m0JlOmKPjt6XZ9JJkA=" src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.4/require.min.js"></script>
     <script>window.MathJax = {"tex": {"inlineMath": [["$", "$"], ["\\(", "\\)"]], "processEscapes": true}, "options": {"ignoreHtmlClass": "tex2jax_ignore|mathjax_ignore|document", "processHtmlClass": "tex2jax_process|mathjax_process|math|output_area"}}</script>
@@ -36,32 +41,40 @@
     <link rel="search" title="Search" href="../search.html" />
     <link rel="next" title="Beta Regression" href="beta_regression.html" />
     <link rel="prev" title="Wald and Gamma Regression (Australian insurance claims 2004-2005)" href="wald_gamma_glm.html" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="docsearch:language" content="None">
-    
-
-    <!-- Google Analytics -->
-    
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="docsearch:language" content="en">
   </head>
-  <body data-spy="scroll" data-target="#bd-toc-nav" data-offset="60">
-    
-    <div class="container-fluid" id="banner"></div>
+  
+  
+  <body data-spy="scroll" data-target="#bd-toc-nav" data-offset="180" data-default-mode="">
+    <div class="bd-header-announcement container-fluid" id="banner">
+      
+
+    </div>
 
     
-    <nav class="navbar navbar-light navbar-expand-lg bg-light fixed-top bd-navbar" id="navbar-main"><div class="container-xl">
+    <nav class="bd-header navbar navbar-light navbar-expand-lg bg-light fixed-top bd-navbar" id="navbar-main"><div class="bd-header__inner container-xl">
 
   <div id="navbar-start">
     
     
-<a class="navbar-brand" href="../index.html">
-<p class="title">Bambi</p>
-</a>
+  
 
+
+<a class="navbar-brand logo" href="../index.html">
+  
+  
+  
+  
+  
+    <p class="title logo__title">Bambi 0.9.0 documentation</p>
+  
+</a>
     
   </div>
 
   <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbar-collapsible" aria-controls="navbar-collapsible" aria-expanded="false" aria-label="Toggle navigation">
-    <span class="navbar-toggler-icon"></span>
+    <span class="fas fa-bars"></span>
   </button>
 
   
@@ -103,6 +116,14 @@
     <div id="navbar-end">
       
       <div class="navbar-end-item">
+        <span id="theme-switch" class="btn btn-sm btn-outline-primary navbar-btn rounded-circle">
+    <a class="theme-switch" data-mode="light"><i class="fas fa-sun"></i></a>
+    <a class="theme-switch" data-mode="dark"><i class="far fa-moon"></i></a>
+    <a class="theme-switch" data-mode="auto"><i class="fas fa-adjust"></i></a>
+</span>
+      </div>
+      
+      <div class="navbar-end-item">
         <ul id="navbar-icon-links" class="navbar-nav" aria-label="Icon Links">
         <li class="nav-item">
           <a class="nav-link" href="https://github.com/bambinos/bambi" rel="noopener" target="_blank" title="GitHub"><span><i class="fab fa-github-square"></i></span>
@@ -121,13 +142,13 @@
     </nav>
     
 
-    <div class="container-xl">
-      <div class="row">
+    <div class="bd-container container-xl">
+      <div class="bd-container__inner row">
           
-            
-            <!-- Only show if we have sidebars configured, else just a small margin  -->
-            <div class="col-12 col-md-3 bd-sidebar">
-              <div class="sidebar-start-items">
+
+<!-- Only show if we have sidebars configured, else just a small margin  -->
+<div class="bd-sidebar-primary col-12 col-md-3 bd-sidebar">
+  <div class="sidebar-start-items">
 <div id="searchbox" style="display: none" role="search">
   <h3 id="searchlabel">Quick search</h3>
     <div class="searchformwrapper">
@@ -137,7 +158,7 @@
     </form>
     </div>
 </div>
-<script>$('#searchbox').show(0);</script>
+<script>document.getElementById('searchbox').style.display = "block"</script>
 
   
 
@@ -186,19 +207,20 @@
   </nav>
 
 
-              </div>
-              <div class="sidebar-end-items">
-              </div>
-            </div>
-            
-          
+  </div>
+  <div class="sidebar-end-items">
+  </div>
+</div>
+
 
           
-          <div class="d-none d-xl-block col-xl-2 bd-toc">
-            
-              
-              <div class="toc-item">
-                
+
+
+<div class="bd-sidebar-secondary d-none d-xl-block col-xl-2 bd-toc">
+  
+    
+    <div class="toc-item">
+      
 <div class="tocsection onthispage mt-5 pt-1 pb-3">
     <i class="fas fa-list"></i> On this page
 </div>
@@ -267,23 +289,21 @@
 </ul>
 
 </nav>
-              </div>
-              
-              <div class="toc-item">
-                
-              </div>
-              
-            
-          </div>
-          
+    </div>
+    
+    <div class="toc-item">
+      
+    </div>
+    
+  
+</div>
+
 
           
           
-            
-          
-          <main class="col-12 col-md-9 col-xl-7 py-md-5 pl-md-5 pr-md-4 bd-content" role="main">
+          <div class="bd-content col-12 col-md-9 col-xl-7">
               
-              <div>
+              <article class="bd-article" role="main">
                 
   
 <style>
@@ -500,6 +520,7 @@ div.nboutput.container div.output_area > div[class^='highlight']{
 }
 
 /* Some additional styling taken form the Jupyter notebook CSS */
+.jp-RenderedHTMLCommon table,
 div.rendered_html table {
   border: none;
   border-collapse: collapse;
@@ -508,10 +529,14 @@ div.rendered_html table {
   font-size: 12px;
   table-layout: fixed;
 }
+.jp-RenderedHTMLCommon thead,
 div.rendered_html thead {
   border-bottom: 1px solid black;
   vertical-align: bottom;
 }
+.jp-RenderedHTMLCommon tr,
+.jp-RenderedHTMLCommon th,
+.jp-RenderedHTMLCommon td,
 div.rendered_html tr,
 div.rendered_html th,
 div.rendered_html td {
@@ -523,20 +548,23 @@ div.rendered_html td {
   max-width: none;
   border: none;
 }
+.jp-RenderedHTMLCommon th,
 div.rendered_html th {
   font-weight: bold;
 }
+.jp-RenderedHTMLCommon tbody tr:nth-child(odd),
 div.rendered_html tbody tr:nth-child(odd) {
   background: #f5f5f5;
 }
+.jp-RenderedHTMLCommon tbody tr:hover,
 div.rendered_html tbody tr:hover {
   background: rgba(66, 165, 245, 0.2);
 }
 </style>
 <section id="Negative-Binomial-Regression-(Students-absence-example)">
-<h1>Negative Binomial Regression (Students absence example)<a class="headerlink" href="#Negative-Binomial-Regression-(Students-absence-example)" title="Permalink to this headline">#</a></h1>
+<h1>Negative Binomial Regression (Students absence example)<a class="headerlink" href="#Negative-Binomial-Regression-(Students-absence-example)" title="Permalink to this heading">#</a></h1>
 <section id="Negative-binomial-distribution-review">
-<h2>Negative binomial distribution review<a class="headerlink" href="#Negative-binomial-distribution-review" title="Permalink to this headline">#</a></h2>
+<h2>Negative binomial distribution review<a class="headerlink" href="#Negative-binomial-distribution-review" title="Permalink to this heading">#</a></h2>
 <p>I always experience some kind of confusion when looking at the negative binomial distribution after a while of not working with it. There are so many different definitions that I usually need to read everything more than once. The definition I’ve first learned, and the one I like the most, says as follows: The negative binomial distribution is the distribution of a random variable that is defined as the number of independent Bernoulli trials until the k-th “success”. In short, we repeat a
 Bernoulli experiment until we observe k successes and record the number of trials it required.</p>
 <div class="math notranslate nohighlight">
@@ -635,8 +663,8 @@ distribution. Or in other words, conditional on a gamma-distributed variable <sp
 </div>
 <div class="output_area docutils container">
 <div class="highlight"><pre>
-0.12500000000000003
-0.15625000000000003
+0.12499999999999997
+0.15624999999999992
 </pre></div></div>
 </div>
 <p>Finally, if one wants to show this probability mass function as if we are following the first definition of negative binomial distribution we introduced, we just need to shift the whole thing to the right by adding <span class="math notranslate nohighlight">\(k\)</span> to the <span class="math notranslate nohighlight">\(y\)</span> values.</p>
@@ -667,14 +695,14 @@ distribution. Or in other words, conditional on a gamma-distributed variable <sp
 </div>
 </section>
 <section id="Negative-binomial-in-GLM">
-<h2>Negative binomial in GLM<a class="headerlink" href="#Negative-binomial-in-GLM" title="Permalink to this headline">#</a></h2>
+<h2>Negative binomial in GLM<a class="headerlink" href="#Negative-binomial-in-GLM" title="Permalink to this heading">#</a></h2>
 <p>The negative binomial distribution belongs to the exponential family, and the canonical link function is</p>
 <div class="math notranslate nohighlight">
 \[g(\mu_i) = \log\left(\frac{\mu_i}{k + \mu_i}\right) = \log\left(\frac{k}{\mu_i} + 1\right)\]</div>
 <p>but it is difficult to interpret. The log link is usually preferred because of the analogy with Poisson model, and it also tends to give better results.</p>
 </section>
 <section id="Load-and-explore-Students-data">
-<h2>Load and explore Students data<a class="headerlink" href="#Load-and-explore-Students-data" title="Permalink to this headline">#</a></h2>
+<h2>Load and explore Students data<a class="headerlink" href="#Load-and-explore-Students-data" title="Permalink to this heading">#</a></h2>
 <p>This example is based on this <a class="reference external" href="https://stats.idre.ucla.edu/r/dae/negative-binomial-regression/">UCLA example</a>.</p>
 <p>School administrators study the attendance behavior of high school juniors at two schools. Predictors of the <strong>number of days of absence</strong> include the <strong>type of program</strong> in which the student is enrolled and a <strong>standardized test in math</strong>. We have attendance data on 314 high school juniors.</p>
 <p>The variables of insterest in the dataset are</p>
@@ -882,7 +910,7 @@ Name: prog, dtype: int64
 </div>
 <p>Let’s explore the distributions of math score and days of absence for each of the three programs listed above. The vertical lines indicate the mean values.</p>
 <div class="nbinput docutils container">
-<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[12]:
+<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[15]:
 </pre></div>
 </div>
 <div class="input_area highlight-ipython3 notranslate"><div class="highlight"><pre><span></span><span class="n">fig</span><span class="p">,</span> <span class="n">ax</span> <span class="o">=</span> <span class="n">plt</span><span class="o">.</span><span class="n">subplots</span><span class="p">(</span><span class="mi">3</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="n">figsize</span><span class="o">=</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">6</span><span class="p">),</span> <span class="n">sharex</span><span class="o">=</span><span class="s2">&quot;col&quot;</span><span class="p">)</span>
@@ -898,7 +926,7 @@ Name: prog, dtype: int64
     <span class="n">days</span> <span class="o">=</span> <span class="n">data</span><span class="p">[</span><span class="n">data</span><span class="p">[</span><span class="s2">&quot;prog&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="n">program</span><span class="p">][</span><span class="s2">&quot;daysabs&quot;</span><span class="p">]</span>
     <span class="n">days_mean</span> <span class="o">=</span> <span class="n">days</span><span class="o">.</span><span class="n">mean</span><span class="p">()</span>
     <span class="n">days_counts</span> <span class="o">=</span> <span class="n">days</span><span class="o">.</span><span class="n">value_counts</span><span class="p">()</span>
-    <span class="n">values</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">days_counts</span><span class="o">.</span><span class="n">_index</span><span class="p">)</span>
+    <span class="n">values</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">days_counts</span><span class="o">.</span><span class="n">index</span><span class="p">)</span>
     <span class="n">count</span> <span class="o">=</span> <span class="n">days_counts</span><span class="o">.</span><span class="n">values</span>
     <span class="n">ax</span><span class="p">[</span><span class="n">idx</span><span class="p">,</span> <span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">bar</span><span class="p">(</span><span class="n">values</span><span class="p">,</span> <span class="n">count</span><span class="p">,</span> <span class="n">edgecolor</span><span class="o">=</span><span class="s1">&#39;black&#39;</span><span class="p">,</span> <span class="n">alpha</span><span class="o">=</span><span class="mf">0.9</span><span class="p">)</span>
     <span class="n">ax</span><span class="p">[</span><span class="n">idx</span><span class="p">,</span> <span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">axvline</span><span class="p">(</span><span class="n">days_mean</span><span class="p">,</span> <span class="n">color</span><span class="o">=</span><span class="s2">&quot;C1&quot;</span><span class="p">)</span>
@@ -923,7 +951,7 @@ Name: prog, dtype: int64
 <p>On the other hand, the distribution of the days of absence is right-skewed in all cases. Students in the General program present the highest absence mean while the Vocational group is the one who misses fewer classes on average.</p>
 </section>
 <section id="Models">
-<h2>Models<a class="headerlink" href="#Models" title="Permalink to this headline">#</a></h2>
+<h2>Models<a class="headerlink" href="#Models" title="Permalink to this heading">#</a></h2>
 <p>We are interested in measuring the association between the type of the program and the math score with the days of absence. It’s also of interest to see if the association between math score and days of absence is different in each type of program.</p>
 <p>In order to answer our questions, we are going to fit and compare two models. The first model uses the type of the program and the math score as predictors. The second model also includes the interaction between these two variables. The score in the math test is going to be standardized in both cases to make things easier for the sampler and save some seconds. A good idea to follow along is to run these models without scaling <code class="docutils literal notranslate"><span class="pre">math</span></code> and comparing how long it took to fit.</p>
 <p>We are going to use a negative binomial likelihood to model the days of absence. But let’s stop here and think why we use this likelihood. Earlier, we said that the negative binomial distributon arises when our variable represents the number of trials until we got <span class="math notranslate nohighlight">\(k\)</span> successes. However, the number of trials is fixed, i.e. the number of school days in a given year is not a random variable. So if we stick to the definition, we could think of the two alternative views for this problem</p>
@@ -935,12 +963,12 @@ Name: prog, dtype: int64
 <p>But then, why negative binomial? Can’t we just use a Poisson likelihood?</p>
 <p>Yes, we can. However, using a Poisson likelihood implies that the mean is equal to the variance, and that is usually an unrealistic assumption. If it turns out the variance is either substantially smaller or greater than the mean, the Poisson regression model results in a poor fit. Alternatively, if we use a negative binomial likelihood, the variance is not forced to be equal to the mean, and there’s more flexibility to handle a given dataset, and consequently, the fit tends to better.</p>
 <section id="Model-1">
-<h3>Model 1<a class="headerlink" href="#Model-1" title="Permalink to this headline">#</a></h3>
+<h3>Model 1<a class="headerlink" href="#Model-1" title="Permalink to this heading">#</a></h3>
 <div class="math notranslate nohighlight">
 \[\log{Y_i} = \beta_1 \text{Academic}_i + \beta_2 \text{General}_i + \beta_3 \text{Vocational}_i + \beta_4 \text{Math_std}_i\]</div>
 </section>
 <section id="Model-2">
-<h3>Model 2<a class="headerlink" href="#Model-2" title="Permalink to this headline">#</a></h3>
+<h3>Model 2<a class="headerlink" href="#Model-2" title="Permalink to this heading">#</a></h3>
 <div class="math notranslate nohighlight">
 \[\log{Y_i} = \beta_1 \text{Academic}_i + \beta_2 \text{General}_i + \beta_3 \text{Vocational}_i + \beta_4 \text{Math_std}_i
             + \beta_5 \text{General}_i \cdot \text{Math_std}_i + \beta_6 \text{Vocational}_i \cdot \text{Math_std}_i\]</div>
@@ -977,12 +1005,12 @@ Name: prog, dtype: int64
 </section>
 </section>
 <section id="Model-fit">
-<h2>Model fit<a class="headerlink" href="#Model-fit" title="Permalink to this headline">#</a></h2>
+<h2>Model fit<a class="headerlink" href="#Model-fit" title="Permalink to this heading">#</a></h2>
 <p>It’s very easy to fit these models with Bambi. We just pass a formula describing the terms in the model and Bambi will know how to handle each of them correctly. The <code class="docutils literal notranslate"><span class="pre">0</span></code> on the right hand side of <code class="docutils literal notranslate"><span class="pre">~</span></code> simply means we don’t want to have the intercept term that is added by default. <code class="docutils literal notranslate"><span class="pre">scale(math)</span></code> tells Bambi we want to use standardize <code class="docutils literal notranslate"><span class="pre">math</span></code> before being included in the model. By default, Bambi uses a log link for negative binomial GLMs. We’ll stick to this default here.</p>
 <section id="id1">
-<h3>Model 1<a class="headerlink" href="#id1" title="Permalink to this headline">#</a></h3>
+<h3>Model 1<a class="headerlink" href="#id1" title="Permalink to this heading">#</a></h3>
 <div class="nbinput docutils container">
-<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[13]:
+<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[16]:
 </pre></div>
 </div>
 <div class="input_area highlight-ipython3 notranslate"><div class="highlight"><pre><span></span><span class="n">model_additive</span> <span class="o">=</span> <span class="n">bmb</span><span class="o">.</span><span class="n">Model</span><span class="p">(</span><span class="s2">&quot;daysabs ~ 0 + prog + scale(math)&quot;</span><span class="p">,</span> <span class="n">data</span><span class="p">,</span> <span class="n">family</span><span class="o">=</span><span class="s2">&quot;negativebinomial&quot;</span><span class="p">)</span>
@@ -997,29 +1025,34 @@ Name: prog, dtype: int64
 <div class="highlight"><pre>
 Auto-assigning NUTS sampler...
 Initializing NUTS using jitter+adapt_diag...
-Multiprocess sampling (2 chains in 2 jobs)
-NUTS: [daysabs_alpha, scale(math), prog]
+Multiprocess sampling (4 chains in 4 jobs)
+NUTS: [prog, scale(math), daysabs_alpha]
 </pre></div></div>
 </div>
 <div class="nboutput docutils container">
 <div class="prompt empty docutils container">
 </div>
 <div class="output_area rendered_html docutils container">
+<style>
+    /* Turns off some styling */
+    progress {
+        /* gets rid of default border in Firefox and Opera. */
+        border: none;
+        /* Needs to be in here for Safari polyfill so background images work as expected. */
+        background-size: auto;
+    }
+    .progress-bar-interrupted, .progress-bar-interrupted::-webkit-progress-bar {
+        background: #F44336;
+    }
+</style></div>
+</div>
+<div class="nboutput docutils container">
+<div class="prompt empty docutils container">
+</div>
+<div class="output_area rendered_html docutils container">
 <div>
-    <style>
-        /* Turns off some styling */
-        progress {
-            /* gets rid of default border in Firefox and Opera. */
-            border: none;
-            /* Needs to be in here for Safari polyfill so background images work as expected. */
-            background-size: auto;
-        }
-        .progress-bar-interrupted, .progress-bar-interrupted::-webkit-progress-bar {
-            background: #F44336;
-        }
-    </style>
-  <progress value='4000' class='' max='4000' style='width:300px; height:20px; vertical-align: middle;'></progress>
-  100.00% [4000/4000 00:02<00:00 Sampling 2 chains, 0 divergences]
+  <progress value='8000' class='' max='8000' style='width:300px; height:20px; vertical-align: middle;'></progress>
+  100.00% [8000/8000 00:08<00:00 Sampling 4 chains, 0 divergences]
 </div></div>
 </div>
 <div class="nboutput nblast docutils container">
@@ -1027,15 +1060,15 @@ NUTS: [daysabs_alpha, scale(math), prog]
 </div>
 <div class="output_area stderr docutils container">
 <div class="highlight"><pre>
-Sampling 2 chains for 1_000 tune and 1_000 draw iterations (2_000 + 2_000 draws total) took 3 seconds.
+Sampling 4 chains for 1_000 tune and 1_000 draw iterations (4_000 + 4_000 draws total) took 9 seconds.
 </pre></div></div>
 </div>
 </section>
 <section id="id2">
-<h3>Model 2<a class="headerlink" href="#id2" title="Permalink to this headline">#</a></h3>
+<h3>Model 2<a class="headerlink" href="#id2" title="Permalink to this heading">#</a></h3>
 <p>For this second model we just add <code class="docutils literal notranslate"><span class="pre">prog:scale(math)</span></code> to indicate the interaction. A shorthand would be to use <code class="docutils literal notranslate"><span class="pre">y</span> <span class="pre">~</span> <span class="pre">0</span> <span class="pre">+</span> <span class="pre">prog*scale(math)</span></code>, which uses the <strong>full interaction</strong> operator. In other words, it just means we want to include the interaction between <code class="docutils literal notranslate"><span class="pre">prog</span></code> and <code class="docutils literal notranslate"><span class="pre">scale(math)</span></code> as well as their main effects.</p>
 <div class="nbinput docutils container">
-<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[14]:
+<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[17]:
 </pre></div>
 </div>
 <div class="input_area highlight-ipython3 notranslate"><div class="highlight"><pre><span></span><span class="n">model_interaction</span> <span class="o">=</span> <span class="n">bmb</span><span class="o">.</span><span class="n">Model</span><span class="p">(</span><span class="s2">&quot;daysabs ~ 0 + prog + scale(math) + prog:scale(math)&quot;</span><span class="p">,</span> <span class="n">data</span><span class="p">,</span> <span class="n">family</span><span class="o">=</span><span class="s2">&quot;negativebinomial&quot;</span><span class="p">)</span>
@@ -1050,29 +1083,34 @@ Sampling 2 chains for 1_000 tune and 1_000 draw iterations (2_000 + 2_000 draws 
 <div class="highlight"><pre>
 Auto-assigning NUTS sampler...
 Initializing NUTS using jitter+adapt_diag...
-Multiprocess sampling (2 chains in 2 jobs)
-NUTS: [daysabs_alpha, prog:scale(math), scale(math), prog]
+Multiprocess sampling (4 chains in 4 jobs)
+NUTS: [prog, scale(math), prog:scale(math), daysabs_alpha]
 </pre></div></div>
 </div>
 <div class="nboutput docutils container">
 <div class="prompt empty docutils container">
 </div>
 <div class="output_area rendered_html docutils container">
+<style>
+    /* Turns off some styling */
+    progress {
+        /* gets rid of default border in Firefox and Opera. */
+        border: none;
+        /* Needs to be in here for Safari polyfill so background images work as expected. */
+        background-size: auto;
+    }
+    .progress-bar-interrupted, .progress-bar-interrupted::-webkit-progress-bar {
+        background: #F44336;
+    }
+</style></div>
+</div>
+<div class="nboutput docutils container">
+<div class="prompt empty docutils container">
+</div>
+<div class="output_area rendered_html docutils container">
 <div>
-    <style>
-        /* Turns off some styling */
-        progress {
-            /* gets rid of default border in Firefox and Opera. */
-            border: none;
-            /* Needs to be in here for Safari polyfill so background images work as expected. */
-            background-size: auto;
-        }
-        .progress-bar-interrupted, .progress-bar-interrupted::-webkit-progress-bar {
-            background: #F44336;
-        }
-    </style>
-  <progress value='4000' class='' max='4000' style='width:300px; height:20px; vertical-align: middle;'></progress>
-  100.00% [4000/4000 00:03<00:00 Sampling 2 chains, 0 divergences]
+  <progress value='8000' class='' max='8000' style='width:300px; height:20px; vertical-align: middle;'></progress>
+  100.00% [8000/8000 00:09<00:00 Sampling 4 chains, 0 divergences]
 </div></div>
 </div>
 <div class="nboutput nblast docutils container">
@@ -1080,16 +1118,16 @@ NUTS: [daysabs_alpha, prog:scale(math), scale(math), prog]
 </div>
 <div class="output_area stderr docutils container">
 <div class="highlight"><pre>
-Sampling 2 chains for 1_000 tune and 1_000 draw iterations (2_000 + 2_000 draws total) took 3 seconds.
+Sampling 4 chains for 1_000 tune and 1_000 draw iterations (4_000 + 4_000 draws total) took 10 seconds.
 </pre></div></div>
 </div>
 </section>
 </section>
 <section id="Explore-models">
-<h2>Explore models<a class="headerlink" href="#Explore-models" title="Permalink to this headline">#</a></h2>
+<h2>Explore models<a class="headerlink" href="#Explore-models" title="Permalink to this heading">#</a></h2>
 <p>The first thing we do is calling <code class="docutils literal notranslate"><span class="pre">az.summary()</span></code>. Here we pass the <code class="docutils literal notranslate"><span class="pre">InferenceData</span></code> object the <code class="docutils literal notranslate"><span class="pre">.fit()</span></code> returned. This prints information about the marginal posteriors for each parameter in the model as well as convergence diagnostics.</p>
 <div class="nbinput docutils container">
-<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[15]:
+<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[18]:
 </pre></div>
 </div>
 <div class="input_area highlight-ipython3 notranslate"><div class="highlight"><pre><span></span><span class="n">az</span><span class="o">.</span><span class="n">summary</span><span class="p">(</span><span class="n">idata_additive</span><span class="p">)</span>
@@ -1097,7 +1135,7 @@ Sampling 2 chains for 1_000 tune and 1_000 draw iterations (2_000 + 2_000 draws 
 </div>
 </div>
 <div class="nboutput nblast docutils container">
-<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[15]:
+<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[18]:
 </pre></div>
 </div>
 <div class="output_area rendered_html docutils container">
@@ -1133,62 +1171,62 @@ Sampling 2 chains for 1_000 tune and 1_000 draw iterations (2_000 + 2_000 draws 
   <tbody>
     <tr>
       <th>prog[Academic]</th>
-      <td>1.885</td>
-      <td>0.083</td>
-      <td>1.732</td>
+      <td>1.890</td>
+      <td>0.086</td>
+      <td>1.722</td>
       <td>2.041</td>
-      <td>0.002</td>
       <td>0.001</td>
-      <td>2896.0</td>
-      <td>1734.0</td>
+      <td>0.001</td>
+      <td>7300.0</td>
+      <td>3098.0</td>
       <td>1.0</td>
     </tr>
     <tr>
       <th>prog[General]</th>
       <td>2.339</td>
-      <td>0.166</td>
-      <td>2.056</td>
-      <td>2.678</td>
-      <td>0.003</td>
+      <td>0.167</td>
+      <td>2.025</td>
+      <td>2.652</td>
       <td>0.002</td>
-      <td>3066.0</td>
-      <td>1415.0</td>
+      <td>0.001</td>
+      <td>7069.0</td>
+      <td>3036.0</td>
       <td>1.0</td>
     </tr>
     <tr>
       <th>prog[Vocational]</th>
       <td>1.051</td>
-      <td>0.119</td>
-      <td>0.830</td>
-      <td>1.270</td>
+      <td>0.115</td>
+      <td>0.829</td>
+      <td>1.256</td>
       <td>0.002</td>
-      <td>0.002</td>
-      <td>2688.0</td>
-      <td>1694.0</td>
+      <td>0.001</td>
+      <td>5705.0</td>
+      <td>2979.0</td>
       <td>1.0</td>
     </tr>
     <tr>
       <th>scale(math)</th>
-      <td>-0.154</td>
-      <td>0.064</td>
-      <td>-0.276</td>
-      <td>-0.040</td>
+      <td>-0.153</td>
+      <td>0.063</td>
+      <td>-0.266</td>
+      <td>-0.031</td>
       <td>0.001</td>
       <td>0.001</td>
-      <td>2526.0</td>
-      <td>1625.0</td>
+      <td>5284.0</td>
+      <td>3268.0</td>
       <td>1.0</td>
     </tr>
     <tr>
       <th>daysabs_alpha</th>
-      <td>1.020</td>
-      <td>0.102</td>
-      <td>0.826</td>
-      <td>1.203</td>
-      <td>0.002</td>
+      <td>1.021</td>
+      <td>0.106</td>
+      <td>0.830</td>
+      <td>1.224</td>
       <td>0.001</td>
-      <td>2601.0</td>
-      <td>1529.0</td>
+      <td>0.001</td>
+      <td>6964.0</td>
+      <td>2995.0</td>
       <td>1.0</td>
     </tr>
   </tbody>
@@ -1196,7 +1234,7 @@ Sampling 2 chains for 1_000 tune and 1_000 draw iterations (2_000 + 2_000 draws 
 </div></div>
 </div>
 <div class="nbinput docutils container">
-<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[16]:
+<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[19]:
 </pre></div>
 </div>
 <div class="input_area highlight-ipython3 notranslate"><div class="highlight"><pre><span></span><span class="n">az</span><span class="o">.</span><span class="n">summary</span><span class="p">(</span><span class="n">idata_interaction</span><span class="p">)</span>
@@ -1204,7 +1242,7 @@ Sampling 2 chains for 1_000 tune and 1_000 draw iterations (2_000 + 2_000 draws 
 </div>
 </div>
 <div class="nboutput nblast docutils container">
-<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[16]:
+<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[19]:
 </pre></div>
 </div>
 <div class="output_area rendered_html docutils container">
@@ -1240,86 +1278,86 @@ Sampling 2 chains for 1_000 tune and 1_000 draw iterations (2_000 + 2_000 draws 
   <tbody>
     <tr>
       <th>prog[Academic]</th>
-      <td>1.876</td>
+      <td>1.878</td>
       <td>0.085</td>
-      <td>1.719</td>
-      <td>2.040</td>
-      <td>0.002</td>
+      <td>1.724</td>
+      <td>2.038</td>
       <td>0.001</td>
-      <td>1995.0</td>
-      <td>1474.0</td>
+      <td>0.001</td>
+      <td>4147.0</td>
+      <td>3005.0</td>
       <td>1.0</td>
     </tr>
     <tr>
       <th>prog[General]</th>
       <td>2.340</td>
-      <td>0.162</td>
+      <td>0.165</td>
       <td>2.027</td>
-      <td>2.628</td>
-      <td>0.004</td>
-      <td>0.003</td>
-      <td>1825.0</td>
-      <td>1599.0</td>
+      <td>2.645</td>
+      <td>0.002</td>
+      <td>0.002</td>
+      <td>4406.0</td>
+      <td>3205.0</td>
       <td>1.0</td>
     </tr>
     <tr>
       <th>prog[Vocational]</th>
-      <td>0.988</td>
-      <td>0.130</td>
-      <td>0.747</td>
-      <td>1.231</td>
-      <td>0.003</td>
+      <td>0.989</td>
+      <td>0.126</td>
+      <td>0.749</td>
+      <td>1.225</td>
       <td>0.002</td>
-      <td>1749.0</td>
-      <td>1242.0</td>
+      <td>0.001</td>
+      <td>4096.0</td>
+      <td>3220.0</td>
       <td>1.0</td>
     </tr>
     <tr>
       <th>scale(math)</th>
-      <td>-0.192</td>
-      <td>0.082</td>
-      <td>-0.341</td>
-      <td>-0.038</td>
-      <td>0.002</td>
+      <td>-0.193</td>
+      <td>0.083</td>
+      <td>-0.345</td>
+      <td>-0.035</td>
       <td>0.001</td>
-      <td>1851.0</td>
-      <td>1606.0</td>
+      <td>0.001</td>
+      <td>3439.0</td>
+      <td>2899.0</td>
       <td>1.0</td>
     </tr>
     <tr>
       <th>prog:scale(math)[General]</th>
-      <td>0.014</td>
+      <td>0.012</td>
       <td>0.170</td>
-      <td>-0.304</td>
-      <td>0.319</td>
-      <td>0.004</td>
+      <td>-0.301</td>
+      <td>0.335</td>
       <td>0.003</td>
-      <td>2049.0</td>
-      <td>1690.0</td>
+      <td>0.002</td>
+      <td>4022.0</td>
+      <td>3182.0</td>
       <td>1.0</td>
     </tr>
     <tr>
       <th>prog:scale(math)[Vocational]</th>
-      <td>0.193</td>
-      <td>0.163</td>
-      <td>-0.116</td>
-      <td>0.490</td>
-      <td>0.004</td>
+      <td>0.194</td>
+      <td>0.166</td>
+      <td>-0.128</td>
+      <td>0.492</td>
       <td>0.003</td>
-      <td>1519.0</td>
-      <td>1272.0</td>
+      <td>0.002</td>
+      <td>3642.0</td>
+      <td>3364.0</td>
       <td>1.0</td>
     </tr>
     <tr>
       <th>daysabs_alpha</th>
-      <td>1.015</td>
-      <td>0.105</td>
-      <td>0.828</td>
-      <td>1.221</td>
+      <td>1.021</td>
+      <td>0.108</td>
+      <td>0.829</td>
+      <td>1.230</td>
       <td>0.002</td>
-      <td>0.002</td>
-      <td>1811.0</td>
-      <td>1398.0</td>
+      <td>0.001</td>
+      <td>3950.0</td>
+      <td>2396.0</td>
       <td>1.0</td>
     </tr>
   </tbody>
@@ -1328,7 +1366,7 @@ Sampling 2 chains for 1_000 tune and 1_000 draw iterations (2_000 + 2_000 draws 
 </div>
 <p>The information in the two tables above can be visualized in a more concise manner using a forest plot. ArviZ provides us with <code class="docutils literal notranslate"><span class="pre">plot_forest()</span></code>. There we simply pass a list containing the <code class="docutils literal notranslate"><span class="pre">InferenceData</span></code> objects of the models we want to compare.</p>
 <div class="nbinput docutils container">
-<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[17]:
+<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[20]:
 </pre></div>
 </div>
 <div class="input_area highlight-ipython3 notranslate"><div class="highlight"><pre><span></span><span class="n">az</span><span class="o">.</span><span class="n">plot_forest</span><span class="p">(</span>
@@ -1352,7 +1390,7 @@ Sampling 2 chains for 1_000 tune and 1_000 draw iterations (2_000 + 2_000 draws 
 <p>We can also make conclusions about the association between the program and the math score with the days of absence. First, we see the posterior for the Vocational group is to the left of the posterior for the two other programs, meaning it is associated with fewer absences (as we have seen when first exploring our data). There also seems to be a difference between General and Academic, where we may conclude the students in the General group tend to miss more classes.</p>
 <p>In addition, the marginal posterior for <code class="docutils literal notranslate"><span class="pre">math</span></code> shows negative values in both cases. This means that students with higher math scores tend to miss fewer classes. Below, we see a forest plot with the posteriors for the coefficients of the interaction effects. Both of them overlap with 0, which means the data does not give much evidence to support there is an interaction effect between program and math score (i.e., the association between math and days of absence is similar for all the programs).</p>
 <div class="nbinput docutils container">
-<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[18]:
+<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[21]:
 </pre></div>
 </div>
 <div class="input_area highlight-ipython3 notranslate"><div class="highlight"><pre><span></span><span class="n">az</span><span class="o">.</span><span class="n">plot_forest</span><span class="p">(</span><span class="n">idata_interaction</span><span class="p">,</span> <span class="n">var_names</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;prog:scale(math)&quot;</span><span class="p">],</span> <span class="n">combined</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">figsize</span><span class="o">=</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">4</span><span class="p">))</span>
@@ -1369,10 +1407,10 @@ Sampling 2 chains for 1_000 tune and 1_000 draw iterations (2_000 + 2_000 draws 
 </div>
 </section>
 <section id="Plot-predicted-mean-response">
-<h2>Plot predicted mean response<a class="headerlink" href="#Plot-predicted-mean-response" title="Permalink to this headline">#</a></h2>
+<h2>Plot predicted mean response<a class="headerlink" href="#Plot-predicted-mean-response" title="Permalink to this heading">#</a></h2>
 <p>We finish this example showing how we can get predictions for new data and plot the mean response for each program together with confidence intervals.</p>
 <div class="nbinput nblast docutils container">
-<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[19]:
+<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[22]:
 </pre></div>
 </div>
 <div class="input_area highlight-ipython3 notranslate"><div class="highlight"><pre><span></span><span class="n">math_score</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">100</span><span class="p">)</span>
@@ -1396,7 +1434,7 @@ Sampling 2 chains for 1_000 tune and 1_000 draw iterations (2_000 + 2_000 draws 
 </div>
 </div>
 <div class="nbinput nblast docutils container">
-<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[20]:
+<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[23]:
 </pre></div>
 </div>
 <div class="input_area highlight-ipython3 notranslate"><div class="highlight"><pre><span></span><span class="n">prediction_additive</span> <span class="o">=</span> <span class="n">predict</span><span class="p">(</span><span class="n">model_additive</span><span class="p">,</span> <span class="n">idata_additive</span><span class="p">)</span>
@@ -1405,7 +1443,7 @@ Sampling 2 chains for 1_000 tune and 1_000 draw iterations (2_000 + 2_000 draws 
 </div>
 </div>
 <div class="nbinput nblast docutils container">
-<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[21]:
+<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[24]:
 </pre></div>
 </div>
 <div class="input_area highlight-ipython3 notranslate"><div class="highlight"><pre><span></span><span class="n">mu_additive</span> <span class="o">=</span> <span class="p">[</span><span class="n">prediction</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span> <span class="k">for</span> <span class="n">prediction</span> <span class="ow">in</span> <span class="n">prediction_additive</span><span class="p">]</span>
@@ -1414,7 +1452,7 @@ Sampling 2 chains for 1_000 tune and 1_000 draw iterations (2_000 + 2_000 draws 
 </div>
 </div>
 <div class="nbinput docutils container">
-<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[22]:
+<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[25]:
 </pre></div>
 </div>
 <div class="input_area highlight-ipython3 notranslate"><div class="highlight"><pre><span></span><span class="n">fig</span><span class="p">,</span> <span class="n">ax</span> <span class="o">=</span> <span class="n">plt</span><span class="o">.</span><span class="n">subplots</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="n">sharex</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">sharey</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">figsize</span> <span class="o">=</span> <span class="p">(</span><span class="mi">10</span><span class="p">,</span> <span class="mi">4</span><span class="p">))</span>
@@ -1446,7 +1484,7 @@ Sampling 2 chains for 1_000 tune and 1_000 draw iterations (2_000 + 2_000 draws 
 <p>If you’ve made it to the end of this notebook and you’re still curious about what else you can do with these two models, you’re invited to use <code class="docutils literal notranslate"><span class="pre">az.compare()</span></code> to compare the fit of the two models. What do you expect before seeing the plot? Why? Is there anything else you could do to improve the fit of the model?</p>
 <p>Also, if you’re still curious about what this model would have looked like with the Poisson likelihood, you just need to replace <code class="docutils literal notranslate"><span class="pre">family=&quot;negativebinomial&quot;</span></code> with <code class="docutils literal notranslate"><span class="pre">family=&quot;poisson&quot;</span></code> and then you’re ready to compare results!</p>
 <div class="nbinput docutils container">
-<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[23]:
+<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[26]:
 </pre></div>
 </div>
 <div class="input_area highlight-ipython3 notranslate"><div class="highlight"><pre><span></span><span class="o">%</span><span class="k">load_ext</span> watermark
@@ -1459,20 +1497,21 @@ Sampling 2 chains for 1_000 tune and 1_000 draw iterations (2_000 + 2_000 draws 
 </div>
 <div class="output_area docutils container">
 <div class="highlight"><pre>
-Last updated: Tue Jul 27 2021
+Last updated: Wed Jun 01 2022
 
 Python implementation: CPython
-Python version       : 3.8.5
-IPython version      : 7.18.1
+Python version       : 3.9.7
+IPython version      : 8.3.0
 
-bambi     : 0.5.0
-numpy     : 1.20.1
-matplotlib: 3.3.3
-pandas    : 1.2.2
-arviz     : 0.11.2
-json      : 2.0.9
+sys       : 3.9.7 (default, Sep 16 2021, 13:09:58)
+[GCC 7.5.0]
+pandas    : 1.4.2
+numpy     : 1.21.5
+arviz     : 0.12.1
+matplotlib: 3.5.1
+bambi     : 0.7.1
 
-Watermark: 2.1.0
+Watermark: 2.3.0
 
 </pre></div></div>
 </div>
@@ -1480,51 +1519,55 @@ Watermark: 2.1.0
 </section>
 
 
-              </div>
+              </article>
               
-              
-              <!-- Previous / next buttons -->
-<div class='prev-next-area'>
-    <a class='left-prev' id="prev-link" href="wald_gamma_glm.html" title="previous page">
-        <i class="fas fa-angle-left"></i>
-        <div class="prev-next-info">
-            <p class="prev-next-subtitle">previous</p>
-            <p class="prev-next-title">Wald and Gamma Regression (Australian insurance claims 2004-2005)</p>
-        </div>
-    </a>
-    <a class='right-next' id="next-link" href="beta_regression.html" title="next page">
-    <div class="prev-next-info">
-        <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Beta Regression</p>
-    </div>
-    <i class="fas fa-angle-right"></i>
-    </a>
-</div>
-              
-          </main>
-          
 
+              
+              <footer class="bd-footer-article">
+                  <!-- Previous / next buttons -->
+<div class='prev-next-area'>
+  <a class='left-prev' id="prev-link" href="wald_gamma_glm.html" title="previous page">
+      <i class="fas fa-angle-left"></i>
+      <div class="prev-next-info">
+          <p class="prev-next-subtitle">previous</p>
+          <p class="prev-next-title">Wald and Gamma Regression (Australian insurance claims 2004-2005)</p>
+      </div>
+  </a>
+  <a class='right-next' id="next-link" href="beta_regression.html" title="next page">
+  <div class="prev-next-info">
+      <p class="prev-next-subtitle">next</p>
+      <p class="prev-next-title">Beta Regression</p>
+  </div>
+  <i class="fas fa-angle-right"></i>
+  </a>
+</div>
+              </footer>
+              
+          </div>
+          
       </div>
     </div>
+
+  
   
   <!-- Scripts loaded after <body> so the DOM is not blocked -->
-  <script src="../_static/scripts/pydata-sphinx-theme.js?digest=1999514e3f237ded88cf"></script>
-<footer class="footer mt-5 mt-md-0">
-  <div class="container">
-    
-    <div class="footer-item">
-      <p class="copyright">
+  <script src="../_static/scripts/pydata-sphinx-theme.js?digest=92025949c220c2e29695"></script>
+
+<footer class="bd-footer"><div class="bd-footer__inner container">
+  
+  <div class="footer-item">
+    <p class="copyright">
     &copy; Copyright 2022, The developers of Bambi.<br>
 </p>
-    </div>
-    
-    <div class="footer-item">
-      <p class="sphinx-version">
-Created using <a href="http://sphinx-doc.org/">Sphinx</a> 4.5.0.<br>
-</p>
-    </div>
-    
   </div>
+  
+  <div class="footer-item">
+    <p class="sphinx-version">
+Created using <a href="http://sphinx-doc.org/">Sphinx</a> 5.0.1.<br>
+</p>
+  </div>
+  
+</div>
 </footer>
   </body>
 </html>

@@ -1,18 +1,22 @@
 
 <!DOCTYPE html>
 
-<html>
+<html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="generator" content="Docutils 0.17.1: http://docutils.sourceforge.net/" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="generator" content="Docutils 0.18.1: http://docutils.sourceforge.net/" />
 
-    <title>Logistic Regression and Model Comparison with Bambi and ArviZ &#8212; Bambi 0.8.0 documentation</title>
-    
+    <title>Logistic Regression and Model Comparison with Bambi and ArviZ &#8212; Bambi 0.9.0 documentation</title>
+<script>
+  document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+  document.documentElement.dataset.theme = localStorage.getItem("theme") || "light"
+</script>
+
   <!-- Loaded before other Sphinx assets -->
-  <link href="../_static/styles/theme.css?digest=1999514e3f237ded88cf" rel="stylesheet">
-<link href="../_static/styles/pydata-sphinx-theme.css?digest=1999514e3f237ded88cf" rel="stylesheet">
+  <link href="../_static/styles/theme.css?digest=92025949c220c2e29695" rel="stylesheet">
+<link href="../_static/styles/pydata-sphinx-theme.css?digest=92025949c220c2e29695" rel="stylesheet">
 
-    
+
   <link rel="stylesheet"
     href="../_static/vendor/fontawesome/5.13.0/css/all.min.css">
   <link rel="preload" as="font" type="font/woff2" crossorigin
@@ -21,13 +25,14 @@
     href="../_static/vendor/fontawesome/5.13.0/webfonts/fa-brands-400.woff2">
 
     <link rel="stylesheet" type="text/css" href="../_static/pygments.css" />
-    
+
   <!-- Pre-loaded scripts that we'll load fully later -->
-  <link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=1999514e3f237ded88cf">
+  <link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=92025949c220c2e29695">
 
     <script data-url_root="../" id="documentation_options" src="../_static/documentation_options.js"></script>
     <script src="../_static/jquery.js"></script>
     <script src="../_static/underscore.js"></script>
+    <script src="../_static/_sphinx_javascript_frameworks_compat.js"></script>
     <script src="../_static/doctools.js"></script>
     <script crossorigin="anonymous" integrity="sha256-Ae2Vz/4ePdIu6ZyI/5ZGsYnb+m0JlOmKPjt6XZ9JJkA=" src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.4/require.min.js"></script>
     <script>window.MathJax = {"tex": {"inlineMath": [["$", "$"], ["\\(", "\\)"]], "processEscapes": true}, "options": {"ignoreHtmlClass": "tex2jax_ignore|mathjax_ignore|document", "processHtmlClass": "tex2jax_process|mathjax_process|math|output_area"}}</script>
@@ -36,32 +41,40 @@
     <link rel="search" title="Search" href="../search.html" />
     <link rel="next" title="Hierarchical Logistic regression with Binomial family" href="hierarchical_binomial_bambi.html" />
     <link rel="prev" title="Logistic Regression (Vote intention with ANES data)" href="logistic_regression.html" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="docsearch:language" content="None">
-    
-
-    <!-- Google Analytics -->
-    
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="docsearch:language" content="en">
   </head>
-  <body data-spy="scroll" data-target="#bd-toc-nav" data-offset="60">
-    
-    <div class="container-fluid" id="banner"></div>
+  
+  
+  <body data-spy="scroll" data-target="#bd-toc-nav" data-offset="180" data-default-mode="">
+    <div class="bd-header-announcement container-fluid" id="banner">
+      
+
+    </div>
 
     
-    <nav class="navbar navbar-light navbar-expand-lg bg-light fixed-top bd-navbar" id="navbar-main"><div class="container-xl">
+    <nav class="bd-header navbar navbar-light navbar-expand-lg bg-light fixed-top bd-navbar" id="navbar-main"><div class="bd-header__inner container-xl">
 
   <div id="navbar-start">
     
     
-<a class="navbar-brand" href="../index.html">
-<p class="title">Bambi</p>
-</a>
+  
 
+
+<a class="navbar-brand logo" href="../index.html">
+  
+  
+  
+  
+  
+    <p class="title logo__title">Bambi 0.9.0 documentation</p>
+  
+</a>
     
   </div>
 
   <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbar-collapsible" aria-controls="navbar-collapsible" aria-expanded="false" aria-label="Toggle navigation">
-    <span class="navbar-toggler-icon"></span>
+    <span class="fas fa-bars"></span>
   </button>
 
   
@@ -103,6 +116,14 @@
     <div id="navbar-end">
       
       <div class="navbar-end-item">
+        <span id="theme-switch" class="btn btn-sm btn-outline-primary navbar-btn rounded-circle">
+    <a class="theme-switch" data-mode="light"><i class="fas fa-sun"></i></a>
+    <a class="theme-switch" data-mode="dark"><i class="far fa-moon"></i></a>
+    <a class="theme-switch" data-mode="auto"><i class="fas fa-adjust"></i></a>
+</span>
+      </div>
+      
+      <div class="navbar-end-item">
         <ul id="navbar-icon-links" class="navbar-nav" aria-label="Icon Links">
         <li class="nav-item">
           <a class="nav-link" href="https://github.com/bambinos/bambi" rel="noopener" target="_blank" title="GitHub"><span><i class="fab fa-github-square"></i></span>
@@ -121,13 +142,13 @@
     </nav>
     
 
-    <div class="container-xl">
-      <div class="row">
+    <div class="bd-container container-xl">
+      <div class="bd-container__inner row">
           
-            
-            <!-- Only show if we have sidebars configured, else just a small margin  -->
-            <div class="col-12 col-md-3 bd-sidebar">
-              <div class="sidebar-start-items">
+
+<!-- Only show if we have sidebars configured, else just a small margin  -->
+<div class="bd-sidebar-primary col-12 col-md-3 bd-sidebar">
+  <div class="sidebar-start-items">
 <div id="searchbox" style="display: none" role="search">
   <h3 id="searchlabel">Quick search</h3>
     <div class="searchformwrapper">
@@ -137,7 +158,7 @@
     </form>
     </div>
 </div>
-<script>$('#searchbox').show(0);</script>
+<script>document.getElementById('searchbox').style.display = "block"</script>
 
   
 
@@ -186,19 +207,20 @@
   </nav>
 
 
-              </div>
-              <div class="sidebar-end-items">
-              </div>
-            </div>
-            
-          
+  </div>
+  <div class="sidebar-end-items">
+  </div>
+</div>
+
 
           
-          <div class="d-none d-xl-block col-xl-2 bd-toc">
-            
-              
-              <div class="toc-item">
-                
+
+
+<div class="bd-sidebar-secondary d-none d-xl-block col-xl-2 bd-toc">
+  
+    
+    <div class="toc-item">
+      
 <div class="tocsection onthispage mt-5 pt-1 pb-3">
     <i class="fas fa-list"></i> On this page
 </div>
@@ -250,23 +272,21 @@
 </ul>
 
 </nav>
-              </div>
-              
-              <div class="toc-item">
-                
-              </div>
-              
-            
-          </div>
-          
+    </div>
+    
+    <div class="toc-item">
+      
+    </div>
+    
+  
+</div>
+
 
           
           
-            
-          
-          <main class="col-12 col-md-9 col-xl-7 py-md-5 pl-md-5 pr-md-4 bd-content" role="main">
+          <div class="bd-content col-12 col-md-9 col-xl-7">
               
-              <div>
+              <article class="bd-article" role="main">
                 
   
 <style>
@@ -483,6 +503,7 @@ div.nboutput.container div.output_area > div[class^='highlight']{
 }
 
 /* Some additional styling taken form the Jupyter notebook CSS */
+.jp-RenderedHTMLCommon table,
 div.rendered_html table {
   border: none;
   border-collapse: collapse;
@@ -491,10 +512,14 @@ div.rendered_html table {
   font-size: 12px;
   table-layout: fixed;
 }
+.jp-RenderedHTMLCommon thead,
 div.rendered_html thead {
   border-bottom: 1px solid black;
   vertical-align: bottom;
 }
+.jp-RenderedHTMLCommon tr,
+.jp-RenderedHTMLCommon th,
+.jp-RenderedHTMLCommon td,
 div.rendered_html tr,
 div.rendered_html th,
 div.rendered_html td {
@@ -506,20 +531,23 @@ div.rendered_html td {
   max-width: none;
   border: none;
 }
+.jp-RenderedHTMLCommon th,
 div.rendered_html th {
   font-weight: bold;
 }
+.jp-RenderedHTMLCommon tbody tr:nth-child(odd),
 div.rendered_html tbody tr:nth-child(odd) {
   background: #f5f5f5;
 }
+.jp-RenderedHTMLCommon tbody tr:hover,
 div.rendered_html tbody tr:hover {
   background: rgba(66, 165, 245, 0.2);
 }
 </style>
 <section id="Logistic-Regression-and-Model-Comparison-with-Bambi-and-ArviZ">
-<h1>Logistic Regression and Model Comparison with Bambi and ArviZ<a class="headerlink" href="#Logistic-Regression-and-Model-Comparison-with-Bambi-and-ArviZ" title="Permalink to this headline">#</a></h1>
+<h1>Logistic Regression and Model Comparison with Bambi and ArviZ<a class="headerlink" href="#Logistic-Regression-and-Model-Comparison-with-Bambi-and-ArviZ" title="Permalink to this heading">#</a></h1>
 <section id="Adults-dataset">
-<h2>Adults dataset<a class="headerlink" href="#Adults-dataset" title="Permalink to this headline">#</a></h2>
+<h2>Adults dataset<a class="headerlink" href="#Adults-dataset" title="Permalink to this heading">#</a></h2>
 <div class="line-block">
 <div class="line">The <a class="reference external" href="http://archive.ics.uci.edu/ml/datasets/Adult">adults dataset</a> is comprised of census data from 1994 in United States.</div>
 <div class="line">The goal is to use demographic variables to predict whether an individual makes more than $50,000 per year.</div>
@@ -941,7 +969,7 @@ memory usage: 604.7 KB
 </div>
 </section>
 <section id="The-model">
-<h2>The model<a class="headerlink" href="#The-model" title="Permalink to this headline">#</a></h2>
+<h2>The model<a class="headerlink" href="#The-model" title="Permalink to this heading">#</a></h2>
 <p>We will use a logistic regression model to estimate the probability of making more than \$50K as a function of age, hours of work per week, sex, race and education level.</p>
 <p>If we have a binary response variable <span class="math notranslate nohighlight">\(Y\)</span> and a set of predictors or explanatory variables <span class="math notranslate nohighlight">\(X_1, X_2, \cdots, X_p\)</span> the logistic regression model can be defined as follows:</p>
 <div class="math notranslate nohighlight">
@@ -966,7 +994,7 @@ memory usage: 604.7 KB
 <p>But this is a Bambi example, right? Let’s see how Bambi can helps us to build a logistic regression model.</p>
 </section>
 <section id="Model-1:">
-<h2>Model 1:<a class="headerlink" href="#Model-1:" title="Permalink to this headline">#</a></h2>
+<h2>Model 1:<a class="headerlink" href="#Model-1:" title="Permalink to this heading">#</a></h2>
 <div class="math notranslate nohighlight">
 \[\log{\left(\frac{\pi}{1 - \pi}\right)} = \beta_0 + \beta_1 X_1 + \beta_2 X_2 + \beta_3 X_3 + \beta_4 X_4\]</div>
 <p>Where:</p>
@@ -1006,29 +1034,34 @@ X_4 &amp;=
 Modeling the probability that income==&gt;50K
 Auto-assigning NUTS sampler...
 Initializing NUTS using jitter+adapt_diag...
-Multiprocess sampling (2 chains in 2 jobs)
-NUTS: [Intercept, hs_week, age, race, sex]
+Multiprocess sampling (4 chains in 4 jobs)
+NUTS: [Intercept, sex, race, age, hs_week]
 </pre></div></div>
 </div>
 <div class="nboutput docutils container">
 <div class="prompt empty docutils container">
 </div>
 <div class="output_area rendered_html docutils container">
+<style>
+    /* Turns off some styling */
+    progress {
+        /* gets rid of default border in Firefox and Opera. */
+        border: none;
+        /* Needs to be in here for Safari polyfill so background images work as expected. */
+        background-size: auto;
+    }
+    .progress-bar-interrupted, .progress-bar-interrupted::-webkit-progress-bar {
+        background: #F44336;
+    }
+</style></div>
+</div>
+<div class="nboutput docutils container">
+<div class="prompt empty docutils container">
+</div>
+<div class="output_area rendered_html docutils container">
 <div>
-    <style>
-        /* Turns off some styling */
-        progress {
-            /* gets rid of default border in Firefox and Opera. */
-            border: none;
-            /* Needs to be in here for Safari polyfill so background images work as expected. */
-            background-size: auto;
-        }
-        .progress-bar-interrupted, .progress-bar-interrupted::-webkit-progress-bar {
-            background: #F44336;
-        }
-    </style>
-  <progress value='4000' class='' max='4000' style='width:300px; height:20px; vertical-align: middle;'></progress>
-  100.00% [4000/4000 00:28<00:00 Sampling 2 chains, 0 divergences]
+  <progress value='8000' class='' max='8000' style='width:300px; height:20px; vertical-align: middle;'></progress>
+  100.00% [8000/8000 00:36<00:00 Sampling 4 chains, 0 divergences]
 </div></div>
 </div>
 <div class="nboutput nblast docutils container">
@@ -1036,7 +1069,7 @@ NUTS: [Intercept, hs_week, age, race, sex]
 </div>
 <div class="output_area stderr docutils container">
 <div class="highlight"><pre>
-Sampling 2 chains for 1_000 tune and 1_000 draw iterations (2_000 + 2_000 draws total) took 29 seconds.
+Sampling 4 chains for 1_000 tune and 1_000 draw iterations (4_000 + 4_000 draws total) took 37 seconds.
 </pre></div></div>
 </div>
 <div class="nbinput docutils container">
@@ -1085,62 +1118,62 @@ Sampling 2 chains for 1_000 tune and 1_000 draw iterations (2_000 + 2_000 draws 
   <tbody>
     <tr>
       <th>Intercept</th>
-      <td>-2.638</td>
-      <td>0.064</td>
-      <td>-2.758</td>
-      <td>-2.515</td>
+      <td>-2.634</td>
+      <td>0.066</td>
+      <td>-2.760</td>
+      <td>-2.513</td>
       <td>0.001</td>
       <td>0.001</td>
-      <td>1929.0</td>
-      <td>1518.0</td>
+      <td>4894.0</td>
+      <td>3084.0</td>
       <td>1.0</td>
     </tr>
     <tr>
       <th>sex[Male]</th>
-      <td>1.019</td>
-      <td>0.038</td>
-      <td>0.948</td>
-      <td>1.090</td>
+      <td>1.017</td>
+      <td>0.037</td>
+      <td>0.950</td>
+      <td>1.087</td>
       <td>0.001</td>
-      <td>0.001</td>
-      <td>1756.0</td>
-      <td>1295.0</td>
+      <td>0.000</td>
+      <td>3693.0</td>
+      <td>3264.0</td>
       <td>1.0</td>
     </tr>
     <tr>
       <th>race[White]</th>
-      <td>0.633</td>
-      <td>0.060</td>
-      <td>0.521</td>
-      <td>0.741</td>
+      <td>0.630</td>
+      <td>0.061</td>
+      <td>0.514</td>
+      <td>0.743</td>
       <td>0.001</td>
       <td>0.001</td>
-      <td>2335.0</td>
-      <td>1674.0</td>
+      <td>5426.0</td>
+      <td>3211.0</td>
       <td>1.0</td>
     </tr>
     <tr>
       <th>age</th>
-      <td>0.579</td>
+      <td>0.578</td>
       <td>0.015</td>
-      <td>0.551</td>
-      <td>0.607</td>
+      <td>0.552</td>
+      <td>0.608</td>
       <td>0.000</td>
       <td>0.000</td>
-      <td>2360.0</td>
-      <td>1653.0</td>
+      <td>4261.0</td>
+      <td>3308.0</td>
       <td>1.0</td>
     </tr>
     <tr>
       <th>hs_week</th>
       <td>0.505</td>
       <td>0.016</td>
-      <td>0.473</td>
-      <td>0.532</td>
+      <td>0.477</td>
+      <td>0.537</td>
       <td>0.000</td>
       <td>0.000</td>
-      <td>2844.0</td>
-      <td>1816.0</td>
+      <td>4933.0</td>
+      <td>3031.0</td>
       <td>1.0</td>
     </tr>
   </tbody>
@@ -1156,7 +1189,7 @@ Sampling 2 chains for 1_000 tune and 1_000 draw iterations (2_000 + 2_000 draws 
 </div>
 </section>
 <section id="Model-2">
-<h2>Model 2<a class="headerlink" href="#Model-2" title="Permalink to this headline">#</a></h2>
+<h2>Model 2<a class="headerlink" href="#Model-2" title="Permalink to this heading">#</a></h2>
 <div class="math notranslate nohighlight">
 \[\log{\left(\frac{\pi}{1 - \pi}\right)} = \beta_0 + \beta_1 X_1 + \beta_2 X_1^2 + \beta_3 X_2 + \beta_4 X_2^2
                                          + \beta_5 X_3 + \beta_6 X_4\]</div>
@@ -1181,29 +1214,34 @@ Sampling 2 chains for 1_000 tune and 1_000 draw iterations (2_000 + 2_000 draws 
 Modeling the probability that income==&gt;50K
 Auto-assigning NUTS sampler...
 Initializing NUTS using jitter+adapt_diag...
-Multiprocess sampling (2 chains in 2 jobs)
-NUTS: [Intercept, hs_week2, hs_week, age2, age, race, sex]
+Multiprocess sampling (4 chains in 4 jobs)
+NUTS: [Intercept, sex, race, age, age2, hs_week, hs_week2]
 </pre></div></div>
 </div>
 <div class="nboutput docutils container">
 <div class="prompt empty docutils container">
 </div>
 <div class="output_area rendered_html docutils container">
+<style>
+    /* Turns off some styling */
+    progress {
+        /* gets rid of default border in Firefox and Opera. */
+        border: none;
+        /* Needs to be in here for Safari polyfill so background images work as expected. */
+        background-size: auto;
+    }
+    .progress-bar-interrupted, .progress-bar-interrupted::-webkit-progress-bar {
+        background: #F44336;
+    }
+</style></div>
+</div>
+<div class="nboutput docutils container">
+<div class="prompt empty docutils container">
+</div>
+<div class="output_area rendered_html docutils container">
 <div>
-    <style>
-        /* Turns off some styling */
-        progress {
-            /* gets rid of default border in Firefox and Opera. */
-            border: none;
-            /* Needs to be in here for Safari polyfill so background images work as expected. */
-            background-size: auto;
-        }
-        .progress-bar-interrupted, .progress-bar-interrupted::-webkit-progress-bar {
-            background: #F44336;
-        }
-    </style>
-  <progress value='4000' class='' max='4000' style='width:300px; height:20px; vertical-align: middle;'></progress>
-  100.00% [4000/4000 00:34<00:00 Sampling 2 chains, 0 divergences]
+  <progress value='8000' class='' max='8000' style='width:300px; height:20px; vertical-align: middle;'></progress>
+  100.00% [8000/8000 00:54<00:00 Sampling 4 chains, 0 divergences]
 </div></div>
 </div>
 <div class="nboutput nblast docutils container">
@@ -1211,7 +1249,7 @@ NUTS: [Intercept, hs_week2, hs_week, age2, age, race, sex]
 </div>
 <div class="output_area stderr docutils container">
 <div class="highlight"><pre>
-Sampling 2 chains for 1_000 tune and 1_000 draw iterations (2_000 + 2_000 draws total) took 35 seconds.
+Sampling 4 chains for 1_000 tune and 1_000 draw iterations (4_000 + 4_000 draws total) took 54 seconds.
 </pre></div></div>
 </div>
 <div class="nbinput docutils container">
@@ -1260,86 +1298,86 @@ Sampling 2 chains for 1_000 tune and 1_000 draw iterations (2_000 + 2_000 draws 
   <tbody>
     <tr>
       <th>Intercept</th>
-      <td>-2.286</td>
-      <td>0.061</td>
-      <td>-2.396</td>
-      <td>-2.167</td>
+      <td>-2.282</td>
+      <td>0.063</td>
+      <td>-2.411</td>
+      <td>-2.173</td>
       <td>0.001</td>
       <td>0.001</td>
-      <td>2118.0</td>
-      <td>1637.0</td>
+      <td>3959.0</td>
+      <td>3292.0</td>
       <td>1.0</td>
     </tr>
     <tr>
       <th>sex[Male]</th>
-      <td>1.006</td>
+      <td>1.005</td>
       <td>0.037</td>
-      <td>0.936</td>
+      <td>0.937</td>
       <td>1.075</td>
       <td>0.001</td>
-      <td>0.001</td>
-      <td>1926.0</td>
-      <td>1341.0</td>
+      <td>0.000</td>
+      <td>3861.0</td>
+      <td>3357.0</td>
       <td>1.0</td>
     </tr>
     <tr>
       <th>race[White]</th>
-      <td>0.705</td>
-      <td>0.059</td>
-      <td>0.599</td>
-      <td>0.819</td>
+      <td>0.703</td>
+      <td>0.060</td>
+      <td>0.596</td>
+      <td>0.818</td>
       <td>0.001</td>
       <td>0.001</td>
-      <td>1915.0</td>
-      <td>1340.0</td>
+      <td>3927.0</td>
+      <td>3049.0</td>
       <td>1.0</td>
     </tr>
     <tr>
       <th>age</th>
-      <td>1.069</td>
-      <td>0.024</td>
+      <td>1.070</td>
+      <td>0.023</td>
       <td>1.024</td>
-      <td>1.113</td>
-      <td>0.001</td>
+      <td>1.112</td>
       <td>0.000</td>
-      <td>1377.0</td>
-      <td>1187.0</td>
+      <td>0.000</td>
+      <td>3143.0</td>
+      <td>2696.0</td>
       <td>1.0</td>
     </tr>
     <tr>
       <th>age2</th>
-      <td>-0.537</td>
+      <td>-0.538</td>
       <td>0.018</td>
-      <td>-0.568</td>
-      <td>-0.501</td>
+      <td>-0.572</td>
+      <td>-0.506</td>
       <td>0.000</td>
       <td>0.000</td>
-      <td>1441.0</td>
-      <td>1524.0</td>
+      <td>3127.0</td>
+      <td>3133.0</td>
       <td>1.0</td>
     </tr>
     <tr>
       <th>hs_week</th>
-      <td>0.500</td>
-      <td>0.023</td>
-      <td>0.457</td>
-      <td>0.541</td>
-      <td>0.001</td>
+      <td>0.499</td>
+      <td>0.022</td>
+      <td>0.458</td>
+      <td>0.542</td>
       <td>0.000</td>
-      <td>1749.0</td>
-      <td>1495.0</td>
+      <td>0.000</td>
+      <td>3176.0</td>
+      <td>2909.0</td>
       <td>1.0</td>
     </tr>
     <tr>
       <th>hs_week2</th>
-      <td>-0.088</td>
-      <td>0.009</td>
-      <td>-0.104</td>
-      <td>-0.071</td>
+      <td>-0.087</td>
+      <td>0.008</td>
+      <td>-0.103</td>
+      <td>-0.072</td>
       <td>0.000</td>
       <td>0.000</td>
-      <td>1633.0</td>
-      <td>1572.0</td>
+      <td>3293.0</td>
+      <td>3257.0</td>
       <td>1.0</td>
     </tr>
   </tbody>
@@ -1355,7 +1393,7 @@ Sampling 2 chains for 1_000 tune and 1_000 draw iterations (2_000 + 2_000 draws 
 </div>
 </section>
 <section id="Model-3">
-<h2>Model 3<a class="headerlink" href="#Model-3" title="Permalink to this headline">#</a></h2>
+<h2>Model 3<a class="headerlink" href="#Model-3" title="Permalink to this heading">#</a></h2>
 <div class="math notranslate nohighlight">
 \[\log{\left(\frac{\pi}{1 - \pi}\right)} = \beta_0 + \beta_1 X_1 + \beta_2 X_1^2 + \beta_3 X_1^3 + \beta_4 X_2
                                          + \beta_5 X_2^2 + \beta_6 X_2^3 + \beta_7 X_3 + \beta_8 X_4\]</div>
@@ -1384,29 +1422,34 @@ Sampling 2 chains for 1_000 tune and 1_000 draw iterations (2_000 + 2_000 draws 
 Modeling the probability that income==&gt;50K
 Auto-assigning NUTS sampler...
 Initializing NUTS using jitter+adapt_diag...
-Multiprocess sampling (2 chains in 2 jobs)
-NUTS: [Intercept, race, sex, hs_week3, hs_week2, hs_week, age3, age2, age]
+Multiprocess sampling (4 chains in 4 jobs)
+NUTS: [Intercept, age, age2, age3, hs_week, hs_week2, hs_week3, sex, race]
 </pre></div></div>
 </div>
 <div class="nboutput docutils container">
 <div class="prompt empty docutils container">
 </div>
 <div class="output_area rendered_html docutils container">
+<style>
+    /* Turns off some styling */
+    progress {
+        /* gets rid of default border in Firefox and Opera. */
+        border: none;
+        /* Needs to be in here for Safari polyfill so background images work as expected. */
+        background-size: auto;
+    }
+    .progress-bar-interrupted, .progress-bar-interrupted::-webkit-progress-bar {
+        background: #F44336;
+    }
+</style></div>
+</div>
+<div class="nboutput docutils container">
+<div class="prompt empty docutils container">
+</div>
+<div class="output_area rendered_html docutils container">
 <div>
-    <style>
-        /* Turns off some styling */
-        progress {
-            /* gets rid of default border in Firefox and Opera. */
-            border: none;
-            /* Needs to be in here for Safari polyfill so background images work as expected. */
-            background-size: auto;
-        }
-        .progress-bar-interrupted, .progress-bar-interrupted::-webkit-progress-bar {
-            background: #F44336;
-        }
-    </style>
-  <progress value='4000' class='' max='4000' style='width:300px; height:20px; vertical-align: middle;'></progress>
-  100.00% [4000/4000 01:04<00:00 Sampling 2 chains, 0 divergences]
+  <progress value='8000' class='' max='8000' style='width:300px; height:20px; vertical-align: middle;'></progress>
+  100.00% [8000/8000 01:58<00:00 Sampling 4 chains, 0 divergences]
 </div></div>
 </div>
 <div class="nboutput nblast docutils container">
@@ -1414,7 +1457,7 @@ NUTS: [Intercept, race, sex, hs_week3, hs_week2, hs_week, age3, age2, age]
 </div>
 <div class="output_area stderr docutils container">
 <div class="highlight"><pre>
-Sampling 2 chains for 1_000 tune and 1_000 draw iterations (2_000 + 2_000 draws total) took 65 seconds.
+Sampling 4 chains for 1_000 tune and 1_000 draw iterations (4_000 + 4_000 draws total) took 119 seconds.
 </pre></div></div>
 </div>
 <div class="nbinput docutils container">
@@ -1464,74 +1507,74 @@ Sampling 2 chains for 1_000 tune and 1_000 draw iterations (2_000 + 2_000 draws 
     <tr>
       <th>Intercept</th>
       <td>-2.146</td>
-      <td>0.064</td>
-      <td>-2.266</td>
-      <td>-2.030</td>
+      <td>0.063</td>
+      <td>-2.264</td>
+      <td>-2.027</td>
       <td>0.001</td>
       <td>0.001</td>
-      <td>2752.0</td>
-      <td>1762.0</td>
-      <td>1.00</td>
+      <td>4319.0</td>
+      <td>3088.0</td>
+      <td>1.0</td>
     </tr>
     <tr>
       <th>age</th>
       <td>0.964</td>
       <td>0.026</td>
-      <td>0.914</td>
-      <td>1.012</td>
-      <td>0.001</td>
+      <td>0.918</td>
+      <td>1.014</td>
       <td>0.000</td>
-      <td>1949.0</td>
-      <td>1485.0</td>
-      <td>1.00</td>
+      <td>0.000</td>
+      <td>3386.0</td>
+      <td>2388.0</td>
+      <td>1.0</td>
     </tr>
     <tr>
       <th>age2</th>
-      <td>-0.893</td>
+      <td>-0.894</td>
       <td>0.031</td>
-      <td>-0.950</td>
-      <td>-0.833</td>
+      <td>-0.956</td>
+      <td>-0.838</td>
       <td>0.001</td>
-      <td>0.001</td>
-      <td>1119.0</td>
-      <td>1052.0</td>
-      <td>1.00</td>
+      <td>0.000</td>
+      <td>2569.0</td>
+      <td>2346.0</td>
+      <td>1.0</td>
     </tr>
     <tr>
       <th>age3</th>
-      <td>0.174</td>
+      <td>0.175</td>
       <td>0.011</td>
-      <td>0.155</td>
+      <td>0.153</td>
       <td>0.196</td>
       <td>0.000</td>
       <td>0.000</td>
-      <td>1269.0</td>
-      <td>1298.0</td>
-      <td>1.00</td>
+      <td>2739.0</td>
+      <td>2572.0</td>
+      <td>1.0</td>
     </tr>
     <tr>
       <th>hs_week</th>
       <td>0.613</td>
       <td>0.025</td>
-      <td>0.569</td>
+      <td>0.567</td>
       <td>0.660</td>
-      <td>0.001</td>
       <td>0.000</td>
-      <td>1726.0</td>
-      <td>1319.0</td>
-      <td>1.00</td>
+      <td>0.000</td>
+      <td>2861.0</td>
+      <td>2610.0</td>
+      <td>1.0</td>
     </tr>
     <tr>
       <th>hs_week2</th>
-      <td>-0.011</td>
+      <td>-0.010</td>
       <td>0.010</td>
-      <td>-0.031</td>
-      <td>0.008</td>
+      <td>-0.030</td>
+      <td>0.009</td>
       <td>0.000</td>
       <td>0.000</td>
-      <td>1630.0</td>
-      <td>1371.0</td>
-      <td>1.00</td>
+      <td>3337.0</td>
+      <td>2566.0</td>
+      <td>1.0</td>
     </tr>
     <tr>
       <th>hs_week3</th>
@@ -1541,33 +1584,33 @@ Sampling 2 chains for 1_000 tune and 1_000 draw iterations (2_000 + 2_000 draws 
       <td>-0.028</td>
       <td>0.000</td>
       <td>0.000</td>
-      <td>1453.0</td>
-      <td>1218.0</td>
-      <td>1.00</td>
+      <td>2780.0</td>
+      <td>2675.0</td>
+      <td>1.0</td>
     </tr>
     <tr>
       <th>sex[Male]</th>
-      <td>0.986</td>
-      <td>0.038</td>
-      <td>0.912</td>
-      <td>1.054</td>
+      <td>0.985</td>
+      <td>0.037</td>
+      <td>0.917</td>
+      <td>1.059</td>
       <td>0.001</td>
-      <td>0.001</td>
-      <td>2194.0</td>
-      <td>1382.0</td>
-      <td>1.01</td>
+      <td>0.000</td>
+      <td>4119.0</td>
+      <td>2890.0</td>
+      <td>1.0</td>
     </tr>
     <tr>
       <th>race[White]</th>
-      <td>0.679</td>
-      <td>0.060</td>
-      <td>0.567</td>
-      <td>0.790</td>
+      <td>0.681</td>
+      <td>0.058</td>
+      <td>0.574</td>
+      <td>0.791</td>
       <td>0.001</td>
       <td>0.001</td>
-      <td>2310.0</td>
-      <td>1421.0</td>
-      <td>1.00</td>
+      <td>4211.0</td>
+      <td>3134.0</td>
+      <td>1.0</td>
     </tr>
   </tbody>
 </table>
@@ -1582,7 +1625,7 @@ Sampling 2 chains for 1_000 tune and 1_000 draw iterations (2_000 + 2_000 draws 
 </div>
 </section>
 <section id="Model-comparison">
-<h2>Model comparison<a class="headerlink" href="#Model-comparison" title="Permalink to this headline">#</a></h2>
+<h2>Model comparison<a class="headerlink" href="#Model-comparison" title="Permalink to this heading">#</a></h2>
 <p>We can perform a Bayesian model comparison very easily with <code class="docutils literal notranslate"><span class="pre">az.compare()</span></code>. Here we pass a dictionary with the InferenceData objects that <code class="docutils literal notranslate"><span class="pre">Model.fit()</span></code> returned and <code class="docutils literal notranslate"><span class="pre">az.compare()</span></code> returns a data frame that is ordered from best to worst according to the criteria used. By default, ArviZ uses <em>loo</em>, which is an estimation of leave one out cross validation. Another option is the widely applicable information criterion (WAIC). For more information about the information criteria available and
 other options within the function <a class="reference external" href="https://arviz-devs.github.io/arviz/api/generated/arviz.compare.html">see the docs</a>.</p>
 <div class="nbinput docutils container">
@@ -1598,15 +1641,6 @@ other options within the function <a class="reference external" href="https://ar
 <span class="n">df_compare</span>
 </pre></div>
 </div>
-</div>
-<div class="nboutput docutils container">
-<div class="prompt empty docutils container">
-</div>
-<div class="output_area stderr docutils container">
-<div class="highlight"><pre>
-/home/tomas/anaconda3/envs/bmb/lib/python3.8/site-packages/arviz/stats/stats.py:146: UserWarning: The default method used to estimate the weights for each model,has changed from BB-pseudo-BMA to stacking
-  warnings.warn(
-</pre></div></div>
 </div>
 <div class="nboutput nblast docutils container">
 <div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[18]:
@@ -1646,11 +1680,11 @@ other options within the function <a class="reference external" href="https://ar
     <tr>
       <th>model3</th>
       <td>0</td>
-      <td>-13987.066961</td>
-      <td>9.548544</td>
+      <td>-13987.163788</td>
+      <td>9.666686</td>
       <td>0.000000</td>
       <td>1.000000e+00</td>
-      <td>89.336570</td>
+      <td>89.328233</td>
       <td>0.000000</td>
       <td>False</td>
       <td>log</td>
@@ -1658,24 +1692,24 @@ other options within the function <a class="reference external" href="https://ar
     <tr>
       <th>model2</th>
       <td>1</td>
-      <td>-14154.938217</td>
-      <td>7.998525</td>
-      <td>167.871255</td>
-      <td>2.647272e-11</td>
-      <td>91.364734</td>
-      <td>19.847225</td>
+      <td>-14154.885469</td>
+      <td>7.938880</td>
+      <td>167.721681</td>
+      <td>2.002044e-08</td>
+      <td>91.338259</td>
+      <td>19.891434</td>
       <td>False</td>
       <td>log</td>
     </tr>
     <tr>
       <th>model1</th>
       <td>2</td>
-      <td>-14916.138772</td>
-      <td>5.156043</td>
-      <td>929.071811</td>
+      <td>-14916.097874</td>
+      <td>5.108173</td>
+      <td>928.934086</td>
       <td>0.000000e+00</td>
-      <td>91.038208</td>
-      <td>38.918762</td>
+      <td>90.991169</td>
+      <td>38.932186</td>
       <td>False</td>
       <td>log</td>
     </tr>
@@ -1702,7 +1736,7 @@ other options within the function <a class="reference external" href="https://ar
 achieve with this dataset. If you want, you could also try to add other predictors, such as education level and see how it impacts in the model comparison :).</p>
 </section>
 <section id="Probability-estimation">
-<h2>Probability estimation<a class="headerlink" href="#Probability-estimation" title="Permalink to this headline">#</a></h2>
+<h2>Probability estimation<a class="headerlink" href="#Probability-estimation" title="Permalink to this heading">#</a></h2>
 <p>In this section we plot age vs the probability of making more than 50K a year given different profiles.</p>
 <p>We set hours of work per week at 40 hours and assign a grid from 18 to 75 age. They’re standardized because they were standardized when we fitted the model.</p>
 <p>Here we use <code class="docutils literal notranslate"><span class="pre">az.plot_hdi()</span></code> to get Highest Density Interval plots. We get two bands for each profile. One corresponds to an hdi probability of 0.94 (the default) and the other to an hdi probability of 0.5.</p>
@@ -1753,7 +1787,7 @@ achieve with this dataset. If you want, you could also try to add other predicto
 </div>
 <p>The highest posterior density bands show how the probability of earning more than 50K changes with age for a given profile. In all the cases, we see the probability of making more than $50K increases with age until approximately age 52, when the probability begins to drop off. We can interpret narrow portions of a curve as places where we have low uncertainty and spread out portions of the bands as places where we have somewhat higher uncertainty about our coefficient values.</p>
 <section id="Final-remarks">
-<h3>Final remarks<a class="headerlink" href="#Final-remarks" title="Permalink to this headline">#</a></h3>
+<h3>Final remarks<a class="headerlink" href="#Final-remarks" title="Permalink to this heading">#</a></h3>
 <p>In this notebook we’ve seen how easy it is to incorporate ArviZ into a Bambi workflow to perform model comparison based on information criteria such as <strong>LOO</strong> and <strong>WAIC</strong>. However, an attentive reader might have seen that the highest density interval plot never shows a predicted probability greater than 0.5 (which is not good if we expect to predict that at least some people working 40hrs/wk make more than \$50k/yr). You can increase the hours of work per week for the profiles we’ve used and
 the HDIs will show larger values. But we won’t be seeing the whole picture.</p>
 <p>Although we’re using some demographic variables such as <strong>sex</strong> and <strong>race</strong>, the cells resulting from the combinations of their levels are still very heterogeneous. For example, we are mixing individuals of all educational levels. A possible next step is to <strong>incorporate education</strong> into the different models we compared. If any of the readers (yes, you!) is interested in doing so, here there are some notes that may help</p>
@@ -1784,22 +1818,23 @@ We know it’s going to take a couple of hours to fit all those models :)</p></l
 </div>
 <div class="output_area docutils container">
 <div class="highlight"><pre>
-Last updated: Tue Jul 27 2021
+Last updated: Wed Jun 01 2022
 
 Python implementation: CPython
-Python version       : 3.8.5
-IPython version      : 7.18.1
+Python version       : 3.9.7
+IPython version      : 8.3.0
 
-json      : 2.0.9
-pandas    : 1.2.2
-seaborn   : 0.11.0
-bambi     : 0.5.0
-numpy     : 1.20.1
-arviz     : 0.11.2
-xarray    : 0.16.1
-matplotlib: 3.3.3
+xarray    : 2022.3.0
+bambi     : 0.7.1
+numpy     : 1.21.5
+matplotlib: 3.5.1
+arviz     : 0.12.1
+seaborn   : 0.11.2
+sys       : 3.9.7 (default, Sep 16 2021, 13:09:58)
+[GCC 7.5.0]
+pandas    : 1.4.2
 
-Watermark: 2.1.0
+Watermark: 2.3.0
 
 </pre></div></div>
 </div>
@@ -1808,51 +1843,55 @@ Watermark: 2.1.0
 </section>
 
 
-              </div>
+              </article>
               
-              
-              <!-- Previous / next buttons -->
-<div class='prev-next-area'>
-    <a class='left-prev' id="prev-link" href="logistic_regression.html" title="previous page">
-        <i class="fas fa-angle-left"></i>
-        <div class="prev-next-info">
-            <p class="prev-next-subtitle">previous</p>
-            <p class="prev-next-title">Logistic Regression (Vote intention with ANES data)</p>
-        </div>
-    </a>
-    <a class='right-next' id="next-link" href="hierarchical_binomial_bambi.html" title="next page">
-    <div class="prev-next-info">
-        <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Hierarchical Logistic regression with Binomial family</p>
-    </div>
-    <i class="fas fa-angle-right"></i>
-    </a>
-</div>
-              
-          </main>
-          
 
+              
+              <footer class="bd-footer-article">
+                  <!-- Previous / next buttons -->
+<div class='prev-next-area'>
+  <a class='left-prev' id="prev-link" href="logistic_regression.html" title="previous page">
+      <i class="fas fa-angle-left"></i>
+      <div class="prev-next-info">
+          <p class="prev-next-subtitle">previous</p>
+          <p class="prev-next-title">Logistic Regression (Vote intention with ANES data)</p>
+      </div>
+  </a>
+  <a class='right-next' id="next-link" href="hierarchical_binomial_bambi.html" title="next page">
+  <div class="prev-next-info">
+      <p class="prev-next-subtitle">next</p>
+      <p class="prev-next-title">Hierarchical Logistic regression with Binomial family</p>
+  </div>
+  <i class="fas fa-angle-right"></i>
+  </a>
+</div>
+              </footer>
+              
+          </div>
+          
       </div>
     </div>
+
+  
   
   <!-- Scripts loaded after <body> so the DOM is not blocked -->
-  <script src="../_static/scripts/pydata-sphinx-theme.js?digest=1999514e3f237ded88cf"></script>
-<footer class="footer mt-5 mt-md-0">
-  <div class="container">
-    
-    <div class="footer-item">
-      <p class="copyright">
+  <script src="../_static/scripts/pydata-sphinx-theme.js?digest=92025949c220c2e29695"></script>
+
+<footer class="bd-footer"><div class="bd-footer__inner container">
+  
+  <div class="footer-item">
+    <p class="copyright">
     &copy; Copyright 2022, The developers of Bambi.<br>
 </p>
-    </div>
-    
-    <div class="footer-item">
-      <p class="sphinx-version">
-Created using <a href="http://sphinx-doc.org/">Sphinx</a> 4.5.0.<br>
-</p>
-    </div>
-    
   </div>
+  
+  <div class="footer-item">
+    <p class="sphinx-version">
+Created using <a href="http://sphinx-doc.org/">Sphinx</a> 5.0.1.<br>
+</p>
+  </div>
+  
+</div>
 </footer>
   </body>
 </html>
