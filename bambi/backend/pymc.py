@@ -372,19 +372,6 @@ class PyMCModel:
         idata.posterior = idata.posterior.drop_vars(vars_to_drop)
         idata.posterior = idata.posterior.drop_dims(dims_to_drop)
 
-        # Drop and reorder coords
-        # About coordinates ending with "_dim_0"
-        # Coordinates that end with "_dim_0" are added automatically.
-        # These represents unidimensional coordinates that are added for numerical variables.
-        # These variables have a shape of 1 so we can concatenate the coefficients and multiply
-        # the resulting vector with the design matrix.
-        # But having a unidimensional coordinate for a numeric variable does not make sense.
-        # So we drop them.
-        coords_to_drop = [dim for dim in idata.posterior.dims if dim.endswith("_dim_0")]
-        idata.posterior = idata.posterior.squeeze(coords_to_drop).reset_coords(
-            coords_to_drop, drop=True
-        )
-
         # This does not add any new coordinate, it just changes the order so the ones
         # ending in "__factor_dim" are placed after the others.
         dims_original = list(self.coords)
@@ -394,7 +381,7 @@ class PyMCModel:
         dims_original_set = set(dims_original) - set(dims_group)
         dims_original = [c for c in dims_original if c in dims_original_set]
         dims_new = ["chain", "draw"] + dims_original + dims_group
-        idata.posterior = idata.posterior.transpose(*dims_new)
+        idata.posterior = idata.posterior.transpose(*dims_new, ...)
 
         # Compute the actual intercept
         if self.has_intercept and self.spec.common_terms:

@@ -46,6 +46,11 @@ class CommonTerm:
                 if value.ndim == 1:
                     args[key] = np.hstack([value[:, np.newaxis]] * response_dims_n)
 
+        for key, value in args.items():
+            if isinstance(value, Prior):
+                arg_dist = get_distribution(value.name)
+                args[key] = arg_dist(f"{label}_{key}", **value.args)
+
         dims = list(self.coords) + response_dims
         if dims:
             coef = distribution(label, dims=dims, **args)
