@@ -6,7 +6,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="generator" content="Docutils 0.19: https://docutils.sourceforge.io/" />
 
-    <title>Wald and Gamma Regression (Australian insurance claims 2004-2005) &#8212; Bambi 0.9.3 documentation</title>
+    <title>Quantile Regression &#8212; Bambi 0.9.3 documentation</title>
   
   
   
@@ -41,11 +41,11 @@
     <script crossorigin="anonymous" integrity="sha256-Ae2Vz/4ePdIu6ZyI/5ZGsYnb+m0JlOmKPjt6XZ9JJkA=" src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.4/require.min.js"></script>
     <script>window.MathJax = {"tex": {"inlineMath": [["$", "$"], ["\\(", "\\)"]], "processEscapes": true}, "options": {"ignoreHtmlClass": "tex2jax_ignore|mathjax_ignore|document", "processHtmlClass": "tex2jax_process|mathjax_process|math|output_area"}}</script>
     <script defer="defer" src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
-    <script>DOCUMENTATION_OPTIONS.pagename = 'notebooks/wald_gamma_glm';</script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'notebooks/quantile_regression';</script>
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="Negative Binomial Regression (Students absence example)" href="negative_binomial.html" />
-    <link rel="prev" title="Regression for Binary responses: Alternative link functions" href="alternative_links_binary.html" />
+    <link rel="next" title="API Reference" href="../api_reference.html" />
+    <link rel="prev" title="Circular Regression" href="circular_regression.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="docsearch:language" content="en">
   </head>
@@ -343,7 +343,7 @@
 
             <ul>
                   
-                  <li class="toctree-l2 current active"><a href="wald_gamma_glm.html"> Development </a></li>
+                  <li class="toctree-l2 current active"><a href="quantile_regression.html"> Development </a></li>
                   
 
                 
@@ -653,8 +653,8 @@ div.rendered_html tbody tr:hover {
   background: rgba(66, 165, 245, 0.2);
 }
 </style>
-<section id="Wald-and-Gamma-Regression-(Australian-insurance-claims-2004-2005)">
-<h1>Wald and Gamma Regression (Australian insurance claims 2004-2005)<a class="headerlink" href="#Wald-and-Gamma-Regression-(Australian-insurance-claims-2004-2005)" title="Permalink to this heading">#</a></h1>
+<section id="Quantile-Regression">
+<h1>Quantile Regression<a class="headerlink" href="#Quantile-Regression" title="Permalink to this heading">#</a></h1>
 <div class="nbinput nblast docutils container">
 <div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[1]:
 </pre></div>
@@ -663,6 +663,8 @@ div.rendered_html tbody tr:hover {
 import bambi as bmb
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
+from scipy import stats
 </pre></div>
 </div>
 </div>
@@ -671,24 +673,52 @@ import numpy as np
 </pre></div>
 </div>
 <div class="input_area highlight-ipython3 notranslate"><div class="highlight"><pre><span></span>az.style.use(&quot;arviz-darkgrid&quot;)
-np.random.seed(1234)
+SEED = 12947
 </pre></div>
 </div>
 </div>
-<section id="Load-and-examine-Vehicle-insurance-data">
-<h2>Load and examine Vehicle insurance data<a class="headerlink" href="#Load-and-examine-Vehicle-insurance-data" title="Permalink to this heading">#</a></h2>
-<p>In this notebook we use a data set consisting of 67856 insurance policies and 4624 (6.8%) claims in Australia between 2004 and 2005. The original source of this dataset is the book <a class="reference external" href="http://www.businessandeconomics.mq.edu.au/our_departments/Applied_Finance_and_Actuarial_Studies/research/books/GLMsforInsuranceData">Generalized Linear Models for Insurance Data</a> by Piet de Jong and Gillian Z. Heller.</p>
+<p>Usually when doing regression we model the conditional mean of some distribution. Common cases are a Normal distribution for continuous unbounded responses, a Poisson distribution for count data, etc.</p>
+<p>Quantile regression, instead estimates a conditional quantile of the response variable. If the quantile is 0.5, then we will be estimating the median (instead of the mean), this could be useful as a way of performing robust regression, in a similar fashion as using a Student-t distribution instead of a Normal. But for some problem we actually care of the behaviour of the response away from the mean (or median). For example, in medical research, pathologies or potential health risks occur at high
+or low quantile, for instance, overweight and underweight. In some other fields like ecology, quantile regression is justified due to the existence of complex interactions between variables, where the effect of one variable on another is different for different ranges of the variable.</p>
+</section>
+<section id="Asymmetric-Laplace-distribution">
+<h1>Asymmetric Laplace distribution<a class="headerlink" href="#Asymmetric-Laplace-distribution" title="Permalink to this heading">#</a></h1>
+<p>At first it could be weird to think which distribution we should use as the likelihood for quantile regression or how to write a Bayesian model for quantile regression. But it turns out the answer is quite simple, we just need to use the asymmetric Laplace distribution. This distribution has one parameter controling the mean, another for the scale and a third one for the asymmetry. There are at least two alternative parametrizations regarding this asymmetric parameter. In terms of <span class="math notranslate nohighlight">\(\kappa\)</span>
+a parameter that goes from 0 to <span class="math notranslate nohighlight">\(\infty\)</span> and in terms of <span class="math notranslate nohighlight">\(q\)</span> a number between 0 and 1. This later parametrization is more intuitive for quantile regression as we can directly interpre it as the quantile of interest.</p>
+<p>On the next cell we compute the pdf of 3 distribution from the Asymmetric Laplace family</p>
 <div class="nbinput docutils container">
 <div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[3]:
 </pre></div>
 </div>
-<div class="input_area highlight-ipython3 notranslate"><div class="highlight"><pre><span></span>data = bmb.load_data(&quot;carclaims&quot;)
+<div class="input_area highlight-ipython3 notranslate"><div class="highlight"><pre><span></span>x = np.linspace(-6, 6, 2000)
+quantiles =  np.array([0.2, 0.5, 0.8])
+for q, m in zip(quantiles, [0, 0, -1]):
+    κ = (q/(1-q))**0.5
+    plt.plot(x, stats.laplace_asymmetric(κ, m, 1).pdf(x), label=f&quot;q={q:}, μ={m}, σ=1&quot;)
+plt.yticks([]);
+plt.legend();
+</pre></div>
+</div>
+</div>
+<div class="nboutput nblast docutils container">
+<div class="prompt empty docutils container">
+</div>
+<div class="output_area docutils container">
+<img alt="../_images/notebooks_quantile_regression_5_0.png" src="../_images/notebooks_quantile_regression_5_0.png" />
+</div>
+</div>
+<p>We are going to use a simple dataset to model the Body Mass Index for Dutch kids and young men as a function of their age.</p>
+<div class="nbinput docutils container">
+<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[4]:
+</pre></div>
+</div>
+<div class="input_area highlight-ipython3 notranslate"><div class="highlight"><pre><span></span>data = pd.read_csv(&quot;data/bmi.csv&quot;)
 data.head()
 </pre></div>
 </div>
 </div>
 <div class="nboutput nblast docutils container">
-<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[3]:
+<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[4]:
 </pre></div>
 </div>
 <div class="output_area rendered_html docutils container">
@@ -710,477 +740,242 @@ data.head()
   <thead>
     <tr style="text-align: right;">
       <th></th>
-      <th>veh_value</th>
-      <th>exposure</th>
-      <th>clm</th>
-      <th>numclaims</th>
-      <th>claimcst0</th>
-      <th>veh_body</th>
-      <th>veh_age</th>
-      <th>gender</th>
-      <th>area</th>
-      <th>agecat</th>
+      <th>age</th>
+      <th>bmi</th>
     </tr>
   </thead>
   <tbody>
     <tr>
       <th>0</th>
-      <td>1.06</td>
-      <td>0.303901</td>
-      <td>0</td>
-      <td>0</td>
-      <td>0.0</td>
-      <td>HBACK</td>
-      <td>3</td>
-      <td>F</td>
-      <td>C</td>
-      <td>2</td>
+      <td>0.03</td>
+      <td>13.235289</td>
     </tr>
     <tr>
       <th>1</th>
-      <td>1.03</td>
-      <td>0.648871</td>
-      <td>0</td>
-      <td>0</td>
-      <td>0.0</td>
-      <td>HBACK</td>
-      <td>2</td>
-      <td>F</td>
-      <td>A</td>
-      <td>4</td>
+      <td>0.04</td>
+      <td>12.438775</td>
     </tr>
     <tr>
       <th>2</th>
-      <td>3.26</td>
-      <td>0.569473</td>
-      <td>0</td>
-      <td>0</td>
-      <td>0.0</td>
-      <td>UTE</td>
-      <td>2</td>
-      <td>F</td>
-      <td>E</td>
-      <td>2</td>
+      <td>0.04</td>
+      <td>14.541775</td>
     </tr>
     <tr>
       <th>3</th>
-      <td>4.14</td>
-      <td>0.317591</td>
-      <td>0</td>
-      <td>0</td>
-      <td>0.0</td>
-      <td>STNWG</td>
-      <td>2</td>
-      <td>F</td>
-      <td>D</td>
-      <td>2</td>
+      <td>0.04</td>
+      <td>11.773954</td>
     </tr>
     <tr>
       <th>4</th>
-      <td>0.72</td>
-      <td>0.648871</td>
-      <td>0</td>
-      <td>0</td>
-      <td>0.0</td>
-      <td>HBACK</td>
-      <td>4</td>
-      <td>F</td>
-      <td>C</td>
-      <td>2</td>
+      <td>0.04</td>
+      <td>15.325614</td>
     </tr>
   </tbody>
 </table>
 </div></div>
 </div>
-<p>Let’s see the meaning of the variables before creating any plot or fitting any model.</p>
-<ul class="simple">
-<li><p><strong>veh_value</strong>: Vehicle value, ranges from \$0 to \$350,000.</p></li>
-<li><p><strong>exposure</strong>: Proportion of the year where the policy was exposed. In practice each policy is not exposed for the full year. Some policies come into force partly into the year while others are canceled before the year’s end.</p></li>
-<li><p><strong>clm</strong>: Claim occurrence. 0 (no), 1 (yes).</p></li>
-<li><p><strong>numclaims</strong>: Number of claims.</p></li>
-<li><p><strong>claimcst0</strong>: Claim amount. 0 if no claim. Ranges from \$200 to \$55922.</p></li>
-<li><p><strong>veh_body</strong>: Vehicle body type. Can be one of bus, convertible, coupe, hatchback, hardtop, motorized caravan/combi, minibus, panel van, roadster, sedan, station wagon, truck, and utility.</p></li>
-<li><p><strong>veh_age</strong>: Vehicle age. 1 (new), 2, 3, and 4.</p></li>
-<li><p><strong>gender</strong>: Gender of the driver. M (Male) and F (Female).</p></li>
-<li><p><strong>area</strong>: Driver’s area of residence. Can be one of A, B, C, D, E, and F.</p></li>
-<li><p><strong>agecat</strong>: Driver’s age category. 1 (youngest), 2, 3, 4, 5, and 6.</p></li>
-</ul>
-<p>The variable of interest is the claim amount, given by <code class="docutils literal notranslate"><span class="pre">&quot;claimcst0&quot;</span></code>. We keep the records where there is a claim, so claim amount is greater than 0.</p>
-<div class="nbinput nblast docutils container">
-<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[4]:
-</pre></div>
-</div>
-<div class="input_area highlight-ipython3 notranslate"><div class="highlight"><pre><span></span>data = data[data[&quot;claimcst0&quot;] &gt; 0]
-</pre></div>
-</div>
-</div>
-<p>For clarity, we only show those claims amounts below \$15,000, since there are only 65 records above that threshold.</p>
+<p>As we can see from the next figure the relationship between BMI and age is far from linear, and hence we are going to use splines.</p>
 <div class="nbinput docutils container">
 <div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[5]:
 </pre></div>
 </div>
-<div class="input_area highlight-ipython3 notranslate"><div class="highlight"><pre><span></span>data[data[&quot;claimcst0&quot;] &gt; 15000].shape[0]
+<div class="input_area highlight-ipython3 notranslate"><div class="highlight"><pre><span></span>plt.plot(data.age, data.bmi, &quot;k.&quot;);
+plt.xlabel(&quot;Age&quot;)
+plt.ylabel(&quot;BMI&quot;);
 </pre></div>
 </div>
 </div>
 <div class="nboutput nblast docutils container">
-<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[5]:
-</pre></div>
+<div class="prompt empty docutils container">
 </div>
 <div class="output_area docutils container">
-<div class="highlight"><pre>
-65
-</pre></div></div>
+<img alt="../_images/notebooks_quantile_regression_9_0.png" src="../_images/notebooks_quantile_regression_9_0.png" />
 </div>
+</div>
+<p>We are going to model 3 quantiles, 0.1, 0.5 and 0.9. For that reasoson we are going to fit 3 separated models, being the sole different the value of <code class="docutils literal notranslate"><span class="pre">kappa</span></code> of the Asymmetric Laplace distribution, that will be fix at a different value each time. In the future Bambi will allow to directly work with the parameter <code class="docutils literal notranslate"><span class="pre">q</span></code> instead of <code class="docutils literal notranslate"><span class="pre">kappa</span></code>, in the meantime we have to apply a transformation to go from quantiles to suitable values of <code class="docutils literal notranslate"><span class="pre">kappa</span></code>.</p>
+<div class="math notranslate nohighlight">
+\[\kappa = \sqrt{\frac{q}{1 - q}}\]</div>
 <div class="nbinput docutils container">
 <div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[6]:
 </pre></div>
 </div>
-<div class="input_area highlight-ipython3 notranslate"><div class="highlight"><pre><span></span>plt.hist(data[data[&quot;claimcst0&quot;] &lt;= 15000][&quot;claimcst0&quot;], bins=30)
-plt.title(&quot;Distribution of claim amount&quot;)
-plt.xlabel(&quot;Claim amount ($)&quot;);
+<div class="input_area highlight-ipython3 notranslate"><div class="highlight"><pre><span></span>quantiles = np.array([0.1, 0.5, 0.9])
+kappas = (quantiles/(1-quantiles))**0.5
+
+knots = np.quantile(data.age, np.linspace(0, 1, 10))[1:-1]
+
+idatas = []
+for κ in kappas:
+    model = bmb.Model(&quot;bmi ~ bs(age, knots=knots)&quot;,
+                      data=data, family=&quot;asymmetriclaplace&quot;, priors={&quot;kappa&quot;: κ})
+    idata = model.fit()
+    model.predict(idata)
+    idatas.append(idata)
 </pre></div>
 </div>
+</div>
+<div class="nboutput docutils container">
+<div class="prompt empty docutils container">
+</div>
+<div class="output_area stderr docutils container">
+<div class="highlight"><pre>
+Auto-assigning NUTS sampler...
+Initializing NUTS using jitter+adapt_diag...
+Multiprocess sampling (4 chains in 4 jobs)
+NUTS: [Intercept, bs(age, knots = knots), bmi_b]
+</pre></div></div>
+</div>
+<div class="nboutput docutils container">
+<div class="prompt empty docutils container">
+</div>
+<div class="output_area rendered_html docutils container">
+<style>
+    /* Turns off some styling */
+    progress {
+        /* gets rid of default border in Firefox and Opera. */
+        border: none;
+        /* Needs to be in here for Safari polyfill so background images work as expected. */
+        background-size: auto;
+    }
+    progress:not([value]), progress:not([value])::-webkit-progress-bar {
+        background: repeating-linear-gradient(45deg, #7e7e7e, #7e7e7e 10px, #5c5c5c 10px, #5c5c5c 20px);
+    }
+    .progress-bar-interrupted, .progress-bar-interrupted::-webkit-progress-bar {
+        background: #F44336;
+    }
+</style></div>
+</div>
+<div class="nboutput docutils container">
+<div class="prompt empty docutils container">
+</div>
+<div class="output_area rendered_html docutils container">
+<div>
+  <progress value='8000' class='' max='8000' style='width:300px; height:20px; vertical-align: middle;'></progress>
+  100.00% [8000/8000 00:58&lt;00:00 Sampling 4 chains, 0 divergences]
+</div></div>
+</div>
+<div class="nboutput docutils container">
+<div class="prompt empty docutils container">
+</div>
+<div class="output_area stderr docutils container">
+<div class="highlight"><pre>
+Sampling 4 chains for 1_000 tune and 1_000 draw iterations (4_000 + 4_000 draws total) took 59 seconds.
+Auto-assigning NUTS sampler...
+Initializing NUTS using jitter+adapt_diag...
+Multiprocess sampling (4 chains in 4 jobs)
+NUTS: [Intercept, bs(age, knots = knots), bmi_b]
+</pre></div></div>
+</div>
+<div class="nboutput docutils container">
+<div class="prompt empty docutils container">
+</div>
+<div class="output_area rendered_html docutils container">
+<style>
+    /* Turns off some styling */
+    progress {
+        /* gets rid of default border in Firefox and Opera. */
+        border: none;
+        /* Needs to be in here for Safari polyfill so background images work as expected. */
+        background-size: auto;
+    }
+    progress:not([value]), progress:not([value])::-webkit-progress-bar {
+        background: repeating-linear-gradient(45deg, #7e7e7e, #7e7e7e 10px, #5c5c5c 10px, #5c5c5c 20px);
+    }
+    .progress-bar-interrupted, .progress-bar-interrupted::-webkit-progress-bar {
+        background: #F44336;
+    }
+</style></div>
+</div>
+<div class="nboutput docutils container">
+<div class="prompt empty docutils container">
+</div>
+<div class="output_area rendered_html docutils container">
+<div>
+  <progress value='8000' class='' max='8000' style='width:300px; height:20px; vertical-align: middle;'></progress>
+  100.00% [8000/8000 01:02&lt;00:00 Sampling 4 chains, 0 divergences]
+</div></div>
+</div>
+<div class="nboutput docutils container">
+<div class="prompt empty docutils container">
+</div>
+<div class="output_area stderr docutils container">
+<div class="highlight"><pre>
+Sampling 4 chains for 1_000 tune and 1_000 draw iterations (4_000 + 4_000 draws total) took 63 seconds.
+Auto-assigning NUTS sampler...
+Initializing NUTS using jitter+adapt_diag...
+Multiprocess sampling (4 chains in 4 jobs)
+NUTS: [Intercept, bs(age, knots = knots), bmi_b]
+</pre></div></div>
+</div>
+<div class="nboutput docutils container">
+<div class="prompt empty docutils container">
+</div>
+<div class="output_area rendered_html docutils container">
+<style>
+    /* Turns off some styling */
+    progress {
+        /* gets rid of default border in Firefox and Opera. */
+        border: none;
+        /* Needs to be in here for Safari polyfill so background images work as expected. */
+        background-size: auto;
+    }
+    progress:not([value]), progress:not([value])::-webkit-progress-bar {
+        background: repeating-linear-gradient(45deg, #7e7e7e, #7e7e7e 10px, #5c5c5c 10px, #5c5c5c 20px);
+    }
+    .progress-bar-interrupted, .progress-bar-interrupted::-webkit-progress-bar {
+        background: #F44336;
+    }
+</style></div>
+</div>
+<div class="nboutput docutils container">
+<div class="prompt empty docutils container">
+</div>
+<div class="output_area rendered_html docutils container">
+<div>
+  <progress value='8000' class='' max='8000' style='width:300px; height:20px; vertical-align: middle;'></progress>
+  100.00% [8000/8000 01:16&lt;00:00 Sampling 4 chains, 0 divergences]
+</div></div>
 </div>
 <div class="nboutput nblast docutils container">
 <div class="prompt empty docutils container">
 </div>
-<div class="output_area docutils container">
-<img alt="../_images/notebooks_wald_gamma_glm_10_0.png" src="../_images/notebooks_wald_gamma_glm_10_0.png" />
+<div class="output_area stderr docutils container">
+<div class="highlight"><pre>
+Sampling 4 chains for 1_000 tune and 1_000 draw iterations (4_000 + 4_000 draws total) took 77 seconds.
+</pre></div></div>
 </div>
-</div>
-<p>And this is when you say: “Oh, there really are ugly right-skewed distributions out there!”. Well, yes, we’ve all been there :)</p>
-<p>In this case we are going to fit GLMs with a right-skewed distribution for the random component. This time we will be using Wald and Gamma distributions. One of their differences is that the variance is proportional to the cubic mean in the case of the Wald distribution, and proportional to the squared mean in the case of the Gamma distribution.</p>
-</section>
-<section id="Wald-family">
-<h2>Wald family<a class="headerlink" href="#Wald-family" title="Permalink to this heading">#</a></h2>
-<p>The Wald family (a.k.a inverse Gaussian model) states that</p>
-<div class="math notranslate nohighlight">
-\[\begin{array}{cc}
-y_i \sim \text{Wald}(\mu_i, \lambda) &amp; g(\mu_i) = \mathbf{x}_i^T\beta
-\end{array}\]</div>
-<p>where the pdf of a Wald distribution is given by</p>
-<div class="math notranslate nohighlight">
-\[f(x|\mu, \lambda) =
-\left(\frac{\lambda}{2\pi}\right)^{1/2}x^{-3/2}\exp\left\{ -\frac{\lambda}{2x} \left(\frac{x - \mu}{\mu} \right)^2 \right\}\]</div>
-<p>for <span class="math notranslate nohighlight">\(x &gt; 0\)</span>, mean <span class="math notranslate nohighlight">\(\mu &gt; 0\)</span> and <span class="math notranslate nohighlight">\(\lambda &gt; 0\)</span> is the shape parameter. The variance is given by <span class="math notranslate nohighlight">\(\sigma^2 = \mu^3/\lambda\)</span>. The canonical link is <span class="math notranslate nohighlight">\(g(\mu_i) = \mu_i^{-2}\)</span>, but <span class="math notranslate nohighlight">\(g(\mu_i) = \log(\mu_i)\)</span> is usually preferred, and it is what we use here.</p>
-</section>
-<section id="Gamma-family">
-<h2>Gamma family<a class="headerlink" href="#Gamma-family" title="Permalink to this heading">#</a></h2>
-<p>The default parametrization of the Gamma density function is</p>
-<div class="math notranslate nohighlight">
-\[\displaystyle f(x | \alpha, \beta) = \frac{\beta^\alpha x^{\alpha -1} e^{-\beta x}}{\Gamma(\alpha)}\]</div>
-<p>where <span class="math notranslate nohighlight">\(x &gt; 0\)</span>, and <span class="math notranslate nohighlight">\(\alpha &gt; 0\)</span> and <span class="math notranslate nohighlight">\(\beta &gt; 0\)</span> are the shape and rate parameters, respectively.</p>
-<p>But GLMs model the mean of the function, so we need to use an alternative parametrization where</p>
-<div class="math notranslate nohighlight">
-\[\begin{array}{ccc}
-\displaystyle \mu = \frac{\alpha}{\beta} &amp; \text{and} &amp; \displaystyle \sigma^2 = \frac{\alpha}{\beta^2}
-\end{array}\]</div>
-<p>and thus we have</p>
-<div class="math notranslate nohighlight">
-\[\begin{array}{cccc}
-y_i \sim \text{Gamma}(\mu_i, \sigma_i), &amp; g(\mu_i) = \mathbf{x}_i^T\beta, &amp; \text{and} &amp; \sigma_i = \mu_i^2/\alpha
-\end{array}\]</div>
-<p>where <span class="math notranslate nohighlight">\(\alpha\)</span> is the shape parameter in the original parametrization of the gamma pdf. The canonical link is <span class="math notranslate nohighlight">\(g(\mu_i) = \mu_i^{-1}\)</span>, but here we use <span class="math notranslate nohighlight">\(g(\mu_i) = \log(\mu_i)\)</span> again.</p>
-</section>
-<section id="Model-fit">
-<h2>Model fit<a class="headerlink" href="#Model-fit" title="Permalink to this heading">#</a></h2>
-<p>In this example we are going to use the binned age, the gender, and the area of residence to predict the amount of the claim, conditional on the existence of the claim because we are only working with observations where there is a claim.</p>
-<p><code class="docutils literal notranslate"><span class="pre">&quot;agecat&quot;</span></code> is interpreted as a numeric variable in our data frame, but we know it is categorical, and we wouldn’t be happy if our model takes it as if it was numeric, would we?</p>
-<p>We have two alternatives to tell Bambi that this numeric variable must be treated as categorical. The first one is to wrap the name of the variable with <code class="docutils literal notranslate"><span class="pre">C()</span></code>, and the other is to pass the same name to the categorical argument when we create the model. We are going to use the first approach with the Wald family and the second with the Gamma.</p>
-<p>The <code class="docutils literal notranslate"><span class="pre">C()</span></code> notation is taken from <a class="reference external" href="https://patsy.readthedocs.io/en/latest/index.html">Patsy</a> and is encouraged when you want to explicitly pass the order of the levels of the variables. If you are happy with the default order, better pass the name to <code class="docutils literal notranslate"><span class="pre">categorical</span></code> so tables and plots have prettier labels :)</p>
-<section id="Wald">
-<h3>Wald<a class="headerlink" href="#Wald" title="Permalink to this heading">#</a></h3>
+<p>We can see the result of the 3 fitted curves in the next figure. One feature that stand-out is that the gap or distance between the median (orange) line and the two other lines is not the same. Also the shapes of the curve while following a similar pattern, are not exactly the same.</p>
 <div class="nbinput docutils container">
 <div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[7]:
 </pre></div>
 </div>
-<div class="input_area highlight-ipython3 notranslate"><div class="highlight"><pre><span></span>model_wald = bmb.Model(&quot;claimcst0 ~ C(agecat) + gender + area&quot;, data, family = &quot;wald&quot;, link = &quot;log&quot;)
-fitted_wald = model_wald.fit(tune=2000, target_accept=0.9)
+<div class="input_area highlight-ipython3 notranslate"><div class="highlight"><pre><span></span>plt.plot(data.age, data.bmi, &quot;.&quot;, color=&quot;0.5&quot;)
+for idata, q in zip(idatas, quantiles):
+    plt.plot(data.age.values, idata.posterior[&quot;bmi_mean&quot;].mean((&quot;chain&quot;, &quot;draw&quot;)),
+            label=f&quot;q={q:}&quot;, lw=3);
+
+plt.legend()
+plt.xlabel(&quot;Age&quot;)
+plt.ylabel(&quot;BMI&quot;);
 </pre></div>
 </div>
-</div>
-<div class="nboutput docutils container">
-<div class="prompt empty docutils container">
-</div>
-<div class="output_area stderr docutils container">
-<div class="highlight"><pre>
-Auto-assigning NUTS sampler...
-Initializing NUTS using jitter+adapt_diag...
-Multiprocess sampling (4 chains in 4 jobs)
-NUTS: [Intercept, C(agecat), gender, area, claimcst0_lam]
-</pre></div></div>
-</div>
-<div class="nboutput docutils container">
-<div class="prompt empty docutils container">
-</div>
-<div class="output_area rendered_html docutils container">
-<style>
-    /* Turns off some styling */
-    progress {
-        /* gets rid of default border in Firefox and Opera. */
-        border: none;
-        /* Needs to be in here for Safari polyfill so background images work as expected. */
-        background-size: auto;
-    }
-    .progress-bar-interrupted, .progress-bar-interrupted::-webkit-progress-bar {
-        background: #F44336;
-    }
-</style></div>
-</div>
-<div class="nboutput docutils container">
-<div class="prompt empty docutils container">
-</div>
-<div class="output_area rendered_html docutils container">
-<div>
-  <progress value='12000' class='' max='12000' style='width:300px; height:20px; vertical-align: middle;'></progress>
-  100.00% [12000/12000 05:03<00:00 Sampling 4 chains, 0 divergences]
-</div></div>
 </div>
 <div class="nboutput nblast docutils container">
 <div class="prompt empty docutils container">
 </div>
-<div class="output_area stderr docutils container">
-<div class="highlight"><pre>
-Sampling 4 chains for 2_000 tune and 1_000 draw iterations (8_000 + 4_000 draws total) took 305 seconds.
-</pre></div></div>
+<div class="output_area docutils container">
+<img alt="../_images/notebooks_quantile_regression_13_0.png" src="../_images/notebooks_quantile_regression_13_0.png" />
 </div>
+</div>
+<p>To better undestand these remarks let’s compute a simple linear regression and then compute the same 3 quantiles from that fit.</p>
 <div class="nbinput docutils container">
 <div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[8]:
 </pre></div>
 </div>
-<div class="input_area highlight-ipython3 notranslate"><div class="highlight"><pre><span></span>az.plot_trace(fitted_wald);
-</pre></div>
-</div>
-</div>
-<div class="nboutput nblast docutils container">
-<div class="prompt empty docutils container">
-</div>
-<div class="output_area docutils container">
-<img alt="../_images/notebooks_wald_gamma_glm_18_0.png" src="../_images/notebooks_wald_gamma_glm_18_0.png" />
-</div>
-</div>
-<div class="nbinput docutils container">
-<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[9]:
-</pre></div>
-</div>
-<div class="input_area highlight-ipython3 notranslate"><div class="highlight"><pre><span></span>az.summary(fitted_wald)
-</pre></div>
-</div>
-</div>
-<div class="nboutput nblast docutils container">
-<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[9]:
-</pre></div>
-</div>
-<div class="output_area rendered_html docutils container">
-<div>
-<style scoped>
-    .dataframe tbody tr th:only-of-type {
-        vertical-align: middle;
-    }
-
-    .dataframe tbody tr th {
-        vertical-align: top;
-    }
-
-    .dataframe thead th {
-        text-align: right;
-    }
-</style>
-<table border="1" class="dataframe">
-  <thead>
-    <tr style="text-align: right;">
-      <th></th>
-      <th>mean</th>
-      <th>sd</th>
-      <th>hdi_3%</th>
-      <th>hdi_97%</th>
-      <th>mcse_mean</th>
-      <th>mcse_sd</th>
-      <th>ess_bulk</th>
-      <th>ess_tail</th>
-      <th>r_hat</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <th>Intercept</th>
-      <td>7.726</td>
-      <td>0.097</td>
-      <td>7.550</td>
-      <td>7.910</td>
-      <td>0.002</td>
-      <td>0.002</td>
-      <td>1577.0</td>
-      <td>1891.0</td>
-      <td>1.0</td>
-    </tr>
-    <tr>
-      <th>C(agecat)[2]</th>
-      <td>-0.169</td>
-      <td>0.102</td>
-      <td>-0.362</td>
-      <td>0.021</td>
-      <td>0.003</td>
-      <td>0.002</td>
-      <td>1637.0</td>
-      <td>2029.0</td>
-      <td>1.0</td>
-    </tr>
-    <tr>
-      <th>C(agecat)[3]</th>
-      <td>-0.262</td>
-      <td>0.099</td>
-      <td>-0.459</td>
-      <td>-0.088</td>
-      <td>0.002</td>
-      <td>0.002</td>
-      <td>1645.0</td>
-      <td>2056.0</td>
-      <td>1.0</td>
-    </tr>
-    <tr>
-      <th>C(agecat)[4]</th>
-      <td>-0.268</td>
-      <td>0.098</td>
-      <td>-0.452</td>
-      <td>-0.083</td>
-      <td>0.002</td>
-      <td>0.002</td>
-      <td>1556.0</td>
-      <td>2084.0</td>
-      <td>1.0</td>
-    </tr>
-    <tr>
-      <th>C(agecat)[5]</th>
-      <td>-0.381</td>
-      <td>0.106</td>
-      <td>-0.580</td>
-      <td>-0.185</td>
-      <td>0.003</td>
-      <td>0.002</td>
-      <td>1802.0</td>
-      <td>2212.0</td>
-      <td>1.0</td>
-    </tr>
-    <tr>
-      <th>C(agecat)[6]</th>
-      <td>-0.324</td>
-      <td>0.122</td>
-      <td>-0.551</td>
-      <td>-0.091</td>
-      <td>0.003</td>
-      <td>0.002</td>
-      <td>2069.0</td>
-      <td>2201.0</td>
-      <td>1.0</td>
-    </tr>
-    <tr>
-      <th>gender[M]</th>
-      <td>0.154</td>
-      <td>0.051</td>
-      <td>0.061</td>
-      <td>0.252</td>
-      <td>0.001</td>
-      <td>0.001</td>
-      <td>5291.0</td>
-      <td>3415.0</td>
-      <td>1.0</td>
-    </tr>
-    <tr>
-      <th>area[B]</th>
-      <td>-0.029</td>
-      <td>0.072</td>
-      <td>-0.161</td>
-      <td>0.112</td>
-      <td>0.001</td>
-      <td>0.001</td>
-      <td>3145.0</td>
-      <td>3180.0</td>
-      <td>1.0</td>
-    </tr>
-    <tr>
-      <th>area[C]</th>
-      <td>0.073</td>
-      <td>0.067</td>
-      <td>-0.054</td>
-      <td>0.197</td>
-      <td>0.001</td>
-      <td>0.001</td>
-      <td>2900.0</td>
-      <td>3091.0</td>
-      <td>1.0</td>
-    </tr>
-    <tr>
-      <th>area[D]</th>
-      <td>-0.021</td>
-      <td>0.089</td>
-      <td>-0.176</td>
-      <td>0.150</td>
-      <td>0.001</td>
-      <td>0.001</td>
-      <td>3619.0</td>
-      <td>3143.0</td>
-      <td>1.0</td>
-    </tr>
-    <tr>
-      <th>area[E]</th>
-      <td>0.151</td>
-      <td>0.108</td>
-      <td>-0.045</td>
-      <td>0.361</td>
-      <td>0.002</td>
-      <td>0.001</td>
-      <td>3977.0</td>
-      <td>2989.0</td>
-      <td>1.0</td>
-    </tr>
-    <tr>
-      <th>area[F]</th>
-      <td>0.372</td>
-      <td>0.130</td>
-      <td>0.133</td>
-      <td>0.614</td>
-      <td>0.002</td>
-      <td>0.002</td>
-      <td>4057.0</td>
-      <td>2897.0</td>
-      <td>1.0</td>
-    </tr>
-    <tr>
-      <th>claimcst0_lam</th>
-      <td>723.059</td>
-      <td>15.188</td>
-      <td>694.638</td>
-      <td>751.442</td>
-      <td>0.212</td>
-      <td>0.150</td>
-      <td>5097.0</td>
-      <td>3026.0</td>
-      <td>1.0</td>
-    </tr>
-  </tbody>
-</table>
-</div></div>
-</div>
-<p>If we look at the <code class="docutils literal notranslate"><span class="pre">agecat</span></code> variable, we can see the log mean of the claim amount tends to decrease when the age of the person increases, with the exception of the last category where we can see a slight increase in the mean of the coefficient (-0.307 vs -0.365 of the previous category). However, these differences only represent a slight tendency because of the large overlap between the marginal posteriors for these coefficients (see overlaid density plots for <code class="docutils literal notranslate"><span class="pre">C(agecat)</span></code>.</p>
-<p>The posterior for <code class="docutils literal notranslate"><span class="pre">gender</span></code> tells us that the claim amount tends to be larger for males than for females, with the mean being 0.153 and the credible interval ranging from 0.054 to 0.246.</p>
-<p>Finally, from the marginal posteriors for the areas, we can see that F is the only area that clearly stands out, with a higher mean claim amount than in the rest. Area E may also have a higher claim amount, but this difference with the other areas is not as evident as it happens with F.</p>
-</section>
-<section id="Gamma">
-<h3>Gamma<a class="headerlink" href="#Gamma" title="Permalink to this heading">#</a></h3>
-<div class="nbinput docutils container">
-<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[10]:
-</pre></div>
-</div>
-<div class="input_area highlight-ipython3 notranslate"><div class="highlight"><pre><span></span>model_gamma = bmb.Model(
-    &quot;claimcst0 ~ agecat + gender + area&quot;,
-    data,
-    family=&quot;gamma&quot;,
-    link=&quot;log&quot;,
-    categorical=&quot;agecat&quot;,
-)
-fitted_gamma = model_gamma.fit(tune=2000, target_accept=0.9)
+<div class="input_area highlight-ipython3 notranslate"><div class="highlight"><pre><span></span>model_g = bmb.Model(&quot;bmi ~ bs(age, knots=knots)&quot;,
+                  data=data)
+idata_g = model_g.fit()
+model_g.predict(idata_g, kind=&quot;pps&quot;)
 </pre></div>
 </div>
 </div>
@@ -1192,7 +987,7 @@ fitted_gamma = model_gamma.fit(tune=2000, target_accept=0.9)
 Auto-assigning NUTS sampler...
 Initializing NUTS using jitter+adapt_diag...
 Multiprocess sampling (4 chains in 4 jobs)
-NUTS: [Intercept, agecat, gender, area, claimcst0_alpha]
+NUTS: [Intercept, bs(age, knots = knots), bmi_sigma]
 </pre></div></div>
 </div>
 <div class="nboutput docutils container">
@@ -1207,6 +1002,9 @@ NUTS: [Intercept, agecat, gender, area, claimcst0_alpha]
         /* Needs to be in here for Safari polyfill so background images work as expected. */
         background-size: auto;
     }
+    progress:not([value]), progress:not([value])::-webkit-progress-bar {
+        background: repeating-linear-gradient(45deg, #7e7e7e, #7e7e7e 10px, #5c5c5c 10px, #5c5c5c 20px);
+    }
     .progress-bar-interrupted, .progress-bar-interrupted::-webkit-progress-bar {
         background: #F44336;
     }
@@ -1217,8 +1015,8 @@ NUTS: [Intercept, agecat, gender, area, claimcst0_alpha]
 </div>
 <div class="output_area rendered_html docutils container">
 <div>
-  <progress value='12000' class='' max='12000' style='width:300px; height:20px; vertical-align: middle;'></progress>
-  100.00% [12000/12000 07:35<00:00 Sampling 4 chains, 0 divergences]
+  <progress value='8000' class='' max='8000' style='width:300px; height:20px; vertical-align: middle;'></progress>
+  100.00% [8000/8000 00:37&lt;00:00 Sampling 4 chains, 0 divergences]
 </div></div>
 </div>
 <div class="nboutput nblast docutils container">
@@ -1226,324 +1024,42 @@ NUTS: [Intercept, agecat, gender, area, claimcst0_alpha]
 </div>
 <div class="output_area stderr docutils container">
 <div class="highlight"><pre>
-Sampling 4 chains for 2_000 tune and 1_000 draw iterations (8_000 + 4_000 draws total) took 455 seconds.
+Sampling 4 chains for 1_000 tune and 1_000 draw iterations (4_000 + 4_000 draws total) took 37 seconds.
 </pre></div></div>
 </div>
+<div class="nbinput nblast docutils container">
+<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[9]:
+</pre></div>
+</div>
+<div class="input_area highlight-ipython3 notranslate"><div class="highlight"><pre><span></span>idata_g_mean_quantiles = idata_g.posterior_predictive[&quot;bmi&quot;].quantile(quantiles, (&quot;chain&quot;, &quot;draw&quot;))
+</pre></div>
+</div>
+</div>
+<div class="nbinput docutils container">
+<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[10]:
+</pre></div>
+</div>
+<div class="input_area highlight-ipython3 notranslate"><div class="highlight"><pre><span></span>plt.plot(data.age, data.bmi, &quot;.&quot;, color=&quot;0.5&quot;)
+for q in quantiles:
+    plt.plot(data.age.values, idata_g_mean_quantiles.sel(quantile=q),
+            label=f&quot;q={q:}&quot;);
+
+plt.legend()
+plt.xlabel(&quot;Age&quot;)
+plt.ylabel(&quot;BMI&quot;);
+</pre></div>
+</div>
+</div>
+<div class="nboutput nblast docutils container">
+<div class="prompt empty docutils container">
+</div>
+<div class="output_area docutils container">
+<img alt="../_images/notebooks_quantile_regression_17_0.png" src="../_images/notebooks_quantile_regression_17_0.png" />
+</div>
+</div>
+<p>We can see that when we use a Gaussian family and from that fit we compute the quantiles, the quantiles q=0.1 and q=0.9 are symetrical with respect to q=0.5, also the shape of the curves is essentially the same just shifted up or down. Additionally the Asymmetric Laplace family allows the model to account for the increased variability in BMI as the age increases, while for the Gaussian family that variability always stays the same.</p>
 <div class="nbinput docutils container">
 <div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[11]:
-</pre></div>
-</div>
-<div class="input_area highlight-ipython3 notranslate"><div class="highlight"><pre><span></span>az.plot_trace(fitted_gamma);
-</pre></div>
-</div>
-</div>
-<div class="nboutput nblast docutils container">
-<div class="prompt empty docutils container">
-</div>
-<div class="output_area docutils container">
-<img alt="../_images/notebooks_wald_gamma_glm_23_0.png" src="../_images/notebooks_wald_gamma_glm_23_0.png" />
-</div>
-</div>
-<div class="nbinput docutils container">
-<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[12]:
-</pre></div>
-</div>
-<div class="input_area highlight-ipython3 notranslate"><div class="highlight"><pre><span></span>az.summary(fitted_gamma)
-</pre></div>
-</div>
-</div>
-<div class="nboutput nblast docutils container">
-<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[12]:
-</pre></div>
-</div>
-<div class="output_area rendered_html docutils container">
-<div>
-<style scoped>
-    .dataframe tbody tr th:only-of-type {
-        vertical-align: middle;
-    }
-
-    .dataframe tbody tr th {
-        vertical-align: top;
-    }
-
-    .dataframe thead th {
-        text-align: right;
-    }
-</style>
-<table border="1" class="dataframe">
-  <thead>
-    <tr style="text-align: right;">
-      <th></th>
-      <th>mean</th>
-      <th>sd</th>
-      <th>hdi_3%</th>
-      <th>hdi_97%</th>
-      <th>mcse_mean</th>
-      <th>mcse_sd</th>
-      <th>ess_bulk</th>
-      <th>ess_tail</th>
-      <th>r_hat</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <th>Intercept</th>
-      <td>7.716</td>
-      <td>0.063</td>
-      <td>7.602</td>
-      <td>7.833</td>
-      <td>0.002</td>
-      <td>0.001</td>
-      <td>1704.0</td>
-      <td>2240.0</td>
-      <td>1.0</td>
-    </tr>
-    <tr>
-      <th>agecat[2]</th>
-      <td>-0.181</td>
-      <td>0.064</td>
-      <td>-0.301</td>
-      <td>-0.061</td>
-      <td>0.001</td>
-      <td>0.001</td>
-      <td>2019.0</td>
-      <td>2679.0</td>
-      <td>1.0</td>
-    </tr>
-    <tr>
-      <th>agecat[3]</th>
-      <td>-0.276</td>
-      <td>0.063</td>
-      <td>-0.391</td>
-      <td>-0.158</td>
-      <td>0.001</td>
-      <td>0.001</td>
-      <td>1868.0</td>
-      <td>2520.0</td>
-      <td>1.0</td>
-    </tr>
-    <tr>
-      <th>agecat[4]</th>
-      <td>-0.267</td>
-      <td>0.063</td>
-      <td>-0.386</td>
-      <td>-0.153</td>
-      <td>0.001</td>
-      <td>0.001</td>
-      <td>1815.0</td>
-      <td>2218.0</td>
-      <td>1.0</td>
-    </tr>
-    <tr>
-      <th>agecat[5]</th>
-      <td>-0.388</td>
-      <td>0.069</td>
-      <td>-0.519</td>
-      <td>-0.262</td>
-      <td>0.001</td>
-      <td>0.001</td>
-      <td>2170.0</td>
-      <td>2401.0</td>
-      <td>1.0</td>
-    </tr>
-    <tr>
-      <th>agecat[6]</th>
-      <td>-0.314</td>
-      <td>0.080</td>
-      <td>-0.460</td>
-      <td>-0.160</td>
-      <td>0.002</td>
-      <td>0.001</td>
-      <td>2278.0</td>
-      <td>2597.0</td>
-      <td>1.0</td>
-    </tr>
-    <tr>
-      <th>gender[M]</th>
-      <td>0.166</td>
-      <td>0.034</td>
-      <td>0.106</td>
-      <td>0.231</td>
-      <td>0.000</td>
-      <td>0.000</td>
-      <td>7281.0</td>
-      <td>3280.0</td>
-      <td>1.0</td>
-    </tr>
-    <tr>
-      <th>area[B]</th>
-      <td>-0.024</td>
-      <td>0.050</td>
-      <td>-0.123</td>
-      <td>0.064</td>
-      <td>0.001</td>
-      <td>0.001</td>
-      <td>3097.0</td>
-      <td>3061.0</td>
-      <td>1.0</td>
-    </tr>
-    <tr>
-      <th>area[C]</th>
-      <td>0.071</td>
-      <td>0.047</td>
-      <td>-0.013</td>
-      <td>0.161</td>
-      <td>0.001</td>
-      <td>0.001</td>
-      <td>3206.0</td>
-      <td>3038.0</td>
-      <td>1.0</td>
-    </tr>
-    <tr>
-      <th>area[D]</th>
-      <td>-0.016</td>
-      <td>0.063</td>
-      <td>-0.135</td>
-      <td>0.101</td>
-      <td>0.001</td>
-      <td>0.001</td>
-      <td>3786.0</td>
-      <td>2873.0</td>
-      <td>1.0</td>
-    </tr>
-    <tr>
-      <th>area[E]</th>
-      <td>0.153</td>
-      <td>0.068</td>
-      <td>0.028</td>
-      <td>0.286</td>
-      <td>0.001</td>
-      <td>0.001</td>
-      <td>3976.0</td>
-      <td>3126.0</td>
-      <td>1.0</td>
-    </tr>
-    <tr>
-      <th>area[F]</th>
-      <td>0.372</td>
-      <td>0.076</td>
-      <td>0.233</td>
-      <td>0.517</td>
-      <td>0.001</td>
-      <td>0.001</td>
-      <td>4503.0</td>
-      <td>2876.0</td>
-      <td>1.0</td>
-    </tr>
-    <tr>
-      <th>claimcst0_alpha</th>
-      <td>0.762</td>
-      <td>0.014</td>
-      <td>0.738</td>
-      <td>0.789</td>
-      <td>0.000</td>
-      <td>0.000</td>
-      <td>6496.0</td>
-      <td>3352.0</td>
-      <td>1.0</td>
-    </tr>
-  </tbody>
-</table>
-</div></div>
-</div>
-<p>The interpretation of the parameter posteriors is very similar to what we’ve done for the Wald family. The only difference is that some differences, such as the ones for the area posteriors, are a little more exacerbated here.</p>
-</section>
-</section>
-<section id="Model-comparison">
-<h2>Model comparison<a class="headerlink" href="#Model-comparison" title="Permalink to this heading">#</a></h2>
-<p>We can perform a Bayesian model comparison very easily with <code class="docutils literal notranslate"><span class="pre">az.compare()</span></code>. Here we pass a dictionary with the InferenceData objects that <code class="docutils literal notranslate"><span class="pre">Model.fit()</span></code> returned and <code class="docutils literal notranslate"><span class="pre">az.compare()</span></code> returns a data frame that is ordered from best to worst according to the criteria used.</p>
-<div class="nbinput docutils container">
-<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[13]:
-</pre></div>
-</div>
-<div class="input_area highlight-ipython3 notranslate"><div class="highlight"><pre><span></span>models = {&quot;wald&quot;: fitted_wald, &quot;gamma&quot;: fitted_gamma}
-df_compare = az.compare(models)
-df_compare
-</pre></div>
-</div>
-</div>
-<div class="nboutput nblast docutils container">
-<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[13]:
-</pre></div>
-</div>
-<div class="output_area rendered_html docutils container">
-<div>
-<style scoped>
-    .dataframe tbody tr th:only-of-type {
-        vertical-align: middle;
-    }
-
-    .dataframe tbody tr th {
-        vertical-align: top;
-    }
-
-    .dataframe thead th {
-        text-align: right;
-    }
-</style>
-<table border="1" class="dataframe">
-  <thead>
-    <tr style="text-align: right;">
-      <th></th>
-      <th>rank</th>
-      <th>loo</th>
-      <th>p_loo</th>
-      <th>d_loo</th>
-      <th>weight</th>
-      <th>se</th>
-      <th>dse</th>
-      <th>warning</th>
-      <th>loo_scale</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <th>wald</th>
-      <td>0</td>
-      <td>-38581.528593</td>
-      <td>12.987415</td>
-      <td>0.000000</td>
-      <td>1.0</td>
-      <td>106.066095</td>
-      <td>0.000000</td>
-      <td>False</td>
-      <td>log</td>
-    </tr>
-    <tr>
-      <th>gamma</th>
-      <td>1</td>
-      <td>-39629.299736</td>
-      <td>27.090234</td>
-      <td>1047.771143</td>
-      <td>0.0</td>
-      <td>104.999828</td>
-      <td>35.741461</td>
-      <td>False</td>
-      <td>log</td>
-    </tr>
-  </tbody>
-</table>
-</div></div>
-</div>
-<div class="nbinput docutils container">
-<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[14]:
-</pre></div>
-</div>
-<div class="input_area highlight-ipython3 notranslate"><div class="highlight"><pre><span></span>az.plot_compare(df_compare, insample_dev=False);
-</pre></div>
-</div>
-</div>
-<div class="nboutput nblast docutils container">
-<div class="prompt empty docutils container">
-</div>
-<div class="output_area docutils container">
-<img alt="../_images/notebooks_wald_gamma_glm_28_0.png" src="../_images/notebooks_wald_gamma_glm_28_0.png" />
-</div>
-</div>
-<p>By default, ArviZ uses <em>loo</em>, which is an estimation of leave one out cross-validation. Another option is the widely applicable information criterion (WAIC). Since the results are in the log scale, the better out-of-sample predictive fit is given by the model with the highest value, which is the Wald model.</p>
-<div class="nbinput docutils container">
-<div class="prompt highlight-none notranslate"><div class="highlight"><pre><span></span>[15]:
 </pre></div>
 </div>
 <div class="input_area highlight-ipython3 notranslate"><div class="highlight"><pre><span></span>%load_ext watermark
@@ -1556,24 +1072,23 @@ df_compare
 </div>
 <div class="output_area docutils container">
 <div class="highlight"><pre>
-Last updated: Wed Jun 01 2022
+Last updated: Thu Dec 08 2022
 
 Python implementation: CPython
-Python version       : 3.9.7
-IPython version      : 8.3.0
+Python version       : 3.9.0
+IPython version      : 8.6.0
 
-arviz     : 0.12.1
-matplotlib: 3.5.1
-sys       : 3.9.7 (default, Sep 16 2021, 13:09:58)
-[GCC 7.5.0]
-numpy     : 1.21.5
-bambi     : 0.7.1
+numpy     : 1.23.4
+bambi     : 0.9.1
+matplotlib: 3.5.2
+pandas    : 1.5.1
+scipy     : 1.9.3
+arviz     : 0.15.0.dev0
 
-Watermark: 2.3.0
+Watermark: 2.3.1
 
 </pre></div></div>
 </div>
-</section>
 </section>
 
 
@@ -1584,17 +1099,17 @@ Watermark: 2.3.0
             <footer class="bd-footer-article">
                 <!-- Previous / next buttons -->
 <div class='prev-next-area'>
-  <a class='left-prev' id="prev-link" href="alternative_links_binary.html" title="previous page">
+  <a class='left-prev' id="prev-link" href="circular_regression.html" title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
           <p class="prev-next-subtitle">previous</p>
-          <p class="prev-next-title">Regression for Binary responses: Alternative link functions</p>
+          <p class="prev-next-title">Circular Regression</p>
       </div>
   </a>
-  <a class='right-next' id="next-link" href="negative_binomial.html" title="next page">
+  <a class='right-next' id="next-link" href="../api_reference.html" title="next page">
   <div class="prev-next-info">
       <p class="prev-next-subtitle">next</p>
-      <p class="prev-next-title">Negative Binomial Regression (Students absence example)</p>
+      <p class="prev-next-title">API Reference</p>
   </div>
   <i class="fa-solid fa-angle-right"></i>
   </a>
@@ -1614,41 +1129,14 @@ Watermark: 2.3.0
 </div>
 <nav id="bd-toc-nav" class="page-toc">
     <ul class="visible nav section-nav flex-column">
- <li class="toc-h2 nav-item toc-entry">
-  <a class="reference internal nav-link" href="#Load-and-examine-Vehicle-insurance-data">
-   Load and examine Vehicle insurance data
+ <li class="toc-h1 nav-item toc-entry">
+  <a class="reference internal nav-link" href="#">
+   Quantile Regression
   </a>
  </li>
- <li class="toc-h2 nav-item toc-entry">
-  <a class="reference internal nav-link" href="#Wald-family">
-   Wald family
-  </a>
- </li>
- <li class="toc-h2 nav-item toc-entry">
-  <a class="reference internal nav-link" href="#Gamma-family">
-   Gamma family
-  </a>
- </li>
- <li class="toc-h2 nav-item toc-entry">
-  <a class="reference internal nav-link" href="#Model-fit">
-   Model fit
-  </a>
-  <ul class="visible nav section-nav flex-column">
-   <li class="toc-h3 nav-item toc-entry">
-    <a class="reference internal nav-link" href="#Wald">
-     Wald
-    </a>
-   </li>
-   <li class="toc-h3 nav-item toc-entry">
-    <a class="reference internal nav-link" href="#Gamma">
-     Gamma
-    </a>
-   </li>
-  </ul>
- </li>
- <li class="toc-h2 nav-item toc-entry">
-  <a class="reference internal nav-link" href="#Model-comparison">
-   Model comparison
+ <li class="toc-h1 nav-item toc-entry">
+  <a class="reference internal nav-link" href="#Asymmetric-Laplace-distribution">
+   Asymmetric Laplace distribution
   </a>
  </li>
 </ul>
@@ -1668,7 +1156,7 @@ Watermark: 2.3.0
 <div class="toc-item">
   
 <div class="tocsection sourcelink">
-    <a href="../_sources/notebooks/wald_gamma_glm.ipynb.txt">
+    <a href="../_sources/notebooks/quantile_regression.ipynb.txt">
         <i class="fa-solid fa-file-lines"></i> Show Source
     </a>
 </div>

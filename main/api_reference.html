@@ -6,7 +6,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="generator" content="Docutils 0.19: https://docutils.sourceforge.io/" />
 
-    <title>API Reference &#8212; Bambi 0.9.1 documentation</title>
+    <title>API Reference &#8212; Bambi 0.9.3 documentation</title>
   
   
   
@@ -45,7 +45,7 @@
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" />
     <link rel="next" title="Frequently Asked Questions" href="faq.html" />
-    <link rel="prev" title="Circular Regression" href="notebooks/circular_regression.html" />
+    <link rel="prev" title="Quantile Regression" href="notebooks/quantile_regression.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="docsearch:language" content="en">
   </head>
@@ -856,7 +856,7 @@ in GLM jargon. Does not need to be specified when <code class="docutils literal 
 <li><p><strong>linkinv</strong> (<em>function</em>) – A function that maps the linear predictor to the response. Known as the <span class="math notranslate nohighlight">\(g^{-1}\)</span>
 function in GLM jargon. Does not need to be specified when <code class="docutils literal notranslate"><span class="pre">name</span></code> is a known name.</p></li>
 <li><p><strong>linkinv_backend</strong> (<em>function</em>) – Same than <code class="docutils literal notranslate"><span class="pre">linkinv</span></code> but must be something that works with PyMC backend (i.e. it must
-work with Aesara tensors). Does not need to be specified when <code class="docutils literal notranslate"><span class="pre">name</span></code> is a known
+work with PyTensor tensors). Does not need to be specified when <code class="docutils literal notranslate"><span class="pre">name</span></code> is a known
 name.</p></li>
 </ul>
 </dd>
@@ -911,11 +911,11 @@ Run <code class="docutils literal notranslate"><span class="pre">bmb.clear_data_
             <footer class="bd-footer-article">
                 <!-- Previous / next buttons -->
 <div class='prev-next-area'>
-  <a class='left-prev' id="prev-link" href="notebooks/circular_regression.html" title="previous page">
+  <a class='left-prev' id="prev-link" href="notebooks/quantile_regression.html" title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
           <p class="prev-next-subtitle">previous</p>
-          <p class="prev-next-title">Circular Regression</p>
+          <p class="prev-next-title">Quantile Regression</p>
       </div>
   </a>
   <a class='right-next' id="next-link" href="faq.html" title="next page">
