@@ -60,6 +60,7 @@ class DistributionalComponent:
             self.build_common_terms(pymc_backend, bmb_model)
             self.build_hsgp_terms(pymc_backend, bmb_model)
             self.build_group_specific_terms(pymc_backend, bmb_model)
+            # TODO: here add non-linear expressions
 
     def build_intercept(self, bmb_model):
         if self.has_intercept:
@@ -163,6 +164,34 @@ class DistributionalComponent:
         # Create and build the response term
         response_term = ResponseTerm(response_term, bmb_model.family)
         response_term.build(pymc_backend, bmb_model)
+
+    def build_non_linear_expressions(self, pymc_backend, bmb_model):
+        if self.component.nlexprs:
+            for nlexpr in self.component.nlexprs:
+                for param in nlexpr.constant_parameters:
+                    nlexpr.nlpars[param] # need to make ConstantComponent
+
+                for param in nlexpr.distributional_parameters:
+                    nlexpr.nlpars[param] # need to make DistributionalComponent
+
+                if param not in self.nlpars:
+                    self.nlpars[param] = NonLinearParameter(
+                        param,
+                        ConstantComponent(param, priors[param], self.spec),
+                        self.prefix
+                    )
+            for param in nlexpr.distributional_parameters:
+                if param not in self.nlpars:
+                    formula = nlexpr.formulas[param]
+                    design = fm.design_matrices(formula, self.spec.data, "error", self.design.env)
+                    self.nlpars[param] = NonLinearParameter(
+                        param, 
+                        DistributionalComponent(design, priors[param], param, "param", self.spec),
+                        self.prefix
+                    )
+        
+        self.output += ...
+        # TODO: implement!
 
     def add_response_coords(self, pymc_backend, bmb_model):
         response_term = bmb_model.response_component.response_term

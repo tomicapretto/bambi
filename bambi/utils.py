@@ -1,7 +1,9 @@
-from typing import Sequence
+from typing import Sequence, Dict, List
 
 import ast
 import textwrap
+
+from functools import singledispatch
 
 import formulae as fm
 import numpy as np
@@ -190,3 +192,153 @@ def remove_common_intercept(dm: fm.matrices.DesignMatrices) -> fm.matrices.Desig
     intercept_slice = dm.common.slices.pop("Intercept")
     dm.common.design_matrix = np.delete(dm.common.design_matrix, intercept_slice, axis=1)
     return dm
+
+
+@singledispatch
+def accept(node):
+    return ast.unparse(node)
+
+
+@accept.register(ast.BinOp)
+def _(node):
+    # TODO: how should this work for "-" symbols?
+    # TODO: It does not work if there's no "Add" op
+    if isinstance(node.op, ast.Add):
+        return [accept(node.left), accept(node.right)]
+    return ast.unparse(node)
+
+
+def flatten_list(x):
+    output = []
+    for element in x:
+        if isinstance(element, list):
+            output += flatten_list(element)
+        else:
+            output.append(element)
+    return output
+
+
+def split_top_level_terms(formula):
+    terms_list = accept(ast.parse(formula).body[0].value)
+    return flatten_list(terms_list)
+
+
+def get_terminal_names(expr) -> List[str]:
+    """Get names of variables from an expression omitting names of callables
+
+    Examples
+    --------
+    "a * f(x, y)" -> ['a', 'x', 'y']
+    "a * f(x, f(y))" -> ['a', 'x', 'y'] 
+    "a * f(x, f(y), np.exp(z)) + np.log(f(y), f(m))" -> ['a', 'x', 'y', 'm', 'y', 'z']
+    """
+    names = []
+    ast_expr = ast.parse(expr)
+    for node in ast.walk(ast_expr):
+        if isinstance(node, ast.Name):
+            names.append(node.id)
+
+    for node in ast.walk(ast_expr):
+        if isinstance(node, ast.Call):
+            if isinstance(node.func, ast.Attribute):
+                names.remove(node.func.value.id)
+            elif isinstance(node.func, ast.Name):
+                names.remove(node.func.id)
+    return names
+
+
+class NonLinearExpression:
+    """NonLinearExpression for a Bambi model
+
+    Parameters
+    ----------
+    expression : str
+        A mathematical expression containing a non-linear equation.
+    parameters : Sequence[str]
+        The names of the parameters involved in the non-linear equation.
+    variables : Sequence[str]
+        The names of the data variables involved in the non-linear equation.
+    formulas : Dict[str, str]
+        A mapping between each parameter and a model formula indicating how each parameter is
+        related to predictor variables.
+    """
+    def __init__(self, expression, parameters, variables, formulas: Dict[str, str]):
+        if not set(formulas).issubset(set(parameters)):
+            raise ValueError("At least one formula doesn't match any parameter.")
+        
+        self.expression = expression
+        self.parameters = parameters
+        self.variables = variables
+        
+        self.constant_parameters = []
+        self.distributional_parameters = []
+
+        for parameter in self.parameters:
+            if parameter not in formulas:
+                formulas[parameter] = f"{parameter} ~ 1"
+                self.constant_parameters.add(parameter)
+            else:
+                self.distributional_parameters.add(parameter)
+        self.formulas = formulas
+
+    @property
+    def callable(self):
+        arguments = ", ".join(self.parameters + self.variables)
+        code = f"lambda {arguments}: {self.expression}"
+        return eval(code)
+
+    def __repr__(self):
+        parameters = ["    * " + param for param in self.parameters]
+        variables = ["    * " + param for param in self.variables]
+        body = (
+            "\n"
+            "  Expression\n" +
+            "    " +  self.expression + "\n" +
+            "  Parameters\n" + 
+            "\n".join(parameters) + "\n"
+            "  Variables\n" +
+            "\n".join(variables)
+        )
+        return f"{self.__class__.__name__}{body}\n"
+    
+
+def extract_nlexprs(formula, nlpars=None) -> str:
+    formula_out = ""
+    nlexprs = []
+    if nlpars is not None:
+        expressions = split_top_level_terms(formula)
+        for expression in expressions:
+            names = get_terminal_names(expression)
+            parameters = [name for name in names if name in nlpars]
+            if not parameters:
+                if formula_out == "":
+                    formula_out += expression
+                else:
+                    formula_out += " + " + expression
+                continue
+            variables = [name for name in names if name not in parameters]
+            nlexprs.append(NonLinearExpression(expression, parameters, variables, {}))
+
+    return formula_out, nlexprs
+
+
+class NonLinearParameter:
+    def __init__(self, name, component, prefix):
+        self._name = name
+        self.component = component
+        self.prefix = prefix
+
+    @property
+    def name(self):
+        if self.prefix:
+            return f"{self.prefix}_{self._name}"
+        return self._name
+    
+    @property
+    def alias(self):
+        return self._alias
+
+    @alias.setter
+    def alias(self, value):
+        assert isinstance(value, str), "Alias must be a string"
+        self._alias = value

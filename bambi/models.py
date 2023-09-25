@@ -20,6 +20,7 @@ from bambi.priors import Prior, PriorScaler
 from bambi.transformations import transformations_namespace
 from bambi.utils import (
     clean_formula_lhs,
+    extract_nlexprs,
     get_aliased_name,
     get_auxiliary_parameters,
     indentify,
@@ -86,9 +87,14 @@ class Model:
     noncentered : bool
         If ``True`` (default), uses a non-centered parameterization for normal hyperpriors on
         grouped parameters. If ``False``, naive (centered) parameterization is used.
+    center_predictors : bool
+        If ``True`` (default), predictors are mean centered. It usually improves the sampling 
+        process but it changes the interpretation of the intercept.
     extra_namespace : dict, optional
         Additional user supplied variables with transformations or data to include in the
         environment where the formula is evaluated. Defaults to `None`.
+    nlpars : Sequence[str]
+        Names of parameters in the formula that must be treated as non-linear parameters. 
     """
 
     # pylint: disable=too-many-instance-attributes
@@ -106,6 +112,7 @@ class Model:
         noncentered=True,
         center_predictors=True,
         extra_namespace=None,
+        nlpars=None,
     ):
         # attributes that are set later
         self.components = {}  # Constant and Distributional components
@@ -135,6 +142,11 @@ class Model:
         priors = {} if priors is None else deepcopy(priors)
 
         # Obtain design matrices and related objects.
+        # TO DO: We need a better strategy to decide how to treat missing values since
+        # there are many different design matrices which can be based on different
+        # predictors. 
+        # The fix I envision is some action where we use all variables involved
+        # in all formulas, either to drop rows or to raise an error.
         na_action = "drop" if dropna else "error"
 
         # Handle additional namespaces
@@ -154,14 +166,23 @@ class Model:
             # Notice the intercept is added so formulae constrains categorical predictors, avoiding
             # linear dependencies with the cutpoints.
             # Then the intercept is removed from the design matrix because of the cutpoints.
+
+            # TODO: Handle non-linear expressions
+            if nlpars:
+                raise UserWarning("'nlpars' is not used for ordinal models")
+
             design = fm.design_matrices(
                 self.formula.main + " + 1", self.data, na_action, 1, additional_namespace
             )
             design = remove_common_intercept(design)
         else:
-            design = fm.design_matrices(
-                self.formula.main, self.data, na_action, 1, additional_namespace
-            )
+            # Handle non-linear parameters and expressions
+            if nlpars:
+                _formula, nlexprs = extract_nlexprs(self.formula.main, nlpars)
+            else:
+                _formula, nlexprs = self.formula.main, None
+
+            design = fm.design_matrices(_formula, self.data, na_action, 1, additional_namespace)
 
         if design.response is None:
             raise ValueError(
@@ -177,7 +198,7 @@ class Model:
             response_prior = priors
 
         self.components[self.response_name] = DistributionalComponent(
-            design, response_prior, self.response_name, "data", self
+            design, response_prior, self.response_name, "data", self, nlexprs
         )
 
         # Get auxiliary parameters, so we add either distributional components or constant ones

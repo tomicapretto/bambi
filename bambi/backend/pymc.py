@@ -66,6 +66,7 @@ class PyMCModel:
                 self.components[name].build(self, spec)
 
             for name, component in spec.distributional_components.items():
+                # TODO: We need to update this to incorporate non-linear expressions?
                 self.components[name] = DistributionalComponent(component)
                 self.components[name].build(self, spec)
 

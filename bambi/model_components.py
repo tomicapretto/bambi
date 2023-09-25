@@ -6,7 +6,7 @@ from bambi.defaults import get_default_prior
 from bambi.families import univariate, multivariate
 from bambi.priors import Prior
 from bambi.terms import CommonTerm, GroupSpecificTerm, HSGPTerm, OffsetTerm, ResponseTerm
-from bambi.utils import get_aliased_name, is_hsgp_term
+from bambi.utils import get_aliased_name, is_hsgp_term, NonLinearParameter
 
 
 class ConstantComponent:
@@ -56,9 +56,11 @@ class DistributionalComponent:
         parameter of the family.
     spec : bambi.Model
         The Bambi model
+    nlexprs : Sequence[NonLinearExpression]
+        The non-linear expressions that contribute to this distributional component.
     """
 
-    def __init__(self, design, priors, response_name, response_kind, spec):
+    def __init__(self, design, priors, response_name, response_kind, spec, nlexprs=None):
         self.terms = {}
         self.alias = None
         self.design = design
@@ -66,6 +68,8 @@ class DistributionalComponent:
         self.response_kind = response_kind
         self.spec = spec
         self.prefix = "" if response_kind == "data" else response_name
+        self.nlexprs = nlexprs
+        self.nlpars = dict()
 
         if self.design.common:
             self.add_common_terms(priors)
@@ -76,6 +80,9 @@ class DistributionalComponent:
 
         if self.design.response:
             self.add_response_term()
+
+        if self.nlexprs:
+            self.add_nlpars()
 
     def add_common_terms(self, priors):
         for name, term in self.design.common.terms.items():
@@ -128,6 +135,31 @@ class DistributionalComponent:
 
         self.terms[response.name] = ResponseTerm(response, self.spec.family)
 
+    def add_nlpars(self, priors):
+        """Adds non-linear parameters to the component.
+
+        Non-linear parameters can also be modelled as a function of predictors. 
+        Because of that, these parameters can be represented with a DistributionalComponent.
+        """
+        # TO DO: handle prefixes
+        for nlexpr in self.nlexprs:
+            for param in nlexpr.constant_parameters:
+                if param not in self.nlpars:
+                    self.nlpars[param] = NonLinearParameter(
+                        param,
+                        ConstantComponent(param, priors[param], self.spec),
+                        self.prefix
+                    )
+            for param in nlexpr.distributional_parameters:
+                if param not in self.nlpars:
+                    formula = nlexpr.formulas[param]
+                    design = fm.design_matrices(formula, self.spec.data, "error", self.design.env)
+                    self.nlpars[param] = NonLinearParameter(
+                        param, 
+                        DistributionalComponent(design, priors[param], param, "param", self.spec),
+                        self.prefix
+                    )
+
     def build_priors(self):
         for term in self.terms.values():
             if isinstance(term, GroupSpecificTerm):
@@ -144,16 +176,23 @@ class DistributionalComponent:
                 kind = "common"
             term.prior = prepare_prior(term.prior, kind, self.spec.auto_scale)
 
+
     def update_priors(self, priors):
         """Update priors
 
         Parameters
         ----------
         priors : dict
-            Names are terms, values a priors.
+            Names are terms or non-linear parameters, values a priors.
         """
         for name, value in priors.items():
-            self.terms[name].prior = value
+            if name in self.terms:
+                self.terms[name].prior = value
+            elif name in self.nlpars:
+                # Works for both ConstantComponent and DistributionalComponent
+                self.nlpars[name].update_priors(value)
+            else:
+                raise ValueError(f"'{name}' is neither a term name nor a parameter name.")
 
     def predict(
         self, idata, data=None, include_group_specific=True, hsgp_dict=None, sample_new_groups=False
@@ -190,6 +229,30 @@ class DistributionalComponent:
             linear_predictor += self.predict_group_specific(
                 posterior, data, in_sample, to_stack_dims, design_matrix_dims, sample_new_groups
             )
+
+        if self.nlexprs:
+            for nlexpr in self.nlexprs:
+                callable_args = []
+                # It's important to first add parameters and then variables
+                # This is how the function is built in NonLinearExpression
+                for parameter in nlexpr.parameters:
+                    parameter_component = self.nlpars[parameter]
+                    if isinstance(parameter_component, ConstantComponent):
+                        parameter_name = get_aliased_name(parameter_component)
+                        values = posterior[parameter_name].to_numpy()
+                    else:
+                        values = parameter_component.predict(
+                            idata, data, include_group_specific, hsgp_dict, sample_new_groups
+                        )
+                    callable_args.append(np.asarray(values))
+                for variable in nlexpr.variables:
+                    if in_sample:
+                        values = self.spec.data[variable] 
+                    else:
+                        values = data[variable]
+                    callable_args.append(np.asarray(values))
+               
+                linear_predictor += nlexpr.callable(*callable_args)
 
         # Sort dimensions
         linear_predictor = linear_predictor.transpose(*linear_predictor_dims)
