@@ -88,13 +88,13 @@ class Model:
         If ``True`` (default), uses a non-centered parameterization for normal hyperpriors on
         grouped parameters. If ``False``, naive (centered) parameterization is used.
     center_predictors : bool
-        If ``True`` (default), predictors are mean centered. It usually improves the sampling 
+        If ``True`` (default), predictors are mean centered. It usually improves the sampling
         process but it changes the interpretation of the intercept.
     extra_namespace : dict, optional
         Additional user supplied variables with transformations or data to include in the
         environment where the formula is evaluated. Defaults to `None`.
     nlpars : Sequence[str]
-        Names of parameters in the formula that must be treated as non-linear parameters. 
+        Names of parameters in the formula that must be treated as non-linear parameters.
     """
 
     # pylint: disable=too-many-instance-attributes
@@ -144,7 +144,7 @@ class Model:
         # Obtain design matrices and related objects.
         # TO DO: We need a better strategy to decide how to treat missing values since
         # there are many different design matrices which can be based on different
-        # predictors. 
+        # predictors.
         # The fix I envision is some action where we use all variables involved
         # in all formulas, either to drop rows or to raise an error.
         na_action = "drop" if dropna else "error"

@@ -82,7 +82,7 @@ class DistributionalComponent:
             self.add_response_term()
 
         if self.nlexprs:
-            self.add_nlpars()
+            self.add_nlpars(priors)
 
     def add_common_terms(self, priors):
         for name, term in self.design.common.terms.items():
@@ -138,7 +138,7 @@ class DistributionalComponent:
     def add_nlpars(self, priors):
         """Adds non-linear parameters to the component.
 
-        Non-linear parameters can also be modelled as a function of predictors. 
+        Non-linear parameters can also be modelled as a function of predictors.
         Because of that, these parameters can be represented with a DistributionalComponent.
         """
         # TO DO: handle prefixes
@@ -146,18 +146,16 @@ class DistributionalComponent:
             for param in nlexpr.constant_parameters:
                 if param not in self.nlpars:
                     self.nlpars[param] = NonLinearParameter(
-                        param,
-                        ConstantComponent(param, priors[param], self.spec),
-                        self.prefix
+                        param, ConstantComponent(param, priors[param], self.spec), self.prefix
                     )
             for param in nlexpr.distributional_parameters:
                 if param not in self.nlpars:
                     formula = nlexpr.formulas[param]
                     design = fm.design_matrices(formula, self.spec.data, "error", self.design.env)
                     self.nlpars[param] = NonLinearParameter(
-                        param, 
+                        param,
                         DistributionalComponent(design, priors[param], param, "param", self.spec),
-                        self.prefix
+                        self.prefix,
                     )
 
     def build_priors(self):
@@ -175,7 +173,6 @@ class DistributionalComponent:
             else:
                 kind = "common"
             term.prior = prepare_prior(term.prior, kind, self.spec.auto_scale)
-
 
     def update_priors(self, priors):
         """Update priors
@@ -247,11 +244,11 @@ class DistributionalComponent:
                     callable_args.append(np.asarray(values))
                 for variable in nlexpr.variables:
                     if in_sample:
-                        values = self.spec.data[variable] 
+                        values = self.spec.data[variable]
                     else:
                         values = data[variable]
                     callable_args.append(np.asarray(values))
-               
+
                 linear_predictor += nlexpr.callable(*callable_args)
 
         # Sort dimensions

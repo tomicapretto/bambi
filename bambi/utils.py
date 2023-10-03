@@ -220,7 +220,7 @@ def flatten_list(x):
 
 def split_top_level_terms(formula):
     terms_list = accept(ast.parse(formula).body[0].value)
-    return flatten_list(terms_list)
+    return flatten_list(listify(terms_list))
 
 
 def get_terminal_names(expr) -> List[str]:
@@ -229,7 +229,7 @@ def get_terminal_names(expr) -> List[str]:
     Examples
     --------
     "a * f(x, y)" -> ['a', 'x', 'y']
-    "a * f(x, f(y))" -> ['a', 'x', 'y'] 
+    "a * f(x, f(y))" -> ['a', 'x', 'y']
     "a * f(x, f(y), np.exp(z)) + np.log(f(y), f(m))" -> ['a', 'x', 'y', 'm', 'y', 'z']
     """
     names = []
@@ -262,23 +262,24 @@ class NonLinearExpression:
         A mapping between each parameter and a model formula indicating how each parameter is
         related to predictor variables.
     """
+
     def __init__(self, expression, parameters, variables, formulas: Dict[str, str]):
         if not set(formulas).issubset(set(parameters)):
             raise ValueError("At least one formula doesn't match any parameter.")
-        
+
         self.expression = expression
         self.parameters = parameters
         self.variables = variables
-        
+
         self.constant_parameters = []
         self.distributional_parameters = []
 
         for parameter in self.parameters:
             if parameter not in formulas:
                 formulas[parameter] = f"{parameter} ~ 1"
-                self.constant_parameters.add(parameter)
+                self.constant_parameters.append(parameter)
             else:
-                self.distributional_parameters.add(parameter)
+                self.distributional_parameters.append(parameter)
         self.formulas = formulas
 
     @property
@@ -292,26 +293,34 @@ class NonLinearExpression:
         variables = ["    * " + param for param in self.variables]
         body = (
             "\n"
-            "  Expression\n" +
-            "    " +  self.expression + "\n" +
-            "  Parameters\n" + 
-            "\n".join(parameters) + "\n"
-            "  Variables\n" +
-            "\n".join(variables)
+            "  Expression\n"
+            + "    "
+            + self.expression
+            + "\n"
+            + "  Parameters\n"
+            + "\n".join(parameters)
+            + "\n"
+            "  Variables\n" + "\n".join(variables)
         )
         return f"{self.__class__.__name__}{body}\n"
-    
+
 
 def extract_nlexprs(formula, nlpars=None) -> str:
-    formula_out = ""
+    md = fm.model_description(formula)  # There must be a response
+    if md.response is not None:
+        formula_out, formula_right = formula.split("~")
+        formula_out = formula_out + "~ "
+        formula_right = formula_right.strip()
+    else:
+        raise ValueError("!!!")
     nlexprs = []
     if nlpars is not None:
-        expressions = split_top_level_terms(formula)
+        expressions = split_top_level_terms(formula_right)
         for expression in expressions:
             names = get_terminal_names(expression)
             parameters = [name for name in names if name in nlpars]
             if not parameters:
-                if formula_out == "":
+                if formula_out[-2:] == "~ ":
                     formula_out += expression
                 else:
                     formula_out += " + " + expression
@@ -333,7 +342,7 @@ class NonLinearParameter:
         if self.prefix:
             return f"{self.prefix}_{self._name}"
         return self._name
-    
+
     @property
     def alias(self):
         return self._alias

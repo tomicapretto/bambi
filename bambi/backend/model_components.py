@@ -60,7 +60,7 @@ class DistributionalComponent:
             self.build_common_terms(pymc_backend, bmb_model)
             self.build_hsgp_terms(pymc_backend, bmb_model)
             self.build_group_specific_terms(pymc_backend, bmb_model)
-            # TODO: here add non-linear expressions
+            self.build_non_linear_expressions(pymc_backend, bmb_model)
 
     def build_intercept(self, bmb_model):
         if self.has_intercept:
@@ -167,31 +167,26 @@ class DistributionalComponent:
 
     def build_non_linear_expressions(self, pymc_backend, bmb_model):
         if self.component.nlexprs:
+            namespace = {}
             for nlexpr in self.component.nlexprs:
                 for param in nlexpr.constant_parameters:
-                    nlexpr.nlpars[param] # need to make ConstantComponent
+                    # TO DO: It's quite likely we need to keep the constant component somewhere
+                    nlpar = self.component.nlpars[param]
+                    component = ConstantComponent(nlpar.component)
+                    component.build(pymc_backend, bmb_model)
+                    namespace[param] = component.output
 
                 for param in nlexpr.distributional_parameters:
-                    nlexpr.nlpars[param] # need to make DistributionalComponent
+                    # TO DO: It's quite likely we need to keep the distributional component somewhere
+                    nlpar = self.component.nlpars[param]
+                    component = DistributionalComponent(nlpar.component)
+                    component.build(pymc_backend, bmb_model)
+                    namespace[param] = component.output
 
-                if param not in self.nlpars:
-                    self.nlpars[param] = NonLinearParameter(
-                        param,
-                        ConstantComponent(param, priors[param], self.spec),
-                        self.prefix
-                    )
-            for param in nlexpr.distributional_parameters:
-                if param not in self.nlpars:
-                    formula = nlexpr.formulas[param]
-                    design = fm.design_matrices(formula, self.spec.data, "error", self.design.env)
-                    self.nlpars[param] = NonLinearParameter(
-                        param, 
-                        DistributionalComponent(design, priors[param], param, "param", self.spec),
-                        self.prefix
-                    )
-        
-        self.output += ...
-        # TODO: implement!
+                for variable in nlexpr.variables:
+                    namespace[variable] = np.asarray(bmb_model.data[variable])
+
+            self.output += nlexpr.callable(**namespace)
 
     def add_response_coords(self, pymc_backend, bmb_model):
         response_term = bmb_model.response_component.response_term
