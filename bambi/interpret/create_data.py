@@ -121,6 +121,7 @@ def _pairwise_grid(data_dict: dict) -> pd.DataFrame:
         generate predictions.
     """
     keys, values = zip(*data_dict.items())
+    #values = [np.asarray(value) for value in values]
     cross_joined_data = pd.DataFrame([dict(zip(keys, v)) for v in itertools.product(*values)])
     return cross_joined_data
 
@@ -228,15 +229,21 @@ def set_default_values(model: Model, data_dict: dict) -> dict:
     pass them in the data_dict.
     """
     # set unspecified covariates to "typical" values
+    # NOTE: Maybe it's the intersection between covariates and variables in 'model.data'?
     unique_covariates = get_model_covariates(model)
     for name in unique_covariates:
         if name not in data_dict:
-            x = model.data[name]
+            # Hotfix: Some variables are flagged as covariates when they're variables taken
+            # from an outer environment and not the data frame
+            try:
+                x = model.data[name]
+            except KeyError:
+                continue
             if is_numeric_dtype(x) or is_integer_dtype(x) or is_float_dtype(x):
                 data_dict[name] = np.array([np.mean(x)])
             elif is_categorical_dtype(x) or is_string_dtype(x) or is_object_dtype(x):
                 data_dict[name] = np.array([mode(x)])
             else:
                 raise TypeError(f"Unsupported data type of {x.dtype} for covariate '{name}'")
-
+    
     return data_dict
