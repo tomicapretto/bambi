@@ -6,6 +6,48 @@ import pandas as pd
 from bambi.interpret.utils import Covariates, get_group_offset, identity
 
 
+def build_mask(data, **kwargs):
+    if not kwargs:
+        return slice(None)  # Equivalent to selecting all rows
+    mask = np.array([True] * len(data))
+    for var_name, var_value in kwargs.items():
+        mask = mask & (data[var_name] == var_value).to_numpy()
+    return mask
+
+
+def plot_numeric_1d(covariates: Covariates, data: pd.DataFrame, axes):
+    y_mean = data["estimate"].to_numpy()
+    y_bounds = np.transpose(data[data.columns[-2:]].to_numpy())
+
+    main_var, color_var, panel_var = covariates.main, covariates.group, covariates.panel
+
+    main_values = data[main_var].to_numpy()
+    color_values = data[color_var].to_numpy() if color_var is not None else None
+    panel_values = data[panel_var].to_numpy() if panel_var is not None else None
+
+    colors = ...
+    panels = ...
+
+    for i, (ax, color, panel) in enumerate(zip(axes.ravel(), colors, panels)):
+        mask = build_mask(
+            data,
+        )
+
+        ax.plot(main_values[mask], y_mean[mask], color=f"C{i}", solid_capstyle="butt")
+        ax.fill_between(
+            main_values[mask],
+            y_bounds[0][mask],
+            y_bounds[1][mask],
+            alpha=0.4,
+            color=f"C{i}",
+        )
+
+        # pnl = ...
+        # ax.set(title=f"{panel} = {pnl}")
+
+    return axes
+
+
 def plot_numeric(
     covariates: Covariates,
     plot_data: pd.DataFrame,
