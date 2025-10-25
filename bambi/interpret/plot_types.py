@@ -21,6 +21,8 @@ def plot_numeric_1d(covariates: Covariates, data: pd.DataFrame, axes):
 
     main_var, color_var, panel_var = covariates.main, covariates.group, covariates.panel
 
+    # TODO: Need to find a way with itertools to create the right combinations that we pass to
+    # `build_mask`.
     main_values = data[main_var].to_numpy()
     color_values = data[color_var].to_numpy() if color_var is not None else None
     panel_values = data[panel_var].to_numpy() if panel_var is not None else None
