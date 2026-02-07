@@ -1,4 +1,6 @@
+import numpy as np
 import pymc as pm
+import pytensor.tensor as pt
 
 from bambi.backend.new_pymc.coords import (
     coords_from_common,
@@ -84,9 +86,71 @@ class Model:
         # 5. Build response, again grabbing stuff from the PyMC model.
 
 
+class CommonTerm:
+    def __init__(self, term):
+        self.term = term
+        self.coords = coords_from_common(self.term)
+        self.data_name = f"{self.term.name}_data"
+        self.data_dims = None
+        self.param_name = None
+
+    def register_data(self, model):
+        if self.data_name in model:
+            return None
+
+        # FIXME: `self.term.data` already has interaction columns flattened...
+        # How do we handle coords?
+        self.data_dims = ["__obs__", *self.coords, *model.__bambi_attrs__["output_coords"]]
+        pm.Data(self.data_name, self.term.data, dims=self.data_dims, model=model)
+
+    def register_parameter(self, model):
+        # NOTE:
+        #   When repsonse_ndim == 2 we need to use `pt.atleast_2d`
+        #   Otherwise, we use `pt.atleast_1d`.
+        # NOTE:
+        #   Do we check if it's in the model before adding it?
+        # NOTE:
+        #   When len(term.coords) > 1, we need to reshape.
+        #   When output_ndim == 1: x.reshape(-1)
+        #   When output_ndim == 2: x.reshape(-1, x.shape[-1])
+        coords = self.coords | model.__bambi_attrs__["output_coords"]
+        dims = tuple(coords)
+        shape = tuple(len(coord) for coord in coords.values())
+
+        kwargs = {
+            name: np.broadcast_to(value, shape) for name, value in self.term.prior.args.items()
+        }
+
+        dist = get_distribution_from_prior(self.term.prior)
+        dist(self.param_name, **kwargs, dims=dims, model=model)
+
+
 class MarginalParameter:
     """Global, free parameter shared across observations."""
 
 
 class ConditionalParameter:
     """Deterministic parameter computed as a function of data and other parameters."""
+
+
+MAPPING = {"Cumulative": pm.Categorical, "StoppingRatio": pm.Categorical}
+
+
+def get_distribution(dist):
+    """Return a PyMC distribution."""
+    if isinstance(dist, str):
+        if dist in MAPPING:
+            dist = MAPPING[dist]
+        elif hasattr(pm, dist):
+            dist = getattr(pm, dist)
+        else:
+            raise ValueError(f"The Distribution '{dist}' was not found in PyMC")
+    return dist
+
+
+def get_distribution_from_prior(prior):
+    if prior.dist is not None:
+        distribution = prior.dist
+    else:
+        distribution = get_distribution(prior.name)
+    return distribution
