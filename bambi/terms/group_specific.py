@@ -7,13 +7,14 @@ from bambi.priors.prior import Prior
 
 
 class GroupSpecificTerm(BaseTerm):  # pylint: disable=too-many-instance-attributes
-    def __init__(self, term, prior, prefix=None):
+    def __init__(self, term, prior, prefix=None, noncentered=True):
         self._hyperprior_alias = {}
         self.term = term
         self.prior = prior
         self.data = term.data
         self.group_index = self.invert_dummies(self.grouper)
         self.prefix = prefix
+        self.noncentered = noncentered
 
     def invert_dummies(self, dummies):
         """Invert dummies
@@ -34,19 +35,6 @@ class GroupSpecificTerm(BaseTerm):  # pylint: disable=too-many-instance-attribut
     def term(self, value):
         assert isinstance(value, formulae.terms.terms.GroupSpecificTerm)
         self._term = value
-
-    @property
-    def coords(self):
-        # The group is _always_ added as a coordinate. Maybe there's a cleaner way
-        coords = {}
-        expr, factor = self.name.split("|")
-        coords[factor + "__factor_dim"] = self.groups
-
-        if self.categorical:
-            coords[expr + "__expr_dim"] = self.term.expr.levels
-        elif self.predictor.ndim == 2 and self.predictor.shape[1] > 1:
-            coords[expr + "__expr_dim"] = np.arange(self.predictor.shape[1])
-        return coords
 
     @property
     def data(self):
@@ -109,6 +97,12 @@ class GroupSpecificTerm(BaseTerm):  # pylint: disable=too-many-instance-attribut
 
     @property
     def hyperprior_alias(self):
+        # TODO: How do we handle aliases of hyperpriors? I think we could directly update
+        # the aliases of the underlying expressions and factors.
+        # Actually, the code for the hyperpriors is not allowing those to be changed.
+        # It uses the alias of the parameter + the name of the hyperparameter.
+        # i.e. it adds mu/sigma if the hyperparameter is called mu or sigma, without being able
+        # to change it.
         return self._hyperprior_alias
 
     @hyperprior_alias.setter

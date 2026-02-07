@@ -1,9 +1,17 @@
 import inspect
+import functools
 
-from functools import partial
-
-import pytensor.tensor as pt
 import pymc as pm
+import pytensor.tensor as pt
+
+from bambi.backend.pymc.links import (
+    cloglog,
+    identity,
+    inverse_squared,
+    logit,
+    probit,
+)
+from pytensor.tensor.special import softmax
 
 
 def horseshoe(name, tau_nu=3, lam_nu=1, dims=None):
@@ -39,6 +47,17 @@ def horseshoe(name, tau_nu=3, lam_nu=1, dims=None):
 
 MAPPING = {"Cumulative": pm.Categorical, "StoppingRatio": pm.Categorical, "Horseshoe": horseshoe}
 
+INVERSE_LINKS = {
+    "cloglog": cloglog,
+    "identity": identity,
+    "inverse_squared": inverse_squared,
+    "inverse": pt.reciprocal,
+    "log": pt.exp,
+    "logit": logit,
+    "probit": probit,
+    "softmax": functools.partial(softmax, axis=-1),
+}
+
 
 def get_distribution(dist):
     """Return a PyMC distribution."""
@@ -65,49 +84,6 @@ def get_distribution_from_likelihood(likelihood):
     It works because both `Prior` and `Likelihood` instances have a `name` and a `dist` argument.
     """
     return get_distribution_from_prior(likelihood)
-
-
-def get_linkinv(link, invlinks):
-    """Get the inverse of the link function as needed by PyMC
-
-    Parameters
-    ----------
-    link : bmb.Link
-        A link function object. It may contain the linkinv function that the backend uses.
-    invlinks : dict
-        Keys are names of link functions. Values are the built-in link functions.
-
-    Returns
-    -------
-        callable
-        The link function.
-    """
-    # If the name is in the backend, get it from there
-    if link.name in invlinks:
-        invlink = invlinks[link.name]
-    # If not, use whatever is in `linkinv_backend`
-    else:
-        invlink = link.linkinv_backend
-    return invlink
-
-
-def exp_quad(sigma, ell, input_dim=1):
-    return sigma**2 * pm.gp.cov.ExpQuad(input_dim, ls=ell)
-
-
-def matern32(sigma, ell, input_dim=1):
-    return sigma**2 * pm.gp.cov.Matern32(input_dim, ls=ell)
-
-
-def matern52(sigma, ell, input_dim=1):
-    return sigma**2 * pm.gp.cov.Matern52(input_dim, ls=ell)
-
-
-GP_KERNELS = {
-    "ExpQuad": {"fn": exp_quad, "params": ("sigma", "ell")},
-    "Matern32": {"fn": matern32, "params": ("sigma", "ell")},
-    "Matern52": {"fn": matern52, "params": ("sigma", "ell")},
-}
 
 
 def make_weighted_logp(dist: pm.Distribution):
@@ -183,7 +159,7 @@ def make_weighted_distribution(dist: pm.Distribution):
             return pm.CustomDist(
                 name,
                 *dist_params,
-                logp=partial(wlogp, weights=weights),
+                logp=functools.partial(wlogp, weights=weights),
                 dist=cdist,
                 class_name=class_name,
                 **kwargs,
@@ -195,7 +171,7 @@ def make_weighted_distribution(dist: pm.Distribution):
             weights = 1 if "weights" not in kwargs else kwargs.pop("weights")
             return pm.CustomDist.dist(
                 *dist_params,
-                logp=partial(wlogp, weights=weights),
+                logp=functools.partial(wlogp, weights=weights),
                 dist=cdist,
                 class_name=class_name,
                 **kwargs,
