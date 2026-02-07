@@ -57,6 +57,14 @@ class BaseTerm(ABC):
     def ndim(self):
         return len(self.shape)
 
+    @property
+    def components(self):
+        return self.term.components
+
+    @property
+    def spans_intercept(self):
+        return self.term.spans_intercept
+
     def make_str(self, extras=None):
         args = [
             f"name: {self.name}",
