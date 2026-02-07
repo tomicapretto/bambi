@@ -9,6 +9,9 @@ from bambi.utils import get_aliased_name, response_evaluate_new_data
 
 class UnivariateFamily(Family):
     KIND = "Univariate"
+    ORDINAL = False
+    OUTCOME_NDIM = 1
+    PARAMETER_NDIM = 1
 
 
 class BinomialBaseFamily(UnivariateFamily):
@@ -128,6 +131,7 @@ class Binomial(BinomialBaseFamily):
 class Categorical(UnivariateFamily):
     SUPPORTED_LINKS = {"p": ["softmax"]}
     INVLINK_KWARGS = {"axis": -1}
+    PARAMETER_NDIM = 2
 
     # pylint: disable = unused-argument
     @staticmethod
@@ -174,6 +178,8 @@ class Categorical(UnivariateFamily):
 
 class Cumulative(UnivariateFamily):
     SUPPORTED_LINKS = {"p": ["logit", "probit", "cloglog"], "threshold": ["identity"]}
+    PARAMETER_NDIM = 2
+    ORDINAL = True
 
     def get_data(self, response):
         return np.nonzero(response.term.data)[1]
@@ -347,6 +353,8 @@ class Poisson(UnivariateFamily):
 
 class StoppingRatio(UnivariateFamily):
     SUPPORTED_LINKS = {"p": ["logit", "probit", "cloglog"], "threshold": ["identity"]}
+    PARAMETER_NDIM = 2
+    ORDINAL = True
 
     def get_data(self, response):
         return np.nonzero(response.term.data)[1]
