@@ -36,25 +36,6 @@ class Model:
 
         return coords
 
-    def register_data(self):
-        response_dims = list(self._response_coords)
-        response_ndim = len(response_dims)
-
-        for parameter in self.bambi_model.conditional_parameters.values():
-            for name, term in parameter.common_terms.items():
-                term_dims = [response_dims[0]] + list(coords_from_common(term))
-                if response_ndim == 2:
-                    term_dims.append(response_dims[1])
-                pm.Data(f"{name}_data", term.data, dims=term_dims)
-
-            # FIXME: For group specific effects we register more than a single data container
-            #        Also, we may use sparse matrices or slicing.
-            #        There's not a single way to register it.
-            for name, term in parameter.group_specific_terms.items():
-                term_dims = [response_dims[0]] + list(coords_from_group_specific(term))
-                if response_ndim == 2:
-                    term_dims.append(response_dims[1])
-
     def build(self):
         ## Global process:
         # 1. Build dims and coordinates
@@ -70,6 +51,7 @@ class Model:
         # for parameter in self.bambi_model.marginal_parameters:
         #     ...
         coords = self.get_coords()
+        model = pm.Model(coords=coords)
 
         with pm.Model(coords=coords) as model:
             # 2. Build data containers -> Has
@@ -98,10 +80,18 @@ class CommonTerm:
         if self.data_name in model:
             return None
 
-        # FIXME: `self.term.data` already has interaction columns flattened...
-        # How do we handle coords?
+        output_ndim = model.__bambi_attrs__["output_ndim"]
         self.data_dims = ["__obs__", *self.coords, *model.__bambi_attrs__["output_coords"]]
-        pm.Data(self.data_name, self.term.data, dims=self.data_dims, model=model)
+
+        if output_ndim == 1:
+            data_shape = (self.term.data.shape[0], -1)
+        elif output_ndim == 2:
+            data_shape = (self.term.data.shape[0], -1, self.term.data.shape[-1])
+        else:
+            raise ValueError("panic")
+
+        data = np.reshape(self.term.data, data_shape)
+        pm.Data(self.data_name, data, dims=self.data_dims, model=model)
 
     def register_parameter(self, model):
         # NOTE:
@@ -131,6 +121,18 @@ class MarginalParameter:
 
 class ConditionalParameter:
     """Deterministic parameter computed as a function of data and other parameters."""
+
+    def __init__(self, parameter):
+        self.bambi_parameter = parameter
+
+    def build(self, model):
+        self.build_common(model)
+
+    def build_common(self, model):
+        terms = []
+
+    def build_group_specific(self):
+        pass
 
 
 MAPPING = {"Cumulative": pm.Categorical, "StoppingRatio": pm.Categorical}
