@@ -29,6 +29,7 @@ def build_group_specific_term(term, model):
 
 
 def _build_distribution(prior, label, dims_expr, dims_factor, noncentered, model):
+    # NOTE: Do we really need this recursive function? Do we really allow for > 2 level hierarchies?
     kwargs = {}
     for key, value in prior.args.items():
         if isinstance(value, Prior):

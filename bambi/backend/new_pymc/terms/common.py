@@ -34,6 +34,10 @@ def build_common_term(term, model):
     param_name = term.name
     coords = coords_from_common(term)
 
+    # Register coords
+    if data_name not in model or param_name not in model:
+        model.add_coords(coords)
+
     # Register data
     if data_name not in model:
         output_ndim = model.__bambi_attrs__["output_ndim"]
