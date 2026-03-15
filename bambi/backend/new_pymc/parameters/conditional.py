@@ -55,6 +55,30 @@ class ConditionalParameter:
         # 'pt.dot(data, params)' is of shape (n, ) or (n, K)
         return pt.dot(data, params)
 
+    # def _build_group_specific_dot(self, model):
+    #     data_blocks = []
+    #     param_blocks = []
+    #     for term in self.spec.group_specific_terms.values():
+    #         data, param = build_group_specific_term_dot(term, model)
+    #         data_blocks.append(data)
+    #         param_blocks.append(param)
+
+    #     # Design matrix Z: shape (n, q)
+    #     data = sp.sparse.hstack(data_blocks, format="csr")
+
+    #     # Coefficients array: shape (q, ) or (q, k)
+    #     coefs = pt.concatenate(param_blocks, axis=0)
+
+    #     if coefs.ndim == 1:
+    #          # PyTensor expects 2D
+    #         coefs = coefs[:, np.newaxis]
+
+    #     # (n, ) or (n, K)
+    #     # FIXME: Do we always need to squeeze?
+    #     return ps.structured_dot(data, coefs).squeeze()
+
+    def _build_group_specific_idx(self): ...
+
     def build_group_specific(self):
         as_multivariate = False
         coefs = []
@@ -120,72 +144,72 @@ class ConditionalParameter:
 
                 contribution += term_contribution
 
-        for term in self.spec.group_specific_terms.values():
-            group_specific_term = GroupSpecificTerm(term, bmb_model.noncentered)
-            # Add coords
-            for name, values in group_specific_term.coords.items():
-                if name not in pymc_backend.model.coords:
-                    pymc_backend.model.add_coords({name: values})
+        # for term in self.spec.group_specific_terms.values():
+        #     group_specific_term = GroupSpecificTerm(term, bmb_model.noncentered)
+        #     # Add coords
+        #     for name, values in group_specific_term.coords.items():
+        #         if name not in pymc_backend.model.coords:
+        #             pymc_backend.model.add_coords({name: values})
 
-            coefs.append(group_specific_term.build(bmb_model))
-            columns.append(term.data)
-            predictors.append(term.predictor)
-            group_indexes.append(term.group_index)
+        #     coefs.append(group_specific_term.build(bmb_model))
+        #     columns.append(term.data)
+        #     predictors.append(term.predictor)
+        #     group_indexes.append(term.group_index)
 
-        if bmb_config["SPARSE_DOT"]:
-            coefs_reshaped = []
-            for coef in coefs:
-                if as_multivariate and coef.ndim == 3:
-                    # (f_j, e_j, k) -> (f_j * e_j, k)
-                    coef_reshaped = coef.reshape(-1, coef.shape[-1])
-                elif not as_multivariate and coef.ndim == 2:
-                    # (f_j, e_j) -> (f_j * e_j,)
-                    coef_reshaped = coef.flatten()
-                else:
-                    coef_reshaped = coef
+        # if bmb_config["SPARSE_DOT"]:
+        #     coefs_reshaped = []
+        #     for coef in coefs:
+        #         if as_multivariate and coef.ndim == 3:
+        #             # (f_j, e_j, k) -> (f_j * e_j, k)
+        #             coef_reshaped = coef.reshape(-1, coef.shape[-1])
+        #         elif not as_multivariate and coef.ndim == 2:
+        #             # (f_j, e_j) -> (f_j * e_j,)
+        #             coef_reshaped = coef.flatten()
+        #         else:
+        #             coef_reshaped = coef
 
-                coefs_reshaped.append(coef_reshaped)
+        #         coefs_reshaped.append(coef_reshaped)
 
-            # Design matrix Z: shape (n, q)
-            data = sp.sparse.hstack(columns, format="csr")
+        #     # Design matrix Z: shape (n, q)
+        #     data = sp.sparse.hstack(columns, format="csr")
 
-            # Coefficients: shape (q, ) or (q, k)
-            coefs = pt.concatenate(coefs_reshaped, axis=0)
+        #     # Coefficients: shape (q, ) or (q, k)
+        #     coefs = pt.concatenate(coefs_reshaped, axis=0)
 
-            if not as_multivariate:
-                coefs = coefs[:, np.newaxis]  # PyTensor expects 2D
+        #     if not as_multivariate:
+        #         coefs = coefs[:, np.newaxis]  # PyTensor expects 2D
 
-            contribution = ps.structured_dot(data, coefs).squeeze()  # (n, ) or (n, k)
-        else:
-            contribution = 0
-            for coef, predictor, group_index in zip(coefs, predictors, group_indexes):
-                # The following code is short, but not simple.
-                #
-                # With multivariate models, we have:
-                # When predictor.ndim > 1
-                #     (n, e_j, k) * (n, e_j, 1) -> (n, e_j, k)
-                #     (n, e_j, k).sum(1) -> (n, k)
-                # Else
-                #     (n, k) * (n, 1) -> (n, k)
-                #
-                # And with univariate models, we have:
-                # When predictor.ndim > 1
-                #     (n, e_j) * (n, e_j) -> (n, e_j)
-                #     (n, e_j).sum(1) -> (n, )
-                # Else
-                #     (n, ) * (1, ) -> (n, )
-                coef = coef[group_index]
-                predictor_ndim = predictor.ndim
+        #     contribution = ps.structured_dot(data, coefs).squeeze()  # (n, ) or (n, k)
+        # else:
+        #     contribution = 0
+        #     for coef, predictor, group_index in zip(coefs, predictors, group_indexes):
+        #         # The following code is short, but not simple.
+        #         #
+        #         # With multivariate models, we have:
+        #         # When predictor.ndim > 1
+        #         #     (n, e_j, k) * (n, e_j, 1) -> (n, e_j, k)
+        #         #     (n, e_j, k).sum(1) -> (n, k)
+        #         # Else
+        #         #     (n, k) * (n, 1) -> (n, k)
+        #         #
+        #         # And with univariate models, we have:
+        #         # When predictor.ndim > 1
+        #         #     (n, e_j) * (n, e_j) -> (n, e_j)
+        #         #     (n, e_j).sum(1) -> (n, )
+        #         # Else
+        #         #     (n, ) * (1, ) -> (n, )
+        #         coef = coef[group_index]
+        #         predictor_ndim = predictor.ndim
 
-                if as_multivariate:
-                    predictor = predictor[:, np.newaxis]
+        #         if as_multivariate:
+        #             predictor = predictor[:, np.newaxis]
 
-                term_contribution = coef * predictor
+        #         term_contribution = coef * predictor
 
-                if predictor_ndim > 1:
-                    term_contribution = term_contribution.sum(axis=1)
+        #         if predictor_ndim > 1:
+        #             term_contribution = term_contribution.sum(axis=1)
 
-                contribution += term_contribution
+        #         contribution += term_contribution
 
-        # 'contribution' is of shape (n, ) or (n, k)
-        self.output += contribution
+        # # 'contribution' is of shape (n, ) or (n, k)
+        # self.output += contribution
