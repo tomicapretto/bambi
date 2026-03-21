@@ -2,14 +2,14 @@ import numpy as np
 
 
 def coords_from_response(term):
-    # TODO: Build _levels
     # TODO: Let's try to not make this a 'family' thing, rather something the visitor decides.
     coords = {"__obs__": np.arange(term.shape[0])}
     if hasattr(term.family, "get_coords"):
-        return term.family.get_coords(term)
-    return {}
+        coords.update(term.family.get_coords(term))
+    return coords
 
 
+# TODO: Term has to have "label" instead of name. It's the alias if there's one, else it's name.
 def coords_from_term(term):
     # Single numeric
     if term.kind == "numeric":

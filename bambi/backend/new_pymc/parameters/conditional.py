@@ -6,88 +6,136 @@ import scipy as sp
 
 from bambi.backend.new_pymc.terms import (
     build_common_term,
-    build_intercept_term,
     build_group_specific_term_dot,
+    build_intercept_term,
+    build_group_specific_term_idx,
 )
 from bambi.config import config as bmb_config
 
+INVLINKS = {}
 
-class ConditionalParameter:
-    """Deterministic parameter computed as a function of data and other parameters."""
 
-    def __init__(self, parameter):
-        self.spec = parameter
+def _get_ensure_ndim(model):
+    if model.__bambi_attrs__["output_ndim"] == 1:
+        return pt.atleast_1d
+    return pt.atleast_2d
 
-    def build(self, model):
-        self.value = 0
-        if self.spec.intercept_term:
-            self.value += self.build_intercept(model)
 
-        if self.spec.common_terms:
-            self.value += self.build_common(model)
+def _build_intercept(term, model):
+    ensure_ndim = _get_ensure_ndim(model)
+    return ensure_ndim(build_intercept_term(term, model))
 
-        if self.spec.group_specific_terms:
-            self.value += self.build_group_specific(model)
 
-    def build_intercept(self, model):
-        if model.__bambi_attrs__["output_ndim"] == 1:
-            ensure_ndim = pt.atleast_1d
-        else:
-            ensure_ndim = pt.atleast_2d
+def _build_common(terms, center, model):
+    data_list = []
+    param_list = []
+    ensure_ndim = _get_ensure_ndim(model)
 
-        return ensure_ndim(build_intercept_term(self.spec.intercept_term, model))
+    for term in terms.values():
+        data, param = build_common_term(term, model)
+        data_list.append(data)
+        param_list.append(ensure_ndim(param))
 
-    def build_common(self, model):
-        data_list = []
-        param_list = []
+    params = pt.concatenate(param_list, axis=0)  # (p, ) or (p, K)
+    data = pt.concatenate(data_list, axis=1)  # (n, p)
 
-        if model.__bambi_attrs__["output_ndim"] == 1:
-            ensure_ndim = pt.atleast_1d
-        else:
-            ensure_ndim = pt.atleast_2d
+    if center:
+        data = data - data.mean(0)
 
-        for term in self.spec.common_terms.values():
-            data, param = build_common_term(term, model)
+    # (n, ) or (n, K)
+    return pt.dot(data, params)
 
-            data_list.append(data)
-            param_list.append(ensure_ndim(param))
 
-        params = pt.concatenate(param_list, axis=0)  # (p, ) or (p, K)
-        data = pt.concatenate(data_list, axis=1)  # (n, p)
+def _build_group_specific(terms, model):
+    if bmb_config["SPARSE_DOT"]:
+        return _build_group_specific_dot(terms, model)
+    return _build_group_specific_idx(terms, model)
 
-        # TODO: Use deterministic if we center covariates.
-        # 'pt.dot(data, params)' is of shape (n, ) or (n, K)
-        return pt.dot(data, params)
 
-    def build_group_specific(self, model):
-        if bmb_config["SPARSE_DOT"]:
-            return self._build_group_specific_dot(self, model)
-        return self._build_group_specific_idx(self, model)
+def _build_group_specific_dot(terms, model):
+    data_blocks = []
+    param_blocks = []
+    for term in terms.values():
+        data, param = build_group_specific_term_dot(term, model)
+        data_blocks.append(data)
+        param_blocks.append(param)
 
-    def _build_group_specific_dot(self, model):
-        data_blocks = []
-        param_blocks = []
-        for term in self.spec.group_specific_terms.values():
-            data, param = build_group_specific_term_dot(term, model)
-            data_blocks.append(data)
-            param_blocks.append(param)
+    # Design matrix Z: shape (n, q)
+    data = sp.sparse.hstack(data_blocks, format="csr")
 
-        # Design matrix Z: shape (n, q)
-        data = sp.sparse.hstack(data_blocks, format="csr")
+    # Coefficients array: shape (q, ) or (q, K)
+    coefs = pt.concatenate(param_blocks, axis=0)
 
-        # Coefficients array: shape (q, ) or (q, K)
-        coefs = pt.concatenate(param_blocks, axis=0)
+    if coefs.ndim == 1:
+        # PyTensor expects 2D
+        coefs = coefs[:, np.newaxis]
 
-        if coefs.ndim == 1:
-            # PyTensor expects 2D
-            coefs = coefs[:, np.newaxis]
+    # (n, ) or (n, K)
+    # FIXME: Do we always need to squeeze?
+    return ps.structured_dot(data, coefs).squeeze()
 
-        # (n, ) or (n, K)
-        # FIXME: Do we always need to squeeze?
-        return ps.structured_dot(data, coefs).squeeze()
 
-    def _build_group_specific_idx(self, model):
-        contribution = 0
-        for term in self.spec.group_specific_terms.values():
-            contribution += build_group_specific_term_dot(term, model)
-        return contribution
+def _build_group_specific_idx(terms, model):
+    contribution = 0
+    for term in terms.values():
+        contribution += build_group_specific_term_idx(term, model)
+    return contribution
+
+
+def build_conditional_parameter(parameter, family, model):
+    value = 0
+    if parameter.intercept_term:
+        value += _build_intercept(parameter.intercept_term, model)
+
+    if parameter.common_terms:
+        # TODO: parameter.center_predictors should query the bambi model
+        center = parameter.intercept_term and parameter.center_predictors
+        value += _build_common(parameter.common_terms, center, model)
+
+    if parameter.group_specific_terms:
+        value += _build_group_specific(parameter.group_specific_terms, model)
+
+    # TODO: I move on as if parameters were already in place. This is necessarily not true
+    # We can specify dependencies between parameters in the model family, and build them
+    # in the appropriate order.
+    if hasattr(family, f"transform_{parameter.name}"):
+        transform_parameter = getattr(family, f"transform_{parameter.name}")
+        parameters_mapping = {
+            name: model[name] for name in family.likelihood.parameters if name != parameter.name
+        }
+        value = transform_parameter(value, parameters_mapping)
+
+    linkinv = get_linkinv(family.link[parameter.name], INVLINKS)
+
+    rv = pm.Deterministic(
+        parameter.label,
+        linkinv(value),
+        dims=tuple(model.__bambi_attrs__["output_coords"]),
+        model=model,
+    )
+
+    return rv
+
+
+def get_linkinv(link, invlinks):
+    """Get the inverse of the link function as needed by PyMC
+
+    Parameters
+    ----------
+    link : bmb.Link
+        A link function object. It may contain the linkinv function that the backend uses.
+    invlinks : dict
+        Keys are names of link functions. Values are the built-in link functions.
+
+    Returns
+    -------
+        callable
+        The link function.
+    """
+    # If the name is in the backend, get it from there
+    if link.name in invlinks:
+        invlink = invlinks[link.name]
+    # If not, use whatever is in `linkinv_backend`
+    else:
+        invlink = link.linkinv_backend
+    return invlink

@@ -41,8 +41,11 @@ def build_common_term(term, model):
         pm.Data(data_name, np.reshape(term.data, data_shape), dims=data_dims, model=model)
 
     # Register parameter
-    param_coords = coords | model.__bambi_attrs__["output_coords"]
-    param_dims = tuple(param_coords) or None
+    output_coords = {
+        k: v for k, v in model.__bambi_attrs__["output_coords"].items() if k != "__obs__"
+    }
+    param_coords = coords | output_coords
+    param_dims = tuple(param_coords)
     param_shape = tuple(len(coord) for coord in param_coords.values())
 
     # Makes sure arguments are of the shape implied by dims and their coords

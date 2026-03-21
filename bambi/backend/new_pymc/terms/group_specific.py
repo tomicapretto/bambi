@@ -34,7 +34,7 @@ def build_group_specific_term_dot(term, model):
     pm.Data(data_name, data, dims=data_dims, model=model)
 
     # Register parameter
-    dims_output = tuple(model.__bambi_attrs__["output_coords"])
+    dims_output = tuple(model.__bambi_attrs__["output_coords"])[1:]
     param_rv = build_distribution(
         prior=term.prior,
         label=param_name,
@@ -89,7 +89,7 @@ def build_group_specific_term_idx(term, model):
     group_idx_data = pm.Data(data_idx_name, term.group_index, dims=("__obs__",), model=model)
 
     # Register parameter
-    dims_output = tuple(model.__bambi_attrs__["output_coords"])
+    dims_output = tuple(model.__bambi_attrs__["output_coords"])[1:]
     param_rv = build_distribution(
         prior=term.prior,
         label=param_name,
