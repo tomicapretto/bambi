@@ -1,0 +1,92 @@
+import numpy as np
+import pymc as pm
+
+from bambi.backend.new_pymc.utils import (
+    make_weighted_distribution,
+    get_distribution_from_likelihood,
+)
+
+from bambi.backend.new_pymc.transform.register import PARAMETERS_MANIPULATIONS, DATA_MANIPULATIONS
+
+
+def build_response_term(term, parameters, family, model):
+    data = term.data
+    dims = tuple(model.__bambi_attrs__["response_coords"])
+    distribution = get_distribution_from_likelihood(family.likelihood)
+
+    manipulate_parameters = PARAMETERS_MANIPULATIONS.get((family,), None)
+    if manipulate_parameters:
+        parameters = manipulate_parameters(parameters)
+
+    if term.is_censored:
+        observed = data[:, 0]
+        censoring_code = data[:, 1]
+
+        is_left_censored = censoring_code == -1
+        is_right_censored = censoring_code == 1
+
+        lower = np.where(is_left_censored, observed, -np.inf)
+        upper = np.where(is_right_censored, observed, np.inf)
+        dist = distribution.dist(**parameters)
+        with model:
+            pm.Censored(term.label, dist, lower=lower, upper=upper, observed=observed, dims=dims)
+    elif term.is_truncated:
+        observed = data[:, 0]
+        lower = data[:, 1]
+        upper = data[:, 2]
+
+        # Handle 'None' and scalars appropriately
+        if np.all(lower == -np.inf):
+            lower = None
+        elif np.all(lower == lower[0]):
+            lower = lower[0]
+
+        if np.all(upper == np.inf):
+            upper = None
+        elif np.all(upper == upper[0]):
+            upper = upper[0]
+
+        dist = distribution.dist(**parameters)
+        with model:
+            pm.Truncated(term.label, dist, lower=lower, upper=upper, observed=observed, dims=dims)
+
+    elif term.is_constrained:
+        # Handle constrained responses through truncated distributions
+        observed = data[:, 0]
+        lower = data[:, 1]
+        upper = data[:, 2]
+
+        # Handle 'None' and scalars appropriately
+        if np.all(lower == -np.inf):
+            lower = None
+        elif np.all(lower == lower[0]):
+            lower = lower[0]
+
+        if np.all(upper == np.inf):
+            upper = None
+        elif np.all(upper == upper[0]):
+            upper = upper[0]
+
+        dist = distribution.dist(**parameters)
+        with model:
+            pm.Truncated(term.label, dist, lower=lower, upper=upper, observed=observed, dims=dims)
+
+    elif term.is_weighted:
+        observed = data[:, 0]
+        weights = data[:, 1]
+        weighted_dist = make_weighted_distribution(distribution)
+
+        with model:
+            weighted_dist(term.label, weights, **parameters, observed=observed, dims=dims)
+    else:
+
+        manipulate_data = DATA_MANIPULATIONS.get((family,), None)
+        if manipulate_data:
+            data_mapping = manipulate_data(data)
+        else:
+            data_mapping = {"observed": data}
+
+        # All of the other response kinds are not special and are thus handled the same way
+        distribution(term.label, **parameters, **data_mapping, dims=dims, model=model)
+
+    return None

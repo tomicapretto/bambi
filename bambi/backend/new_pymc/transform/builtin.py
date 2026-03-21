@@ -1,0 +1,177 @@
+import pytensor.tensor as pt
+
+from bambi.backend.new_pymc.transform.register import (
+    transform_additive_predictor,
+    manipulate_data,
+    manipulate_parameters,
+)
+
+from bambi.families.univariate import (
+    Beta,
+    BetaBinomial,
+    Binomial,
+    Categorical,
+    Cumulative,
+    Exponential,
+    Gamma,
+    HurdleGamma,
+    StoppingRatio,
+    Weibull,
+    ZeroInflatedBinomial,
+)
+
+from bambi.families.multivariate import Multinomial, DirichletMultinomial
+
+
+@manipulate_parameters(Beta)
+def _(parameters):
+    mu = parameters["mu"]
+    kappa = parameters["kappa"]
+    return {"alpha": mu * kappa, "beta": (1 - mu) * kappa}
+
+
+@manipulate_data(Binomial)
+def _(data):
+    return {"observed": data[:, 0], "n": data[:, 1]}
+
+
+@manipulate_parameters(BetaBinomial)
+def _(parameters):
+    mu = parameters["mu"]
+    kappa = parameters["kappa"]
+    return {"alpha": mu * kappa, "beta": (1 - mu) * kappa}
+
+
+@manipulate_data(BetaBinomial)
+def _(data):
+    return {"observed": data[:, 0], "n": data[:, 1]}
+
+
+@transform_additive_predictor(Categorical, "p")
+def _(predictor, parameters, inverse_link):
+    if predictor.ndim == 1:
+        zeros = pt.zeros(shape=(1,))
+    else:
+        zeros = pt.zeros(shape=(predictor.shape[0], 1))
+    return inverse_link(pt.concatenate((zeros, predictor), axis=-1))
+
+
+@transform_additive_predictor(Cumulative, "p")
+def _(predictor, parameters, inverse_link):
+    # P(Y = k) = F(threshold_k - predictor) - F(threshold_{k - 1} - predictor)
+    threshold = parameters["threshold"]
+
+    if predictor == 0:
+        # When the model does not have any predictors. PyMC will reshape accordingly.
+        predictor = threshold
+    else:
+        predictor = threshold - pt.shape_padright(predictor)
+
+    probability = inverse_link(predictor)
+    probability = pt.concatenate(
+        [
+            pt.shape_padright(probability[..., 0]),
+            probability[..., 1:] - probability[..., :-1],
+            pt.shape_padright(1 - probability[..., -1]),
+        ],
+        axis=-1,
+    )
+
+    return probability
+
+
+@manipulate_parameters(Cumulative)
+def _(parameters):
+    return {"p": parameters["p"]}
+
+
+@manipulate_data(DirichletMultinomial)
+def _(data):
+    return {"observed": data, "n": data.sum(axis=1).astype(int)}
+
+
+@manipulate_parameters(Exponential)
+def _(parameters):
+    return {"lam": 1 / parameters["mu"]}
+
+
+@manipulate_parameters(Gamma)
+def _(parameters):
+    return {
+        "mu": parameters["mu"],
+        "sigma": parameters["mu"] / (parameters["alpha"] ** 0.5),
+    }
+
+
+@manipulate_parameters(HurdleGamma)
+def _(parameters):
+    return {
+        "mu": parameters["mu"],
+        "sigma": parameters["mu"] / (parameters["alpha"] ** 0.5),
+        "psi": parameters["psi"],
+    }
+
+
+@transform_additive_predictor(Multinomial, "p")
+def _(predictor, parameters, inverse_link):
+    if predictor.ndim == 1:
+        zeros = pt.zeros(shape=(1,))
+    else:
+        zeros = pt.zeros(shape=(predictor.shape[0], 1))
+    return inverse_link(pt.concatenate((zeros, predictor), axis=-1))
+
+
+@manipulate_data(Multinomial)
+def _(data):
+    return {"observed": data, "n": data.sum(axis=1).astype(int)}
+
+
+@transform_additive_predictor(StoppingRatio, "p")
+def _(predictor, parameters, inverse_link):
+    # P(Y = k) = F(threshold_k - predictor) * prod_(j=1)^(k-1)(1 - F(threshold_j - predictor))
+    threshold = parameters["threshold"]
+
+    if predictor == 0:
+        # An additive predictors with no predictors, e.g. p ~ 0.
+        # shape: (K, )
+        predictor = threshold
+    else:
+        # shape: (n, K)
+        predictor = threshold - pt.shape_padright(predictor)
+
+    probability = inverse_link(predictor)
+    n_columns = probability.shape.eval()[-1]
+
+    probability = pt.concatenate(
+        [
+            pt.shape_padright(probability[..., 0]),
+            *[
+                pt.shape_padright(probability[..., j] * pt.prod(1 - probability[..., :j], axis=-1))
+                for j in range(1, n_columns)
+            ],
+            pt.shape_padright(pt.prod(1 - probability, axis=-1)),
+        ],
+        axis=-1,
+    )
+
+    return probability
+
+
+@manipulate_parameters(StoppingRatio)
+def _(parameters):
+    return {"p": parameters["p"]}
+
+
+@manipulate_parameters(Weibull)
+def _(parameters):
+    mu = parameters["mu"]
+    alpha = parameters["alpha"]
+    return {
+        "alpha": alpha,
+        "beta": mu / pt.gamma(1 + 1 / alpha),
+    }
+
+
+@manipulate_data(ZeroInflatedBinomial)
+def _(data):
+    return {"observed": data[:, 0], "n": data[:, 1]}
