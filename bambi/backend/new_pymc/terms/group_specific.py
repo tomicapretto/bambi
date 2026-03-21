@@ -13,6 +13,7 @@ from bambi.backend.new_pymc.utils import get_distribution_from_prior
 
 
 def build_group_specific_term_dot(term, model):
+    # NOTE: Can we assume data_name is unique?
     data_name = f"{term.name}_data"
     param_name = term.name
 
@@ -27,11 +28,10 @@ def build_group_specific_term_dot(term, model):
         model.add_coords(coords)
 
     # Register data (sparse matrix)
-    if data_name not in model:
-        data = term.data
-        data_dims = ("__obs__", f"{term.name}_col")
-        model.add_coords({data_dims[1]: np.arange(data.shape[1])})
-        pm.Data(data_name, data, dims=data_dims, model=model)
+    data = term.data
+    data_dims = ("__obs__", f"{term.name}_col")
+    model.add_coords({data_dims[1]: np.arange(data.shape[1])})
+    pm.Data(data_name, data, dims=data_dims, model=model)
 
     # Register parameter
     dims_output = tuple(model.__bambi_attrs__["output_coords"])
@@ -100,15 +100,22 @@ def build_group_specific_term_idx(term, model):
         model=model,
     )
 
-    if model.__bambi_attrs__["output_ndim"] > 1:
+    if dims_output:
+        # (n, )    -> (n, 1)
+        # (n, q_j) -> (n, q_j, 1)
         predictor_data = predictor_data[:, np.newaxis]
 
+    # (n, ) * (n, )             -> (n, )
+    # (n, q_j) * (n, q_j)       -> (n, q_j)
+    # (n, K) * (n, 1)           -> (n, K)
+    # (n, q_j, K) * (n, q_j, 1) -> (n, q_j, K)
     contribution = param_rv[group_idx_data] * predictor_data
     if dims_expr:
-        # (n, p_j) -> (n, )
-        # (n, p_j, K) -> (n, K)
+        # (n, q_j) -> (n, )
+        # (n, q_j, K) -> (n, K)
         contribution = contribution.sum(axis=1)
 
+    # NOTE: This returns something already done, the others return multiple things
     return contribution
 
 
