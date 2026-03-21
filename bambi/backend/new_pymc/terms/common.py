@@ -25,11 +25,6 @@ def build_common_term(term, model):
     ValueError
         _description_
     """
-    # NOTE:
-    #   When len(term.coords) > 1, we need to reshape.
-    #   When output_ndim == 1: x.reshape(-1)
-    #   When output_ndim == 2: x.reshape(-1, x.shape[-1])
-
     data_name = f"{term.name}_data"
     param_name = term.name
     coords = coords_from_common(term)
@@ -40,28 +35,19 @@ def build_common_term(term, model):
 
     # Register data
     if data_name not in model:
-        output_ndim = model.__bambi_attrs__["output_ndim"]
-        data_dims = ("__obs__", *coords, *model.__bambi_attrs__["output_coords"])
-
-        if output_ndim == 1:
-            data_shape = (term.data.shape[0], -1)
-        elif output_ndim == 2:
-            data_shape = (term.data.shape[0], -1, term.data.shape[-1])
-        else:
-            raise ValueError("oh no!")
-
+        # Reshapes to 2D if not already
+        data_dims = ("__obs__", *coords)
+        data_shape = (term.data.shape[0], -1)
         pm.Data(data_name, np.reshape(term.data, data_shape), dims=data_dims, model=model)
 
     # Register parameter
-    if param_name not in model:
-        param_coords = coords | model.__bambi_attrs__["output_coords"]
-        param_dims = tuple(param_coords) or None
-        param_shape = tuple(len(coord) for coord in param_coords.values())
+    param_coords = coords | model.__bambi_attrs__["output_coords"]
+    param_dims = tuple(param_coords) or None
+    param_shape = tuple(len(coord) for coord in param_coords.values())
 
-        kwargs = {
-            name: np.broadcast_to(value, param_shape) for name, value in term.prior.args.items()
-        }
-        dist = get_distribution_from_prior(term.prior)
-        dist(param_name, **kwargs, dims=param_dims, model=model)
+    # Makes sure arguments are of the shape implied by dims and their coords
+    kwargs = {name: np.broadcast_to(value, param_shape) for name, value in term.prior.args.items()}
+    dist = get_distribution_from_prior(term.prior)
+    dist(param_name, **kwargs, dims=param_dims, model=model)
 
     return model[data_name], model[param_name]
