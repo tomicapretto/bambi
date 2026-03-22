@@ -38,7 +38,7 @@ def build_hsgp_term(term, model):
     covariance_functions = build_covariance_function(term, model)
 
     # Prepare dims
-    coeff_dims = (f"{term.name}_weights_dim",)
+    coeff_dims = (f"{term.label}_weights_dim",)
     contribution_dims = ("__obs__",)
 
     # Data may be scaled so the maximum Euclidean distance between two points is 1
@@ -49,7 +49,7 @@ def build_hsgp_term(term, model):
 
     # Build HSGP and store it in the term.
     if term.by_levels is not None:
-        coeff_dims = coeff_dims + (f"{term.name}_by",)
+        coeff_dims = coeff_dims + (f"{term.label}_by",)
         phi_list, sqrt_psd_list = [], []
         term.hsgp = {}
 
@@ -92,12 +92,12 @@ def build_hsgp_term(term, model):
 
     # Build weights coefficient
     # Handle the case where the outcome is multivariate
-    if model.__bambi_attrs__["output_ndim"] == 2:
+    if model.__bambi_attrs__["response_ndim"] == 2:
         # Append the dims of the response variables to the coefficient and contribution dims
         # In general:
         # coeff_dims: ('weights_dim', ) -> ('weights_dim', f'{response}_dim')
         # contribution_dims: ('__obs__', ) -> ('__obs__', f'{response}_dim')
-        response_dims = tuple(model.__bambi_attrs__["output_coords"])
+        response_dims = tuple(model.__bambi_attrs__["response_coords"])
         coeff_dims = coeff_dims + response_dims
         contribution_dims = contribution_dims + response_dims
 
@@ -105,10 +105,10 @@ def build_hsgp_term(term, model):
         sqrt_psd = sqrt_psd[:, np.newaxis]
 
     if term.centered:
-        coeffs = pm.Normal(f"{term.name}_weights", sigma=sqrt_psd, dims=coeff_dims)
+        coeffs = pm.Normal(f"{term.label}_weights", sigma=sqrt_psd, dims=coeff_dims)
     else:
-        coeffs_raw = pm.Normal(f"{term.name}_weights_raw", dims=coeff_dims)
-        coeffs = pm.Deterministic(f"{term.name}_weights", coeffs_raw * sqrt_psd, dims=coeff_dims)
+        coeffs_raw = pm.Normal(f"{term.label}_weights_raw", dims=coeff_dims)
+        coeffs = pm.Deterministic(f"{term.label}_weights", coeffs_raw * sqrt_psd, dims=coeff_dims)
 
     # Build deterministic for the HSGP contribution
     # If there are groups, we do as many dot products as groups
@@ -122,7 +122,7 @@ def build_hsgp_term(term, model):
     else:
         contribution = pt.dot(phi, coeffs)  # "@" operator is not working as expected
 
-    return pm.Deterministic(term.name, contribution, dims=contribution_dims, model=model)
+    return pm.Deterministic(term.label, contribution, dims=contribution_dims, model=model)
 
 
 def build_covariance_function(term, model):
@@ -133,7 +133,7 @@ def build_covariance_function(term, model):
 
     # Set dimensions and behavior for priors that are actually fixed (floats or ints)
     if term.by_levels is not None and not term.share_cov:
-        dims = (f"{term.name}_by",)
+        dims = (f"{term.label}_by",)
         recycle = True
     else:
         dims = tuple()
@@ -147,8 +147,8 @@ def build_covariance_function(term, model):
             dist = get_distribution_from_prior(prior)
             # varying lengthscale parameter
             if param_name == "ell" and not term.iso and term.shape[1] > 1:
-                param_dims = (f"{term.name}_var",) + param_dims
-            value = dist(f"{term.name}_{param_name}", **prior.args, dims=param_dims, model=model)
+                param_dims = (f"{term.label}_var",) + param_dims
+            value = dist(f"{term.label}_{param_name}", **prior.args, dims=param_dims, model=model)
         else:
             # The value is constant
             if recycle:

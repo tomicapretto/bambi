@@ -14,8 +14,8 @@ from bambi.backend.new_pymc.utils import get_distribution_from_prior
 
 def build_group_specific_term_dot(term, model):
     # NOTE: Can we assume data_name is unique?
-    data_name = f"{term.name}_data"
-    param_name = term.name
+    data_name = f"{term.label}_data"
+    param_name = term.label
 
     coords_expr, coords_factor = coords_from_group_specific(term)
     coords = coords_factor | coords_expr
@@ -29,12 +29,12 @@ def build_group_specific_term_dot(term, model):
 
     # Register data (sparse matrix)
     data = term.data
-    data_dims = ("__obs__", f"{term.name}_col")
+    data_dims = ("__obs__", f"{term.label}_col")
     model.add_coords({data_dims[1]: np.arange(data.shape[1])})
     pm.Data(data_name, data, dims=data_dims, model=model)
 
     # Register parameter
-    dims_output = tuple(model.__bambi_attrs__["output_coords"])[1:]
+    dims_output = tuple(model.__bambi_attrs__["response_coords"])[1:]
     param_rv = build_distribution(
         prior=term.prior,
         label=param_name,
@@ -56,12 +56,9 @@ def build_group_specific_term_dot(term, model):
 
 
 def build_group_specific_term_idx(term, model):
-    # Names should be unique, no need to check)
-    # TODO: What is the term.name we want to have here? Full term? Expr?
-    # Expr for data, and Factor for group?
-    data_value_name = f"{term.name}_data"
-    data_idx_name = f"{term.name}_idx"
-    param_name = term.name
+    data_value_name = f"{term.label}_data"
+    data_idx_name = f"{term.label}_idx"
+    param_name = term.label
 
     coords = term.coords.copy()
     if len(coords) == 1:
@@ -89,7 +86,7 @@ def build_group_specific_term_idx(term, model):
     group_idx_data = pm.Data(data_idx_name, term.group_index, dims=("__obs__",), model=model)
 
     # Register parameter
-    dims_output = tuple(model.__bambi_attrs__["output_coords"])[1:]
+    dims_output = tuple(model.__bambi_attrs__["response_coords"])[1:]
     param_rv = build_distribution(
         prior=term.prior,
         label=param_name,

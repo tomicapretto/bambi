@@ -1,22 +1,19 @@
 import numpy as np
 import pymc as pm
 
-
-def get_distribution_from_likelihood(*args, **kwargs):
-    return ...
-
-
-def make_weighted_distribution(*args, **kwargs):
-    return ...
+from bambi.backend.new_pymc.utils import (
+    make_weighted_distribution,
+    get_distribution_from_likelihood,
+)
 
 
 def build_response_term(term, parameters, family, model):
     kwargs = parameters | {
         "observed": term.data,
-        "dims": tuple(model.__bambi_attrs__["output_coords"]),
+        "dims": tuple(model.__bambi_attrs__["response_coords"]),
     }
-    if hasattr(family, "transform_kwargs"):
-        kwargs = family.transform_parameters(kwargs)
+    if hasattr(family, "transform_response_kwargs"):
+        kwargs = family.transform_response_kwargs(kwargs)
 
     distribution = get_distribution_from_likelihood(family.likelihood)
 
@@ -109,6 +106,6 @@ def build_response_term(term, parameters, family, model):
             weighted_dist(term.label, weights, **kwargs, observed=observed, dims=dims)
     else:
         # All of the other response kinds are not special and are thus handled the same way
-        distribution(term.label, **kwargs)
+        distribution(term.label, **kwargs, model=model)
 
     return None

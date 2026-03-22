@@ -10,13 +10,14 @@ from bambi.backend.new_pymc.terms import (
     build_intercept_term,
     build_group_specific_term_idx,
 )
+from bambi.backend.new_pymc.utils import get_linkinv
 from bambi.config import config as bmb_config
 
 INVLINKS = {}
 
 
 def _get_ensure_ndim(model):
-    if model.__bambi_attrs__["output_ndim"] == 1:
+    if model.__bambi_attrs__["response_ndim"] == 1:
         return pt.atleast_1d
     return pt.atleast_2d
 
@@ -98,44 +99,20 @@ def build_conditional_parameter(parameter, family, model):
     # TODO: I move on as if parameters were already in place. This is necessarily not true
     # We can specify dependencies between parameters in the model family, and build them
     # in the appropriate order.
-    if hasattr(family, f"transform_{parameter.name}"):
-        transform_parameter = getattr(family, f"transform_{parameter.name}")
+    if hasattr(family, f"transform_{parameter.label}"):
+        transform_parameter = getattr(family, f"transform_{parameter.label}")
         parameters_mapping = {
-            name: model[name] for name in family.likelihood.parameters if name != parameter.name
+            name: model[name] for name in family.likelihood.parameters if name != parameter.label
         }
         value = transform_parameter(value, parameters_mapping)
 
-    linkinv = get_linkinv(family.link[parameter.name], INVLINKS)
+    linkinv = get_linkinv(family.link[parameter.label], INVLINKS)
 
     rv = pm.Deterministic(
         parameter.label,
         linkinv(value),
-        dims=tuple(model.__bambi_attrs__["output_coords"]),
+        dims=tuple(model.__bambi_attrs__["response_coords"]),
         model=model,
     )
 
     return rv
-
-
-def get_linkinv(link, invlinks):
-    """Get the inverse of the link function as needed by PyMC
-
-    Parameters
-    ----------
-    link : bmb.Link
-        A link function object. It may contain the linkinv function that the backend uses.
-    invlinks : dict
-        Keys are names of link functions. Values are the built-in link functions.
-
-    Returns
-    -------
-        callable
-        The link function.
-    """
-    # If the name is in the backend, get it from there
-    if link.name in invlinks:
-        invlink = invlinks[link.name]
-    # If not, use whatever is in `linkinv_backend`
-    else:
-        invlink = link.linkinv_backend
-    return invlink

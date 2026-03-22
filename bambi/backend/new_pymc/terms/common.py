@@ -25,8 +25,8 @@ def build_common_term(term, model):
     ValueError
         _description_
     """
-    data_name = f"{term.name}_data"
-    param_name = term.name
+    data_name = f"{term.label}_data"
+    param_name = term.label
     coords = coords_from_common(term)
 
     # Register coords
@@ -41,10 +41,10 @@ def build_common_term(term, model):
         pm.Data(data_name, np.reshape(term.data, data_shape), dims=data_dims, model=model)
 
     # Register parameter
-    output_coords = {
-        k: v for k, v in model.__bambi_attrs__["output_coords"].items() if k != "__obs__"
+    response_coords = {
+        k: v for k, v in model.__bambi_attrs__["response_coords"].items() if k != "__obs__"
     }
-    param_coords = coords | output_coords
+    param_coords = coords | response_coords
     param_dims = tuple(param_coords)
     param_shape = tuple(len(coord) for coord in param_coords.values())
 

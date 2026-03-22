@@ -5,7 +5,7 @@ from bambi.backend.new_pymc.parameters import build_conditional_parameter, build
 from bambi.backend.new_pymc.terms import build_response_term
 
 
-class Model:
+class PyMCModel:
     def __init__(self, model):
         """_summary_
 
@@ -22,21 +22,21 @@ class Model:
         # 1. Build dims and coordinates
         # 2. Instantiate model
         # 3. Create data containers
-
         ## ConditionalParameter process
         # 1. Build RVs
         # 2. Manipulate data containers and RVs (grab stuff from PyMC model)
         # 3. Create deterministics (grab stuff from PyMC model)
-
         # 1. Build dims, coordinates, and term
-        output_coords = coords_from_response(self.spec.response_term)
-        model = pm.Model(coords=output_coords)
+        # 3. Build random variables
+        # 4. Build response, again grabbing stuff from the PyMC model.
+
+        response_coords = coords_from_response(self.spec.response_term)
+        model = pm.Model(coords=response_coords)
         model.__bambi_attrs__ = {
-            "output_ndim": self.spec.family.output_ndim,
-            "output_coords": output_coords,
+            "response_ndim": self.spec.family.response_ndim,
+            "response_coords": response_coords,
         }
 
-        # 3. Build random variables
         marginal_parameters = {}
         conditional_parameters = {}
         for name, parameter in self.marginal_parameters.items():
@@ -47,12 +47,9 @@ class Model:
                 parameter, self.spec.family, model
             )
 
-        # 4. Build response, again grabbing stuff from the PyMC model.
-        parameters = marginal_parameters | conditional_parameters
-
         build_response_term(
             term=self.spec.response_term,
-            parameters=parameters,
+            parameters=marginal_parameters | conditional_parameters,
             family=self.spec.family,
             model=model,
         )
