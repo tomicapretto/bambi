@@ -7,6 +7,18 @@ from bambi.families.family import Family
 from bambi.transformations import transformations_namespace
 from bambi.utils import extract_argument_names, get_aliased_name, response_evaluate_new_data
 
+# NOTE: How do we go from reduced to complete dims?
+#       This is the case for models such as Categorical, Multinomial, etc.
+#       Basically, every place where we use a reference encoding in the response (constrained multivariate responses)
+#       Should we pad directly in the pymc model?
+#       Well, we actually do, but we're not registering it as a deterministic
+
+# NOTE: How to fully decouple frontend from backend?
+# Visitor pattern?
+# I think it's impossible. The backend needs pytensor operations.
+# We can't write them there without making Bambi even harder to be extended (unless we want to pay that price)
+#
+
 
 class MultivariateFamily(Family):
     KIND = "Multivariate"
@@ -15,58 +27,6 @@ class MultivariateFamily(Family):
 class Multinomial(MultivariateFamily):
     SUPPORTED_LINKS = {"p": ["softmax"]}
     INVLINK_KWARGS = {"axis": -1}
-
-    @staticmethod
-    def transform_linear_predictor(
-        model, linear_predictor: xr.DataArray, posterior: xr.DataArray
-    ) -> xr.DataArray:  # pylint: disable = unused-variable
-        response_name = get_aliased_name(model.response_component.term)
-        response_levels_dim = response_name + "_reduced_dim"
-        linear_predictor = linear_predictor.pad({response_levels_dim: (1, 0)}, constant_values=0)
-        return linear_predictor
-
-    def transform_coords(self, model, mean):
-        # The mean has the reference level in the dimension, a new name is needed
-        response_name = get_aliased_name(model.response_component.term)
-        response_levels_dim = response_name + "_reduced_dim"
-        response_levels_dim_complete = response_name + "_dim"
-        levels_complete = model.response_component.term.levels
-        mean = mean.rename({response_levels_dim: response_levels_dim_complete})
-        mean = mean.assign_coords({response_levels_dim_complete: levels_complete})
-        return mean
-
-    def posterior_predictive(self, model, posterior, random_seed, **kwargs):
-        data = kwargs["data"]
-        if data is None:
-            y = model.response_component.term.data
-            trials = model.response_component.term.data.sum(1).astype(int)
-        else:
-            y = response_evaluate_new_data(model, data).astype(int)
-            trials = y.sum(1).astype(int)
-
-        # Prepend 'draw' and 'chain' dimensions
-        trials = trials[np.newaxis, np.newaxis, :]
-        dont_reshape = ["n"]
-        return super().posterior_predictive(
-            model, posterior, n=trials, dont_reshape=dont_reshape, random_seed=random_seed
-        )
-
-    def log_likelihood(self, model, posterior, data, **kwargs):
-        if data is None:
-            y = model.response_component.term.data
-            trials = model.response_component.term.data.sum(1).astype(int)
-        else:
-            y = response_evaluate_new_data(model, data).astype(int)
-            trials = y.sum(1).astype(int)
-
-        # Prepend 'draw' and 'chain' dimensions
-        y = y[np.newaxis, np.newaxis, :]
-        trials = trials[np.newaxis, np.newaxis, :]
-
-        dont_reshape = ["n"]
-        return super().log_likelihood(
-            model, posterior, data=None, y=y, n=trials, dont_reshape=dont_reshape, **kwargs
-        )
 
     def get_coords(self, response):
         # For the moment, it always uses the first column as reference.

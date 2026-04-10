@@ -7,6 +7,24 @@ from bambi.families.family import Family
 from bambi.utils import get_aliased_name, response_evaluate_new_data
 
 
+# NOTE: The following methods will be discarded with the new backend
+# - posterior_predictive
+# - log_likelihood
+# - transform_backend_kwargs
+# - transform_linear_predictor
+# - transform_coords
+# - transform_mean
+
+
+# NOTE: The following methods will be adapted with the new backend
+# - get_coords
+# - get_data
+# - get_reference
+# - get_success_level
+# - transform_backend_eta
+# - transform_backend_kwargs
+
+
 class UnivariateFamily(Family):
     KIND = "Univariate"
     ORDINAL = False
@@ -15,30 +33,6 @@ class UnivariateFamily(Family):
 
 
 class BinomialBaseFamily(UnivariateFamily):
-    def posterior_predictive(self, model, posterior, random_seed, **kwargs):
-        data = kwargs["data"]
-        if data is None:
-            trials = model.response_component.term.data[:, 1]
-        else:
-            trials = model.response_component.response.evaluate_new_data(data).astype(int)
-        # Prepend 'draw' and 'chain' dimensions
-        trials = trials[np.newaxis, np.newaxis, :]
-        return super().posterior_predictive(model, posterior, n=trials, random_seed=random_seed)
-
-    def log_likelihood(self, model, posterior, data, **kwargs):
-        if data is None:
-            y = model.response_component.term.data[:, 0]
-            trials = model.response_component.term.data[:, 1]
-        else:
-            output = response_evaluate_new_data(model, data).astype(int)
-            y = output[:, 0]
-            trials = output[:, 1]
-
-        # Prepend 'draw' and 'chain' dimensions
-        y = y[np.newaxis, np.newaxis, :]
-        trials = trials[np.newaxis, np.newaxis, :]
-        return super().log_likelihood(model, posterior, data=None, y=y, n=trials, **kwargs)
-
     @staticmethod
     def transform_backend_kwargs(kwargs):
         observed = kwargs.pop("observed")
@@ -133,26 +127,6 @@ class Categorical(UnivariateFamily):
     INVLINK_KWARGS = {"axis": -1}
     PARAMETER_NDIM = 2
 
-    # pylint: disable = unused-argument
-    @staticmethod
-    def transform_linear_predictor(
-        model, linear_predictor: xr.DataArray, posterior: xr.DataArray
-    ) -> xr.DataArray:
-        response_name = get_aliased_name(model.response_component.term)
-        response_levels_dim = response_name + "_reduced_dim"
-        linear_predictor = linear_predictor.pad({response_levels_dim: (1, 0)}, constant_values=0)
-        return linear_predictor
-
-    def transform_coords(self, model, mean):
-        # The mean has the reference level in the dimension, a new name is needed
-        response_name = get_aliased_name(model.response_component.term)
-        response_levels_dim = response_name + "_reduced_dim"
-        response_levels_dim_complete = response_name + "_dim"
-        levels_complete = model.response_component.term.levels
-        mean = mean.rename({response_levels_dim: response_levels_dim_complete})
-        mean = mean.assign_coords({response_levels_dim_complete: levels_complete})
-        return mean
-
     def get_data(self, response):
         return np.nonzero(response.term.data)[1]
 
@@ -183,43 +157,6 @@ class Cumulative(UnivariateFamily):
 
     def get_data(self, response):
         return np.nonzero(response.term.data)[1]
-
-    @staticmethod
-    def transform_linear_predictor(
-        model, linear_predictor: xr.DataArray, posterior: xr.DataArray
-    ) -> xr.DataArray:
-        """Computes threshold_k - eta"""
-        threshold_component = model.components["threshold"]
-        if threshold_component.alias:
-            threshold_name = threshold_component.alias
-        else:
-            threshold_name = "threshold"
-        threshold = posterior[threshold_name]
-        return threshold - linear_predictor
-
-    @staticmethod
-    def transform_mean(model, mean: xr.DataArray) -> xr.DataArray:
-        """Computes P(Y = k) = F(threshold_k - eta) - F(threshold_{k - 1} - eta)"""
-        threshold_component = model.components["threshold"]
-        response_name = get_aliased_name(model.response_component.term)
-        if threshold_component.alias:
-            threshold_name = threshold_component.alias
-        else:
-            threshold_name = "threshold"
-        threshold_dim = threshold_name + "_dim"
-        response_dim = response_name + "_dim"
-        mean = xr.concat(
-            [
-                mean.isel({threshold_dim: 0}),
-                mean.diff(threshold_dim),
-                1 - mean.isel({threshold_dim: -1}),
-            ],
-            dim=threshold_dim,
-        )
-        mean = mean.rename({threshold_dim: response_dim})
-        mean = mean.assign_coords({response_dim: model.response_component.term.levels})
-        mean = mean.transpose(..., response_dim)  # make sure response levels is the last dim
-        return mean
 
     @staticmethod
     def transform_backend_eta(eta, kwargs):
@@ -358,52 +295,6 @@ class StoppingRatio(UnivariateFamily):
 
     def get_data(self, response):
         return np.nonzero(response.term.data)[1]
-
-    @staticmethod
-    def transform_linear_predictor(
-        model, linear_predictor: xr.DataArray, posterior: xr.DataArray
-    ) -> xr.DataArray:
-        """Computes threshold_k - eta"""
-        threshold_component = model.components["threshold"]
-        if threshold_component.alias:
-            threshold_name = threshold_component.alias
-        else:
-            threshold_name = "threshold"
-        threshold = posterior[threshold_name]
-        return threshold - linear_predictor
-
-    @staticmethod
-    def transform_mean(model, mean: xr.DataArray) -> xr.DataArray:
-        """Computes P(Y = k) = F(threshold_k - eta) - F(threshold_{k - 1} - eta)"""
-        threshold_component = model.components["threshold"]
-        response_name = get_aliased_name(model.response_component.term)
-        if threshold_component.alias:
-            threshold_name = threshold_component.alias
-        else:
-            threshold_name = "threshold"
-        threshold_dim = threshold_name + "_dim"
-        response_dim = response_name + "_dim"
-        threshold_n = len(mean[threshold_dim])
-
-        # the `.assign_coords` is needed for the concat to work
-        mean = xr.concat(
-            [
-                mean.isel({threshold_dim: 0}),
-                *[
-                    (
-                        mean.isel({threshold_dim: j})
-                        * (1 - mean).isel({threshold_dim: slice(None, j)}).prod(threshold_dim)
-                    )
-                    for j in range(1, threshold_n)
-                ],
-                (1 - mean).prod(threshold_dim).assign_coords({threshold_dim: threshold_n + 1}),
-            ],
-            dim=threshold_dim,
-        )
-        mean = mean.rename({threshold_dim: response_dim})
-        mean = mean.assign_coords({response_dim: model.response_component.term.levels})
-        mean = mean.transpose(..., response_dim)  # make sure response levels is the last dim
-        return mean
 
     @staticmethod
     def transform_backend_eta(eta, kwargs):
