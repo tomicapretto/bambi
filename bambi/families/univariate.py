@@ -1,10 +1,7 @@
 import numpy as np
-import pytensor.tensor as pt
-import scipy.special as sp
-import xarray as xr
 
 from bambi.families.family import Family
-from bambi.utils import get_aliased_name, response_evaluate_new_data
+from bambi.utils import get_aliased_name
 
 
 # NOTE: The following methods will be discarded with the new backend
@@ -30,15 +27,6 @@ class UnivariateFamily(Family):
     ORDINAL = False
     OUTCOME_NDIM = 1
     PARAMETER_NDIM = 1
-
-
-class BinomialBaseFamily(UnivariateFamily):
-    @staticmethod
-    def transform_backend_kwargs(kwargs):
-        observed = kwargs.pop("observed")
-        kwargs["observed"] = observed[:, 0].squeeze()
-        kwargs["n"] = observed[:, 1].squeeze()
-        return kwargs
 
 
 class AsymmetricLaplace(UnivariateFamily):
@@ -73,24 +61,8 @@ class Beta(UnivariateFamily):
 
     SUPPORTED_LINKS = {"mu": ["logit", "probit", "cloglog"], "kappa": ["log"]}
 
-    @staticmethod
-    def transform_backend_kwargs(kwargs):
-        mu = kwargs.pop("mu")
-        kappa = kwargs.pop("kappa")
-        kwargs["alpha"] = mu * kappa
-        kwargs["beta"] = (1 - mu) * kappa
-        return kwargs
 
-    @staticmethod
-    def transform_kwargs(kwargs):
-        mu = kwargs.pop("mu")
-        kappa = kwargs.pop("kappa")
-        kwargs["alpha"] = mu * kappa
-        kwargs["beta"] = (1 - mu) * kappa
-        return kwargs
-
-
-class BetaBinomial(BinomialBaseFamily):
+class BetaBinomial(UnivariateFamily):
     """BetaBinomial family
 
     It uses the mean (mu) and sample size (kappa) parametrization of the Beta distribution.
@@ -98,27 +70,8 @@ class BetaBinomial(BinomialBaseFamily):
 
     SUPPORTED_LINKS = {"mu": ["logit", "probit", "cloglog"], "kappa": ["log"]}
 
-    @staticmethod
-    def transform_backend_kwargs(kwargs):
-        # First, transform the parameters of the beta component
-        mu = kwargs.pop("mu")
-        kappa = kwargs.pop("kappa")
-        kwargs["alpha"] = mu * kappa
-        kwargs["beta"] = (1 - mu) * kappa
-        # Then transform the parameters of the binomial component
-        return BinomialBaseFamily.transform_backend_kwargs(kwargs)
 
-    @staticmethod
-    def transform_kwargs(kwargs):
-        # First, transform the parameters of the beta component
-        mu = kwargs.pop("mu")
-        kappa = kwargs.pop("kappa")
-        kwargs["alpha"] = mu * kappa
-        kwargs["beta"] = (1 - mu) * kappa
-        return kwargs
-
-
-class Binomial(BinomialBaseFamily):
+class Binomial(UnivariateFamily):
     SUPPORTED_LINKS = {"p": ["identity", "logit", "probit", "cloglog"]}
 
 
@@ -137,18 +90,6 @@ class Categorical(UnivariateFamily):
     def get_reference(self, response):
         return get_reference_level(response.term)
 
-    @staticmethod
-    def transform_backend_eta(eta, kwargs):
-        data = kwargs["observed"]
-
-        # Add column of zeros to the linear predictor for the reference level (the first one)
-        shape = (data.shape[0], 1)
-
-        # The first line makes sure the intercept-only models work
-        eta = np.ones(shape) * eta  # (response_levels, ) -> (n, response_levels)
-        eta = pt.concatenate([np.zeros(shape), eta], axis=1)
-        return eta
-
 
 class Cumulative(UnivariateFamily):
     SUPPORTED_LINKS = {"p": ["logit", "probit", "cloglog"], "threshold": ["identity"]}
@@ -158,78 +99,13 @@ class Cumulative(UnivariateFamily):
     def get_data(self, response):
         return np.nonzero(response.term.data)[1]
 
-    @staticmethod
-    def transform_backend_eta(eta, kwargs):
-        # shape(threshold) = (K, )
-        # shape(eta) = (n, )
-        # shape(threshold - shape_padright(eta)) = (n, K)
-
-        threshold = kwargs["threshold"]
-
-        # When the model does not have any predictors.
-        # Inference can be slower, as this can potentially build a larger object.
-        # However, this is needed for consistency with other parts of the codebase
-        if eta == 0:
-            eta_shifted = threshold - pt.shape_padright(pt.zeros(len(kwargs["observed"])))
-        else:
-            eta_shifted = threshold - pt.shape_padright(eta)
-
-        return eta_shifted
-
-    @staticmethod
-    def transform_backend_kwargs(kwargs):
-        # P(Y = k) = F(threshold_k - eta) - F(threshold_{k - 1} - eta)
-        p = kwargs.pop("p")
-        p = pt.concatenate(
-            [
-                pt.shape_padright(p[..., 0]),
-                p[..., 1:] - p[..., :-1],
-                pt.shape_padright(1 - p[..., -1]),
-            ],
-            axis=-1,
-        )
-        kwargs["p"] = p
-        kwargs.pop("threshold", None)  # this is not passed to the likelihood function
-        return kwargs
-
-    @staticmethod
-    def transform_kwargs(kwargs):
-        kwargs.pop("threshold", None)  # this is not passed to the likelihood function
-        return kwargs
-
 
 class Exponential(UnivariateFamily):
     SUPPORTED_LINKS = {"mu": ["identity", "log", "inverse"]}
 
-    @staticmethod
-    def transform_backend_kwargs(kwargs):
-        mu = kwargs.pop("mu")
-        kwargs["lam"] = 1 / mu
-        return kwargs
-
-    @staticmethod
-    def transform_kwargs(kwargs):
-        mu = kwargs.pop("mu")
-        kwargs["lam"] = 1 / mu
-        return kwargs
-
 
 class Gamma(UnivariateFamily):
     SUPPORTED_LINKS = {"mu": ["identity", "log", "inverse"], "alpha": ["log"]}
-
-    @staticmethod
-    def transform_backend_kwargs(kwargs):
-        # Gamma distribution is specified using mu and sigma, but we request prior for alpha.
-        # We build sigma from mu and alpha.
-        alpha = kwargs.pop("alpha")
-        kwargs["sigma"] = kwargs["mu"] / (alpha**0.5)
-        return kwargs
-
-    @staticmethod
-    def transform_kwargs(kwargs):
-        alpha = kwargs.pop("alpha")
-        kwargs["sigma"] = kwargs["mu"] / (alpha**0.5)
-        return kwargs
 
 
 class Gaussian(UnivariateFamily):
@@ -242,18 +118,6 @@ class HurdleGamma(UnivariateFamily):
         "alpha": ["log"],
         "psi": ["logit", "probit", "cloglog"],
     }
-
-    @staticmethod
-    def transform_backend_kwargs(kwargs):
-        alpha = kwargs.pop("alpha")
-        kwargs["sigma"] = kwargs["mu"] / (alpha**0.5)
-        return kwargs
-
-    @staticmethod
-    def transform_kwargs(kwargs):
-        alpha = kwargs.pop("alpha")
-        kwargs["sigma"] = kwargs["mu"] / (alpha**0.5)
-        return kwargs
 
 
 class HurdleLogNormal(UnivariateFamily):
@@ -296,49 +160,6 @@ class StoppingRatio(UnivariateFamily):
     def get_data(self, response):
         return np.nonzero(response.term.data)[1]
 
-    @staticmethod
-    def transform_backend_eta(eta, kwargs):
-        # shape(threshold) = (K, )
-        # shape(eta) = (n, )
-        # shape(threshold - shape_padright(eta)) = (n, K)
-
-        threshold = kwargs["threshold"]
-
-        # When the model does not have any predictors.
-        # Inference can be slower, as this can potentially build a larger object.
-        # However, this is needed for consistency with other parts of the codebase
-        if eta == 0:
-            eta_shifted = threshold - pt.shape_padright(pt.zeros(len(kwargs["observed"])))
-        else:
-            eta_shifted = threshold - pt.shape_padright(eta)
-
-        return eta_shifted
-
-    @staticmethod
-    def transform_backend_kwargs(kwargs):
-        # P(Y = k) = F(threshold_k - eta) * \prod_{j=1}^{k-1}{1 - F(threshold_j - eta)}
-        p = kwargs.pop("p")
-        n_columns = p.shape.eval()[-1]
-        p = pt.concatenate(
-            [
-                pt.shape_padright(p[..., 0]),
-                *[
-                    pt.shape_padright(p[..., j] * pt.prod(1 - p[..., :j], axis=-1))
-                    for j in range(1, n_columns)
-                ],
-                pt.shape_padright(pt.prod(1 - p, axis=-1)),
-            ],
-            axis=-1,
-        )
-        kwargs["p"] = p
-        kwargs.pop("threshold", None)  # this is not passed to the likelihood function
-        return kwargs
-
-    @staticmethod
-    def transform_kwargs(kwargs):
-        kwargs.pop("threshold", None)  # this is not passed to the likelihood function
-        return kwargs
-
 
 class StudentT(UnivariateFamily):
     SUPPORTED_LINKS = {"mu": ["identity", "log", "inverse"], "sigma": ["log"], "nu": ["log"]}
@@ -355,25 +176,8 @@ class Wald(UnivariateFamily):
 class Weibull(UnivariateFamily):
     SUPPORTED_LINKS = {"mu": ["log", "identity", "inverse"], "alpha": ["log"]}
 
-    @staticmethod
-    def transform_backend_kwargs(kwargs):
-        # The Weibull distribution is specified using alpha (shape) and beta (scale).
-        # We request a prior for alpha and we model 'mu' as a function of the linear predictor.
-        # Here we determine 'beta' out of the value of 'mu' and 'alpha'
-        mu = kwargs.pop("mu")
-        alpha = kwargs.get("alpha")
-        kwargs["beta"] = mu / pt.gamma(1 + 1 / alpha)
-        return kwargs
 
-    @staticmethod
-    def transform_kwargs(kwargs):
-        mu = kwargs.pop("mu")
-        alpha = kwargs.get("alpha")
-        kwargs["beta"] = mu / sp.gamma(1 + 1 / alpha)
-        return kwargs
-
-
-class ZeroInflatedBinomial(BinomialBaseFamily):
+class ZeroInflatedBinomial(UnivariateFamily):
     SUPPORTED_LINKS = {
         "p": ["identity", "logit", "probit", "cloglog"],
         "psi": ["logit", "probit", "cloglog"],

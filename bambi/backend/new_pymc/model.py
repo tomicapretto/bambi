@@ -22,6 +22,7 @@ class PyMCModel:
         # 1. Build dims and coordinates
         # 2. Instantiate model
         # 3. Create data containers
+
         ## ConditionalParameter process
         # 1. Build RVs
         # 2. Manipulate data containers and RVs (grab stuff from PyMC model)

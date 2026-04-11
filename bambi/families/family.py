@@ -99,7 +99,7 @@ class Family:
         else:
             supported_links = self.SUPPORTED_LINKS[param_name]
 
-        if not link_name in supported_links:
+        if link_name not in supported_links:
             raise ValueError(
                 f"Link '{link_name}' cannot be used for '{param_name}' with family "
                 f"'{self.name}'"

@@ -12,6 +12,7 @@ from bambi.backend.new_pymc.terms import (
 )
 from bambi.backend.new_pymc.utils import get_linkinv
 from bambi.config import config as bmb_config
+from bambi.backend.new_pymc.transform.register import TRANSFORMATIONS
 
 INVLINKS = {}
 
@@ -96,17 +97,17 @@ def build_conditional_parameter(parameter, family, model):
     if parameter.group_specific_terms:
         value += _build_group_specific(parameter.group_specific_terms, model)
 
-    # TODO: I move on as if parameters were already in place. This is necessarily not true
-    # We can specify dependencies between parameters in the model family, and build them
-    # in the appropriate order.
-    if hasattr(family, f"transform_{parameter.label}"):
-        transform_parameter = getattr(family, f"transform_{parameter.label}")
-        parameters_mapping = {
-            name: model[name] for name in family.likelihood.parameters if name != parameter.label
+    # TODO: I move on as if parameters were already in the right place, but this could not be true.
+    # We can specify dependencies between parameters in the model family,
+    # and build them in the appropriate order.
+    transform_parameter = TRANSFORMATIONS.get((family, parameter.name), None)
+    if transform_parameter:
+        parameters = {
+            name: model[name] for name in family.likelihood.parameters if name != parameter.name
         }
-        value = transform_parameter(value, parameters_mapping)
+        value = transform_parameter(value, parameters)
 
-    linkinv = get_linkinv(family.link[parameter.label], INVLINKS)
+    linkinv = get_linkinv(family.link[parameter.name], INVLINKS)
 
     rv = pm.Deterministic(
         parameter.label,
@@ -116,3 +117,9 @@ def build_conditional_parameter(parameter, family, model):
     )
 
     return rv
+
+
+# IDEA: Why do we apply link functions here?
+# Why don't we do it within the parameter transformation?
+# That would give us much more freedom.
+# Think of Cumulative family. Where do we compute the final "p"?

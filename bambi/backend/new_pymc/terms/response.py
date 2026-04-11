@@ -6,45 +6,34 @@ from bambi.backend.new_pymc.utils import (
     get_distribution_from_likelihood,
 )
 
+from bambi.backend.new_pymc.transform.register import PARAMETERS_MANIPULATIONS, DATA_MANIPULATIONS
+
 
 def build_response_term(term, parameters, family, model):
-    kwargs = parameters | {
-        "observed": term.data,
-        "dims": tuple(model.__bambi_attrs__["response_coords"]),
-    }
-    if hasattr(family, "transform_response_kwargs"):
-        kwargs = family.transform_response_kwargs(kwargs)
-
+    data = term.data
+    dims = tuple(model.__bambi_attrs__["response_coords"])
     distribution = get_distribution_from_likelihood(family.likelihood)
 
+    manipulate_parameters = PARAMETERS_MANIPULATIONS.get((family,), None)
+    if manipulate_parameters:
+        parameters = manipulate_parameters(parameters)
+
     if term.is_censored:
-        dims = kwargs.pop("dims", None)
-        data_matrix = kwargs.pop("observed")
-
-        # Get values of the response variable
-        observed = np.squeeze(data_matrix[:, 0])
-
-        # Get censoring codes
-        censoring_code = np.squeeze(data_matrix[:, 1])
+        observed = data[:, 0]
+        censoring_code = data[:, 1]
 
         is_left_censored = censoring_code == -1
         is_right_censored = censoring_code == 1
 
         lower = np.where(is_left_censored, observed, -np.inf)
         upper = np.where(is_right_censored, observed, np.inf)
-        dist = distribution.dist(**kwargs)
+        dist = distribution.dist(**parameters)
         with model:
             pm.Censored(term.label, dist, lower=lower, upper=upper, observed=observed, dims=dims)
     elif term.is_truncated:
-        dims = kwargs.pop("dims", None)
-        data_matrix = kwargs.pop("observed")
-
-        # Get values of the response variable
-        observed = np.squeeze(data_matrix[:, 0])
-
-        # Get truncation values
-        lower = np.squeeze(data_matrix[:, 1])
-        upper = np.squeeze(data_matrix[:, 2])
+        observed = data[:, 0]
+        lower = data[:, 1]
+        upper = data[:, 2]
 
         # Handle 'None' and scalars appropriately
         if np.all(lower == -np.inf):
@@ -57,21 +46,15 @@ def build_response_term(term, parameters, family, model):
         elif np.all(upper == upper[0]):
             upper = upper[0]
 
-        dist = distribution.dist(**kwargs)
+        dist = distribution.dist(**parameters)
         with model:
             pm.Truncated(term.label, dist, lower=lower, upper=upper, observed=observed, dims=dims)
 
     elif term.is_constrained:
-        # Handle constrained responses (through truncated distributions)
-        dims = kwargs.pop("dims", None)
-        data_matrix = kwargs.pop("observed")
-
-        # Get values of the response variable
-        observed = np.squeeze(data_matrix[:, 0])
-
-        # Get truncation values
-        lower = np.squeeze(data_matrix[:, 1])
-        upper = np.squeeze(data_matrix[:, 2])
+        # Handle constrained responses through truncated distributions
+        observed = data[:, 0]
+        lower = data[:, 1]
+        upper = data[:, 2]
 
         # Handle 'None' and scalars appropriately
         if np.all(lower == -np.inf):
@@ -84,28 +67,26 @@ def build_response_term(term, parameters, family, model):
         elif np.all(upper == upper[0]):
             upper = upper[0]
 
-        dist = distribution.dist(**kwargs)
+        dist = distribution.dist(**parameters)
         with model:
             pm.Truncated(term.label, dist, lower=lower, upper=upper, observed=observed, dims=dims)
 
-    # Handle weighted responses
     elif term.is_weighted:
-        dims = kwargs.pop("dims", None)
-        data_matrix = kwargs.pop("observed")
-
-        # Get values of the response variable
-        observed = np.squeeze(data_matrix[:, 0])
-
-        # Get weights
-        weights = np.squeeze(data_matrix[:, 1])
-
-        # Get a weighted version of the response distribution
+        observed = data[:, 0]
+        weights = data[:, 1]
         weighted_dist = make_weighted_distribution(distribution)
 
         with model:
-            weighted_dist(term.label, weights, **kwargs, observed=observed, dims=dims)
+            weighted_dist(term.label, weights, **parameters, observed=observed, dims=dims)
     else:
+
+        manipulate_data = DATA_MANIPULATIONS.get((family,), None)
+        if manipulate_data:
+            data_mapping = manipulate_data(data)
+        else:
+            data_mapping = {"observed": data}
+
         # All of the other response kinds are not special and are thus handled the same way
-        distribution(term.label, **kwargs, model=model)
+        distribution(term.label, **parameters, **data_mapping, dims=dims, model=model)
 
     return None

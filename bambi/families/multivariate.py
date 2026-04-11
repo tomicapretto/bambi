@@ -1,7 +1,6 @@
 # pylint: disable=unused-argument
 import numpy as np
 import pytensor.tensor as pt
-import xarray as xr
 
 from bambi.families.family import Family
 from bambi.transformations import transformations_namespace
@@ -9,15 +8,16 @@ from bambi.utils import extract_argument_names, get_aliased_name, response_evalu
 
 # NOTE: How do we go from reduced to complete dims?
 #       This is the case for models such as Categorical, Multinomial, etc.
-#       Basically, every place where we use a reference encoding in the response (constrained multivariate responses)
+#       Basically, every place where we use a reference encoding in the response
+#       (constrained multivariate responses)
 #       Should we pad directly in the pymc model?
 #       Well, we actually do, but we're not registering it as a deterministic
 
 # NOTE: How to fully decouple frontend from backend?
 # Visitor pattern?
 # I think it's impossible. The backend needs pytensor operations.
-# We can't write them there without making Bambi even harder to be extended (unless we want to pay that price)
-#
+# We can't write them there without making Bambi even harder to be extended
+# (unless we want to pay that price)
 
 
 class MultivariateFamily(Family):
@@ -40,59 +40,9 @@ class Multinomial(MultivariateFamily):
             return labels
         return [str(level) for level in range(response.data.shape[1])]
 
-    @staticmethod
-    def transform_backend_kwargs(kwargs):
-        kwargs["n"] = kwargs["observed"].sum(axis=1).astype(int)
-        return kwargs
-
-    @staticmethod
-    def transform_backend_eta(eta, kwargs):
-        data = kwargs["observed"]
-
-        # Add column of zeros to the linear predictor for the reference level (the first one)
-        shape = (data.shape[0], 1)
-
-        # The first line makes sure the intercept-only models work
-        eta = np.ones(shape) * eta  # (response_levels, ) -> (n, response_levels)
-        eta = pt.concatenate([np.zeros(shape), eta], axis=1)
-        return eta
-
 
 class DirichletMultinomial(MultivariateFamily):
     SUPPORTED_LINKS = {"a": ["log"]}
-
-    def posterior_predictive(self, model, posterior, random_seed, **kwargs):
-        data = kwargs["data"]
-        if data is None:
-            y = model.response_component.term.data
-            trials = model.response_component.term.data.sum(1).astype(int)
-        else:
-            y = response_evaluate_new_data(model, data).astype(int)
-            trials = y.sum(1).astype(int)
-
-        # Prepend 'draw' and 'chain' dimensions
-        trials = trials[np.newaxis, np.newaxis, :]
-        dont_reshape = ["n"]
-        return super().posterior_predictive(
-            model, posterior, n=trials, dont_reshape=dont_reshape, random_seed=random_seed
-        )
-
-    def log_likelihood(self, model, posterior, data, **kwargs):
-        if data is None:
-            y = model.response_component.term.data
-            trials = model.response_component.term.data.sum(1).astype(int)
-        else:
-            y = response_evaluate_new_data(model, data).astype(int)
-            trials = y.sum(1).astype(int)
-
-        # Prepend 'draw' and 'chain' dimensions
-        y = y[np.newaxis, np.newaxis, :]
-        trials = trials[np.newaxis, np.newaxis, :]
-
-        dont_reshape = ["n"]
-        return super().log_likelihood(
-            model, posterior, data=None, y=y, n=trials, dont_reshape=dont_reshape, **kwargs
-        )
 
     def get_coords(self, response):
         name = get_aliased_name(response) + "_dim"
@@ -104,8 +54,3 @@ class DirichletMultinomial(MultivariateFamily):
         if labels:
             return labels
         return [str(level) for level in range(response.data.shape[1])]
-
-    @staticmethod
-    def transform_backend_kwargs(kwargs):
-        kwargs["n"] = kwargs["observed"].sum(axis=1).astype(int)
-        return kwargs
