@@ -10,12 +10,12 @@ from bambi.backend.new_pymc.links import (
     inverse_squared,
     logit,
     probit,
-    softmax,
 )
+from pytensor.tensor.special import softmax
 
 MAPPING = {"Cumulative": pm.Categorical, "StoppingRatio": pm.Categorical}
 
-INVLINKS = {
+INVERSE_LINKS = {
     "cloglog": cloglog,
     "identity": identity,
     "inverse_squared": inverse_squared,
@@ -25,22 +25,6 @@ INVLINKS = {
     "probit": probit,
     "softmax": functools.partial(softmax, axis=-1),
 }
-
-
-def get_linkinv(link):
-    """Get the inverse of the link function as needed by PyMC
-
-    Parameters
-    ----------
-    link : bmb.Link
-        A link function object. It may contain the linkinv function that the backend uses.
-
-    Returns
-    -------
-        callable
-        The link function.
-    """
-    return INVLINKS.get(link.name, link.linkinv_backend)
 
 
 def get_distribution(dist):

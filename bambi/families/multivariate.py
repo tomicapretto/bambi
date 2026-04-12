@@ -1,10 +1,7 @@
 # pylint: disable=unused-argument
-import numpy as np
-import pytensor.tensor as pt
-
 from bambi.families.family import Family
 from bambi.transformations import transformations_namespace
-from bambi.utils import extract_argument_names, get_aliased_name, response_evaluate_new_data
+from bambi.utils import extract_argument_names, get_aliased_name
 
 # NOTE: How do we go from reduced to complete dims?
 #       This is the case for models such as Categorical, Multinomial, etc.

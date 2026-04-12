@@ -3,7 +3,7 @@ PARAMETERS_MANIPULATIONS = {}
 DATA_MANIPULATIONS = {}
 
 
-def transform_general_predictor(family, parameter):
+def transform_additive_predictor(family, parameter):
     def decorator(function):
         TRANSFORMATIONS[(family, parameter)] = function
 

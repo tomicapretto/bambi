@@ -10,11 +10,9 @@ from bambi.backend.new_pymc.terms import (
     build_intercept_term,
     build_group_specific_term_idx,
 )
-from bambi.backend.new_pymc.utils import get_linkinv
+from bambi.backend.new_pymc.utils import INVERSE_LINKS
 from bambi.config import config as bmb_config
 from bambi.backend.new_pymc.transform.register import TRANSFORMATIONS
-
-INVLINKS = {}
 
 
 def _get_ensure_ndim(model):
@@ -86,6 +84,9 @@ def _build_group_specific_idx(terms, model):
 
 def build_conditional_parameter(parameter, family, model):
     value = 0
+    dims = tuple(model.__bambi_attrs__["response_coords"])
+    inverse_link = INVERSE_LINKS.get(family.link[parameter.name].name, lambda x: x)
+
     if parameter.intercept_term:
         value += _build_intercept(parameter.intercept_term, model)
 
@@ -97,29 +98,14 @@ def build_conditional_parameter(parameter, family, model):
     if parameter.group_specific_terms:
         value += _build_group_specific(parameter.group_specific_terms, model)
 
-    # TODO: I move on as if parameters were already in the right place, but this could not be true.
-    # We can specify dependencies between parameters in the model family,
-    # and build them in the appropriate order.
+    # TODO: Make sure parameters are built in the appropriate order
     transform_parameter = TRANSFORMATIONS.get((family, parameter.name), None)
     if transform_parameter:
         parameters = {
             name: model[name] for name in family.likelihood.parameters if name != parameter.name
         }
-        value = transform_parameter(value, parameters)
+        value = transform_parameter(value, parameters, inverse_link)
+    else:
+        value = inverse_link(value)
 
-    linkinv = get_linkinv(family.link[parameter.name], INVLINKS)
-
-    rv = pm.Deterministic(
-        parameter.label,
-        linkinv(value),
-        dims=tuple(model.__bambi_attrs__["response_coords"]),
-        model=model,
-    )
-
-    return rv
-
-
-# IDEA: Why do we apply link functions here?
-# Why don't we do it within the parameter transformation?
-# That would give us much more freedom.
-# Think of Cumulative family. Where do we compute the final "p"?
+    return pm.Deterministic(parameter.label, value, dims=dims, model=model)

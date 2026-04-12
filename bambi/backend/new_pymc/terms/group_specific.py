@@ -12,8 +12,10 @@ from bambi.backend.new_pymc.utils import get_distribution_from_prior
 # - (__obs__, *(expr_factor + dims_factor))
 
 
+# NOTE: Can we assume data_name is unique?
+#       How do we manage the case where we have `x` and `sigma_x`?
+#       That woud cause `data_name` to be in conflict.
 def build_group_specific_term_dot(term, model):
-    # NOTE: Can we assume data_name is unique?
     data_name = f"{term.label}_data"
     param_name = term.label
 
@@ -149,6 +151,3 @@ def build_distribution(prior, label, dims_factor, dims_expr, dims_output, noncen
 
     dist = get_distribution_from_prior(prior)
     return dist(label, **kwargs, dims=dims, model=model)
-
-
-# NOTE: aliases should be managed by Bambi and how its terms return names, not by anything in PyMC.

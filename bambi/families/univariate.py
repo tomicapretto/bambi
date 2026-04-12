@@ -4,15 +4,6 @@ from bambi.families.family import Family
 from bambi.utils import get_aliased_name
 
 
-# NOTE: The following methods will be discarded with the new backend
-# - posterior_predictive
-# - log_likelihood
-# - transform_backend_kwargs
-# - transform_linear_predictor
-# - transform_coords
-# - transform_mean
-
-
 # NOTE: The following methods will be adapted with the new backend
 # - get_coords
 # - get_data

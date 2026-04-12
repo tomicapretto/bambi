@@ -91,7 +91,7 @@ def link_not_implemented(*args, **kwargs):
 
 # link: Known as g in the GLM literature. Maps the response to the linear predictor scale.
 # linkinv: Known as g^(-1) in the GLM literature. Maps the linear predictor to the response scale.
-LinksContainer = namedtuple("LinksContainer", ["link", "linkinv"])
+LinksContainer = namedtuple("LinksContainer", ["link", "inverse_link"])
 
 LINKS = {
     "cloglog": LinksContainer(cloglog, invcloglog),
@@ -125,29 +125,24 @@ class Link:
     link : function or None, optional
         A function that maps the response to the linear predictor. Known as the :math:`g` function
         in GLM jargon. Does not need to be specified when `name` is a known name.
-    linkinv : function or None, optional
+    inverse_link : function or None, optional
         A function that maps the linear predictor to the response. Known as the :math:`g^{-1}`
         function in GLM jargon. Does not need to be specified when `name` is a known name.
-    linkinv_backend : function or None, optional
-        Same than `linkinv` but must be something that works with PyMC backend (i.e. it must
-        work with PyTensor tensors). Does not need to be specified when `name` is a known
-        name.
     """
 
-    def __init__(self, name, link=None, linkinv=None, linkinv_backend=None):
+    def __init__(self, name, link=None, inverse_link=None):
         self.name = name
         self.link = link
-        self.linkinv = linkinv
-        self.linkinv_backend = linkinv_backend
+        self.inverse_link = inverse_link
 
         if name in LINKS:
             self.link = LINKS[name].link
-            self.linkinv = LINKS[name].linkinv
+            self.inverse_link = LINKS[name].inverse_link
         else:
-            if not link or not linkinv or not linkinv_backend:
+            if not link or not inverse_link:
                 raise ValueError(
-                    f"Link name '{name}' is not supported and at least one of 'link', "
-                    "'linkinv' or 'linkinv_backend' are unspecified."
+                    f"Link name '{name}' is not supported and at least one of 'link' or "
+                    "'inverse_link' are unspecified."
                 )
 
     def __str__(self):
