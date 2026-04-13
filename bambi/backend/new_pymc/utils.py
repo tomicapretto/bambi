@@ -13,7 +13,39 @@ from bambi.backend.new_pymc.links import (
 )
 from pytensor.tensor.special import softmax
 
-MAPPING = {"Cumulative": pm.Categorical, "StoppingRatio": pm.Categorical}
+
+def horseshoe(name, tau_nu=3, lam_nu=1, dims=None):
+    """Define coefficients with a horseshoe prior.
+
+    This is an internal helper that constructs the PyMC random variables
+    corresponding to a horseshoe prior for regression coefficients.
+    It is not intended to be called directly by users.
+
+    Parameters
+    ----------
+    name : str
+        Base name of the coefficient as registered in the PyMC model.
+    tau_nu : int or float
+        Degrees of freedom of the global scale parameter `tau`. Default is 3.
+    lam_nu : int or float
+        Degrees of freedom of the local scale parameter `lam`.
+        Default is 1 (equivalent to a Half-Cauchy).
+    dims : str or sequence of str, optional
+        Dimensions passed to PyMC. Default is `None`.
+
+    Returns
+    -------
+    pm.Deterministic
+        Deterministic PyMC variable representing coefficients with a horseshoe prior.
+    """
+    tau = pm.HalfStudentT(f"{name}_tau", nu=tau_nu)
+    lam = pm.HalfStudentT(f"{name}_lam", nu=lam_nu, dims=dims)
+    beta_raw = pm.Normal(f"{name}_raw", 0, 1, dims=dims)
+    beta = pm.Deterministic(name, beta_raw * tau * lam, dims=dims)
+    return beta
+
+
+MAPPING = {"Cumulative": pm.Categorical, "StoppingRatio": pm.Categorical, "Horseshoe": horseshoe}
 
 INVERSE_LINKS = {
     "cloglog": cloglog,

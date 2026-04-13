@@ -37,12 +37,3 @@ def manipulate_data(family):
         return wrapper
 
     return decorator
-
-
-# process
-# reestructure
-# select
-# adapt
-# derive
-# mutate
-# convert
