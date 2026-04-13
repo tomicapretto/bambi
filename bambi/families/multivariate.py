@@ -10,12 +10,6 @@ from bambi.utils import extract_argument_names, get_aliased_name
 #       Should we pad directly in the pymc model?
 #       Well, we actually do, but we're not registering it as a deterministic
 
-# NOTE: How to fully decouple frontend from backend?
-# Visitor pattern?
-# I think it's impossible. The backend needs pytensor operations.
-# We can't write them there without making Bambi even harder to be extended
-# (unless we want to pay that price)
-
 
 class MultivariateFamily(Family):
     KIND = "Multivariate"

@@ -4,15 +4,6 @@ from bambi.families.family import Family
 from bambi.utils import get_aliased_name
 
 
-# NOTE: The following methods will be adapted with the new backend
-# - get_coords
-# - get_data
-# - get_reference
-# - get_success_level
-# - transform_backend_eta
-# - transform_backend_kwargs
-
-
 class UnivariateFamily(Family):
     KIND = "Univariate"
     ORDINAL = False
