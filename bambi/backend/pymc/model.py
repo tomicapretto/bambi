@@ -1,4 +1,3 @@
-import functools
 import logging
 import traceback
 import warnings
@@ -7,23 +6,11 @@ from importlib.metadata import version
 
 import numpy as np
 import pymc as pm
-import pytensor.tensor as pt
 from pymc.util import get_default_varnames
-from pytensor.tensor.special import softmax
 
-from bambi.backend.links import (
-    cloglog,
-    identity,
-    inverse_squared,
-    logit,
-    probit,
-)
-from bambi.backend.model_components import (
-    ConstantComponent,
-    DistributionalComponent,
-    ResponseComponent,
-)
-from bambi.utils import get_aliased_name
+from bambi.backend.pymc.coords import coords_from_response
+from bambi.backend.pymc.parameters import build_conditional_parameter, build_marginal_parameter
+from bambi.backend.pymc.terms import build_response_term
 
 _log = logging.getLogger("bambi")
 
@@ -42,63 +29,61 @@ _DEPRECATION_MAP = {
 
 
 class PyMCModel:
-    """PyMC model-fitting backend."""
-
-    INVLINKS = {
-        "cloglog": cloglog,
-        "identity": identity,
-        "inverse_squared": inverse_squared,
-        "inverse": pt.reciprocal,
-        "log": pt.exp,
-        "logit": logit,
-        "probit": probit,
-        "softmax": functools.partial(softmax, axis=-1),
-    }
-
-    def __init__(self):
-        self.name = pm.__name__
-        self.version = pm.__version__
-        self.vi_approx = None
-        self.fit = False
-        self.model = None
-        self.spec = None
-        self.components = {}
-        self.response_component = None
-
-    def build(self, spec):
-        """Compile the PyMC model from an abstract model specification
+    def __init__(self, model):
+        """_summary_
 
         Parameters
         ----------
-        spec : bambi.Model
-            A Bambi `Model` instance containing the abstract specification of the model to compile.
+        model : bmb.Model
+            The bambi model specification.
         """
-        self.model = pm.Model()
-        self.components = {}
+        self.model = None
+        self.spec = model
 
-        for name, values in spec.response_component.term.coords.items():
-            if name not in self.model.coords:
-                self.model.add_coords({name: values})
+    def build(self):
+        ## Global process:
+        # 1. Build dims and coordinates
+        # 2. Instantiate model
+        # 3. Create data containers
 
-        with self.model:
-            # Add constant components
-            for name, component in spec.constant_components.items():
-                self.components[name] = ConstantComponent(component)
-                self.components[name].build(self, spec)
+        ## ConditionalParameter process
+        # 1. Build RVs
+        # 2. Manipulate data containers and RVs (grab stuff from PyMC model)
+        # 3. Create deterministics (grab stuff from PyMC model)
+        # 1. Build dims, coordinates, and term
+        # 3. Build random variables
+        # 4. Build response, again grabbing stuff from the PyMC model.
+        response_coords_data, response_coords, response_coords_reduced = coords_from_response(
+            self.spec.response_term, self.spec.family
+        )
 
-            # Add distributional components
-            for name, component in spec.distributional_components.items():
-                self.components[name] = DistributionalComponent(component)
-                self.components[name].build(self, spec)
+        model = pm.Model(coords=response_coords_data | response_coords | response_coords_reduced)
+        model.__bambi_attrs__ = {
+            "response_ndim": self.spec.family.RESPONSE_NDIM,
+            "parameter_ndim": self.spec.family.PARAMETER_NDIM,
+            "response_coords_data": response_coords_data,
+            "response_coords": response_coords,
+            "response_coords_reduced": response_coords_reduced,
+        }
 
-            # Add response
-            self.response_component = ResponseComponent(spec.response_component)
-            self.response_component.build(self, spec)
+        marginal_parameters = {}
+        conditional_parameters = {}
+        for name, parameter in self.spec.marginal_parameters.items():
+            marginal_parameters[name] = build_marginal_parameter(parameter, model)
 
-            # Add potentials
-            self.build_potentials(spec)
+        for name, parameter in self.spec.conditional_parameters.items():
+            conditional_parameters[name] = build_conditional_parameter(
+                parameter, self.spec.family, model
+            )
 
-        self.spec = spec
+        build_response_term(
+            term=self.spec.response_term,
+            parameters=marginal_parameters | conditional_parameters,
+            family=self.spec.family,
+            model=model,
+        )
+
+        self.model = model
 
     def run(
         self,
@@ -113,6 +98,7 @@ class PyMCModel:
         chains=None,
         cores=None,
         random_seed=None,
+        nuts=None,
         **kwargs,
     ):
         """Run PyMC sampler."""
@@ -161,35 +147,13 @@ class PyMCModel:
                 chains=chains,
                 cores=cores,
                 random_seed=random_seed,
+                nuts=nuts,
                 sampler_backend=inference_method,
                 **kwargs,
             )
 
         self.fit = True
         return result
-
-    def build_potentials(self, spec):
-        """Add potentials to the PyMC model
-
-        Potentials are arbitrary quantities that are added to the model log likelihood.
-        See 'Factor Potentials' in
-        https://github.com/fonnesbeck/probabilistic_python/blob/main/pymc_intro.ipynb
-
-        Parameters
-        ----------
-        spec : bambi.Model
-            The model.
-        """
-        if spec.potentials is not None:
-            count = 0
-            for variable, constraint in spec.potentials:
-                if isinstance(variable, (list, tuple)):
-                    lambda_args = [self.model[var] for var in variable]
-                    potential = constraint(*lambda_args)
-                else:
-                    potential = constraint(self.model[variable])
-                pm.Potential(f"pot_{count}", potential)
-                count += 1
 
     def _run_mcmc(
         self,
@@ -203,6 +167,7 @@ class PyMCModel:
         chains,
         cores,
         random_seed,
+        nuts,
         sampler_backend,
         **kwargs,
     ):
@@ -218,6 +183,11 @@ class PyMCModel:
             is_deterministic = variable in self.model.deterministics
             if is_likelihood_param and is_deterministic:
                 vars_to_sample.remove(name)
+
+        # pm.sample routes nuts settings via kwargs.pop("nuts", {}); only inject when provided
+        # to avoid passing nuts=None which causes pm.sample's internal nuts_kwargs.copy() to fail.
+        if nuts is not None:
+            kwargs["nuts"] = nuts
 
         with self.model:
             try:
@@ -256,13 +226,8 @@ class PyMCModel:
                 else:
                     raise
 
-        idata = self._clean_results(idata, omit_offsets, include_response_params)
-        return idata
-
-    def _clean_results(self, idata, omit_offsets, include_response_params):
         # Before doing anything, make sure we compute deterministics.
         # But, don't include those determinisics for parameters of the likelihood.
-
         for group in idata.groups():
             getattr(idata, group).attrs["modeling_interface"] = "bambi"
             getattr(idata, group).attrs["modeling_interface_version"] = __version__
@@ -270,54 +235,6 @@ class PyMCModel:
         if omit_offsets:
             offset_vars = [var for var in idata.posterior.data_vars if var.endswith("_offset")]
             idata.posterior = idata.posterior.drop_vars(offset_vars)
-
-        dims_original = list(self.model.coords)
-
-        # Don't select dims that are in the model but unused in the posterior
-        dims_original = [dim for dim in dims_original if dim in idata.posterior.dims]
-
-        # This does not add any new coordinate, it just changes the order so the ones
-        # ending in "__factor_dim" are placed after the others.
-        dims_group = [dim for dim in dims_original if dim.endswith("__factor_dim")]
-
-        # Keep the original order in dims_original
-        dims_original_set = set(dims_original) - set(dims_group)
-        dims_original = [dim for dim in dims_original if dim in dims_original_set]
-        dims_new = ["chain", "draw"] + dims_original + dims_group
-
-        # Drop unused dimensions before transposing
-        dims_to_drop = [dim for dim in idata.posterior.dims if dim not in dims_new]
-        idata.posterior = idata.posterior.drop_dims(dims_to_drop).transpose(*dims_new)
-
-        # Compute the actual intercept in all distributional components that have an intercept
-        for pymc_component in self.distributional_components.values():
-            bambi_component = pymc_component.component
-            if (
-                bambi_component.intercept_term
-                and bambi_component.common_terms
-                and self.spec.center_predictors
-            ):
-                chain_n = len(idata.posterior["chain"])
-                draw_n = len(idata.posterior["draw"])
-                shape, dims = (chain_n, draw_n), ("chain", "draw")
-                X = pymc_component.design_matrix_without_intercept
-
-                common_terms = []
-                for term in bambi_component.common_terms.values():
-                    common_terms.append(get_aliased_name(term))
-
-                response_coords = self.spec.response_component.term.coords
-                if response_coords:
-                    # Grab the first object in a dictionary
-                    levels = list(response_coords.values())[0]
-                    shape += (len(levels),)
-                    dims += tuple(response_coords)
-
-                posterior = idata.posterior.stack(samples=dims)
-                coefs = np.vstack([np.atleast_2d(posterior[name].values) for name in common_terms])
-                name = get_aliased_name(bambi_component.intercept_term)
-                center_factor = np.dot(X.mean(0), coefs).reshape(shape)
-                idata.posterior[name] = idata.posterior[name] - center_factor
 
         if include_response_params:
             self.spec.predict(idata)
@@ -400,14 +317,6 @@ class PyMCModel:
                 raise ImportError(
                     f"'{inference_method}' requires package(s): {', '.join(missing)}. "
                 )
-
-    @property
-    def constant_components(self):
-        return {k: v for k, v in self.components.items() if isinstance(v, ConstantComponent)}
-
-    @property
-    def distributional_components(self):
-        return {k: v for k, v in self.components.items() if isinstance(v, DistributionalComponent)}
 
 
 def _posterior_samples_to_idata(samples, model):

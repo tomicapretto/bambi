@@ -1,23 +1,20 @@
-import numpy as np
-
 from bambi.families.family import Family
-from bambi.utils import get_aliased_name
+from bambi.transformations import transformations_namespace
+from bambi.utils import extract_argument_names
 
-
-# NOTE: The following methods will be adapted with the new backend
-# - get_coords
-# - get_data
-# - get_reference
-# - get_success_level
-# - transform_backend_eta
-# - transform_backend_kwargs
+# TODO: Determine what we mean by
+# - RESPONSE_NDIM
+# - PARAMETER_NDIM
+# and whether it makes sense for PARAMETER_NDIM to be an attribute of the family instead of
+# the parameter.
 
 
 class UnivariateFamily(Family):
     KIND = "Univariate"
     ORDINAL = False
-    OUTCOME_NDIM = 1
     PARAMETER_NDIM = 1
+    RESPONSE_NDIM = 1
+    DATA_TYPE = "numeric"
 
 
 class AsymmetricLaplace(UnivariateFamily):
@@ -31,17 +28,7 @@ class AsymmetricLaplace(UnivariateFamily):
 
 class Bernoulli(UnivariateFamily):
     SUPPORTED_LINKS = {"p": ["identity", "logit", "probit", "cloglog"]}
-
-    def get_data(self, response):
-        if response.term.data.ndim == 1:
-            return response.term.data
-        idx = response.levels.index(response.success)
-        return response.term.data[:, idx]
-
-    def get_success_level(self, response):
-        if response.categorical:
-            return get_success_level(response.term)
-        return 1
+    DATA_TYPE = "binary"
 
 
 class Beta(UnivariateFamily):
@@ -68,27 +55,15 @@ class Binomial(UnivariateFamily):
 
 class Categorical(UnivariateFamily):
     SUPPORTED_LINKS = {"p": ["softmax"]}
-    INVLINK_KWARGS = {"axis": -1}
     PARAMETER_NDIM = 2
-
-    def get_data(self, response):
-        return np.nonzero(response.term.data)[1]
-
-    def get_coords(self, response):
-        name = get_aliased_name(response) + "_reduced_dim"
-        return {name: [level for level in response.levels if level != response.reference]}
-
-    def get_reference(self, response):
-        return get_reference_level(response.term)
+    DATA_TYPE = "categorical"
 
 
 class Cumulative(UnivariateFamily):
     SUPPORTED_LINKS = {"p": ["logit", "probit", "cloglog"], "threshold": ["identity"]}
     PARAMETER_NDIM = 2
     ORDINAL = True
-
-    def get_data(self, response):
-        return np.nonzero(response.term.data)[1]
+    DATA_TYPE = "categorical"
 
 
 class Exponential(UnivariateFamily):
@@ -147,9 +122,7 @@ class StoppingRatio(UnivariateFamily):
     SUPPORTED_LINKS = {"p": ["logit", "probit", "cloglog"], "threshold": ["identity"]}
     PARAMETER_NDIM = 2
     ORDINAL = True
-
-    def get_data(self, response):
-        return np.nonzero(response.term.data)[1]
+    DATA_TYPE = "categorical"
 
 
 class StudentT(UnivariateFamily):
@@ -187,41 +160,28 @@ class ZeroInflatedPoisson(UnivariateFamily):
     SUPPORTED_LINKS = {"mu": ["identity", "log"], "psi": ["logit", "probit", "cloglog"]}
 
 
-# pylint: disable = protected-access
-def get_success_level(term):
-    """Returns the success level of a categorical term
-
-    Whenever the concept of "success level" does not apply, it returns `None`.
-    """
-    if term.kind != "categoric":
-        return None
-
-    if term.levels is None:
-        return term.components[0].reference
-
-    levels = term.levels
-    intermediate_data = term.components[0]._intermediate_data
-    if hasattr(intermediate_data, "_contrast"):
-        return intermediate_data._contrast.reference
-
-    return levels[0]
+class MultivariateFamily(Family):
+    KIND = "Multivariate"
+    ORDINAL = False
+    DATA_TYPE = "numeric"
+    RESPONSE_NDIM = 2
 
 
-# pylint: disable = protected-access
-def get_reference_level(term):
-    """Returns the reference level of a categorical term
+class Multinomial(MultivariateFamily):
+    SUPPORTED_LINKS = {"p": ["softmax"]}
 
-    Whenever the concept of "reference level" does not apply, it returns `None`.
-    """
-    if term.kind != "categoric":
-        return None
+    def get_levels(self, response):
+        labels = extract_argument_names(response.name, list(transformations_namespace))
+        if labels:
+            return labels
+        return [str(level) for level in range(response.data.shape[1])]
 
-    if term.levels is None:
-        return None
 
-    levels = term.levels
-    intermediate_data = term.components[0]._intermediate_data
-    if hasattr(intermediate_data, "_contrast"):
-        return intermediate_data._contrast.reference
+class DirichletMultinomial(MultivariateFamily):
+    SUPPORTED_LINKS = {"a": ["log"]}
 
-    return levels[0]
+    def get_levels(self, response):
+        levels = extract_argument_names(response.name, list(transformations_namespace))
+        if levels:
+            return levels
+        return [str(level) for level in range(response.data.shape[1])]
