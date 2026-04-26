@@ -19,7 +19,7 @@ from bambi.defaults import get_builtin_family
 from bambi.model_components import ConstantComponent, DistributionalComponent, ResponseComponent
 from bambi.families import Family, univariate
 from bambi.formula import Formula, check_ordinal_formula
-from bambi.priors import Prior, PriorScaler
+from bambi.priors import Prior, scale_priors
 from bambi.transformations import transformations_namespace
 from bambi.utils import (
     clean_formula_lhs,
@@ -412,8 +412,7 @@ class Model:
 
         # Scale priors if there is at least one term in the model and auto_scale is True
         if self.auto_scale:
-            self.scaler = PriorScaler(self)
-            self.scaler.scale()
+            scale_priors(self)
 
     def _set_priors(self, priors=None, common=None, group_specific=None):
         """Internal version of `set_priors()`, with same arguments.

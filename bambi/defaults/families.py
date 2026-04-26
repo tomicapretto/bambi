@@ -1,5 +1,5 @@
 from bambi.defaults.utils import generate_family
-from bambi.families.univariate import (
+from bambi.families.builtin import (
     AsymmetricLaplace,
     Bernoulli,
     Beta,
@@ -7,6 +7,7 @@ from bambi.families.univariate import (
     Binomial,
     Categorical,
     Cumulative,
+    DirichletMultinomial,
     Exponential,
     Gamma,
     Gaussian,
@@ -14,8 +15,9 @@ from bambi.families.univariate import (
     HurdleLogNormal,
     HurdleNegativeBinomial,
     HurdlePoisson,
-    NegativeBinomial,
     Laplace,
+    Multinomial,
+    NegativeBinomial,
     Poisson,
     StoppingRatio,
     StudentT,
@@ -26,7 +28,6 @@ from bambi.families.univariate import (
     ZeroInflatedNegativeBinomial,
     ZeroInflatedPoisson,
 )
-from bambi.families.multivariate import Multinomial, DirichletMultinomial
 
 
 # fmt: off
@@ -39,7 +40,7 @@ BUILTIN_FAMILIES = {
         },
         "link": {"mu": "identity", "b": "log", "kappa": "log"},
         "family": AsymmetricLaplace,
-        "default_priors": {"b": "HalfNormal", "kappa": "HalfNormal"}
+        "default_priors": {"b": {"name": "HalfNormal", "sigma": 1}, "kappa": {"name": "HalfNormal", "sigma": 1}}
     },
     "bernoulli": {
         "likelihood": {
@@ -58,7 +59,7 @@ BUILTIN_FAMILIES = {
         },
         "link": {"mu": "logit", "kappa": "log"},
         "family": Beta,
-        "default_priors": {"kappa": "HalfCauchy"},
+        "default_priors": {"kappa": {"name": "HalfCauchy", "beta": 1}},
     },
     "beta_binomial": {
         "likelihood": {
@@ -68,7 +69,7 @@ BUILTIN_FAMILIES = {
         },
         "link": {"mu": "logit", "kappa": "log"},
         "family": BetaBinomial,
-        "default_priors": {"kappa": "HalfCauchy"},
+        "default_priors": {"kappa": {"name": "HalfCauchy", "beta": 1}},
     },
     "binomial": {
         "likelihood": {
@@ -96,7 +97,9 @@ BUILTIN_FAMILIES = {
         },
         "link": {"p": "logit", "threshold": "identity"},
         "family": Cumulative,
-        "default_priors": {"threshold": "Normal"},
+        "default_priors": {
+            "threshold": {"name": "Normal", "mu": 0, "sigma": 1, "transform": "ordered"}
+        },
     },
     "dirichlet_multinomial": {
         "likelihood": {
@@ -124,7 +127,7 @@ BUILTIN_FAMILIES = {
         },
         "link": {"mu": "inverse", "alpha": "log"},
         "family": Gamma,
-        "default_priors": {"alpha": "HalfCauchy"},
+        "default_priors": {"alpha": {"name": "HalfCauchy", "beta": 1}},
     },
     "gaussian": {
         "likelihood": {
@@ -134,7 +137,7 @@ BUILTIN_FAMILIES = {
         },
         "link": {"mu": "identity", "sigma": "log"},
         "family": Gaussian,
-        "default_priors": {"sigma": "HalfNormal"}
+        "default_priors": {"sigma": {"name": "HalfNormal", "sigma": 1}}
     },
     "hurdle_gamma": {
         "likelihood": {
@@ -144,7 +147,10 @@ BUILTIN_FAMILIES = {
         },
         "link": {"mu": "log", "alpha": "log", "psi": "logit"},
         "family": HurdleGamma,
-        "default_priors": {"alpha": "HalfCauchy", "psi": "Beta"}
+        "default_priors": {
+            "alpha": {"name": "HalfCauchy", "beta": 1},
+            "psi": {"name": "Beta", "alpha": 2, "beta": 2}
+        }
     },
     "hurdle_lognormal": {
         "likelihood": {
@@ -154,7 +160,10 @@ BUILTIN_FAMILIES = {
         },
         "link": {"mu": "identity", "sigma": "log", "psi": "logit"},
         "family": HurdleLogNormal,
-        "default_priors": {"sigma": "HalfNormal", "psi": "Beta"}
+        "default_priors": {
+            "sigma": {"name": "HalfNormal", "sigma": 1},
+            "psi": {"name": "Beta", "alpha": 2, "beta": 2}
+        }
     },
     "hurdle_negativebinomial": {
         "likelihood": {
@@ -164,7 +173,10 @@ BUILTIN_FAMILIES = {
         },
         "link": {"mu": "log", "alpha": "log", "psi": "logit"},
         "family": HurdleNegativeBinomial,
-        "default_priors": {"alpha": "HalfCauchy", "psi": "Beta"}
+        "default_priors": {
+            "alpha": {"name": "HalfCauchy", "beta": 1}, 
+            "psi": {"name": "Beta", "alpha": 2, "beta": 2}
+        }
     },
     "hurdle_poisson": {
         "likelihood": {
@@ -174,7 +186,7 @@ BUILTIN_FAMILIES = {
         },
         "link": {"mu": "log", "psi": "logit"},
         "family": HurdlePoisson,
-        "default_priors": {"psi": "Beta"},
+        "default_priors": {"psi": {"name": "Beta", "alpha": 2, "beta": 2}},
     },
     "multinomial": {
         "likelihood": {
@@ -193,7 +205,7 @@ BUILTIN_FAMILIES = {
         },
         "link": {"mu": "log", "alpha": "log"},
         "family": NegativeBinomial,
-        "default_priors": {"alpha": "HalfCauchy"},
+        "default_priors": {"alpha": {"name": "HalfCauchy", "beta": 1}},
     },
     "laplace": {
         "likelihood": {
@@ -203,7 +215,7 @@ BUILTIN_FAMILIES = {
         },
         "link": {"mu": "identity", "b": "log"},
         "family": Laplace,
-        "default_priors": {"b": "HalfNormal"},
+        "default_priors": {"b": {"name": "HalfNormal", "sigma": 1}},
     },
     "poisson": {
         "likelihood": {
@@ -222,7 +234,7 @@ BUILTIN_FAMILIES = {
         },
         "link": {"p": "logit", "threshold": "identity"},
         "family": StoppingRatio,
-        "default_priors": {"threshold": "Normal"},
+        "default_priors": {"threshold": {"name": "Normal", "mu": 0, "sigma": 1}},
     },
     "t": {
         "likelihood": {
@@ -232,7 +244,10 @@ BUILTIN_FAMILIES = {
         },
         "link": {"mu": "identity", "sigma": "log", "nu": "log"},
         "family": StudentT,
-        "default_priors": {"sigma": "HalfNormal", "nu": "Gamma"},
+        "default_priors": {
+            "sigma": {"name": "HalfNormal", "sigma": 1}, 
+            "nu": {"name": "Gamma", "alpha": 2, "beta": 0.1}
+        },
     },
     "vonmises": {
         "likelihood": {
@@ -242,7 +257,7 @@ BUILTIN_FAMILIES = {
         },
         "link": {"mu": "identity", "kappa": "log"},
         "family": VonMises,
-        "default_priors": {"kappa": "HalfNormal"},
+        "default_priors": {"kappa": {"name": "HalfNormal", "sigma": 1}},
     },
     "wald": {
         "likelihood": {
@@ -252,7 +267,7 @@ BUILTIN_FAMILIES = {
         },
         "link": {"mu": "inverse_squared", "lam": "log"},
         "family": Wald,
-        "default_priors": {"lam": "HalfCauchy"},
+        "default_priors": {"lam": {"name": "HalfCauchy", "beta": 1}},
     },
     "weibull": {
         "likelihood": {
@@ -262,7 +277,7 @@ BUILTIN_FAMILIES = {
         },
         "link": {"mu": "log", "alpha": "log"},
         "family": Weibull,
-        "default_priors": {"alpha": "HalfCauchy"},
+        "default_priors": {"alpha": {"name": "HalfCauchy", "beta": 1}},
     },
     "zero_inflated_binomial": {
         "likelihood": {
@@ -272,7 +287,7 @@ BUILTIN_FAMILIES = {
         },
         "link": {"p": "logit", "psi": "logit"},
         "family": ZeroInflatedBinomial,
-        "default_priors": {"psi": "Beta"},
+        "default_priors": {"psi": {"name": "Beta", "alpha": 2, "beta": 2}},
     },
     "zero_inflated_negativebinomial": {
         "likelihood": {
@@ -282,7 +297,10 @@ BUILTIN_FAMILIES = {
         },
         "link": {"mu": "log", "alpha": "log", "psi": "logit"},
         "family": ZeroInflatedNegativeBinomial,
-        "default_priors": {"alpha": "HalfCauchy", "psi": "Beta"},
+        "default_priors": {
+            "alpha": {"name": "HalfCauchy", "beta": 1}, 
+            "psi": {"name": "Beta", "alpha": 2, "beta": 2}
+        },
     },
     "zero_inflated_poisson": {
         "likelihood": {
@@ -292,7 +310,7 @@ BUILTIN_FAMILIES = {
         },
         "link": {"mu": "log", "psi": "logit"},
         "family": ZeroInflatedPoisson,
-        "default_priors": {"psi": "Beta"},
+        "default_priors": {"psi": {"name": "Beta", "alpha": 2, "beta": 2}},
     }
 }
 # fmt: on
