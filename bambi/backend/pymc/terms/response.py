@@ -1,22 +1,34 @@
 import numpy as np
 import pymc as pm
 
-from bambi.backend.new_pymc.utils import (
+from bambi.backend.pymc.utils import (
     make_weighted_distribution,
     get_distribution_from_likelihood,
 )
 
-from bambi.backend.new_pymc.transform.register import PARAMETERS_MANIPULATIONS, DATA_MANIPULATIONS
+from bambi.backend.pymc.transform import transforms_registry
 
 
 def build_response_term(term, parameters, family, model):
-    data = term.data
-    dims = tuple(model.__bambi_attrs__["response_coords"])
+
+    if family.DATA_TYPE == "binary":
+        data = prepare_binary_data(term)
+    elif family.DATA_TYPE == "categorical":
+        data = prepare_categorical_data(term)
+    else:
+        data = term.data
+
+    if family.RESPONSE_NDIM == 1:
+        dims = tuple(model.__bambi_attrs__["response_coords_data"])
+    else:
+        dims = tuple(
+            model.__bambi_attrs__["response_coords_data"] | model.__bambi_attrs__["response_coords"]
+        )
     distribution = get_distribution_from_likelihood(family.likelihood)
 
-    manipulate_parameters = PARAMETERS_MANIPULATIONS.get((family,), None)
-    if manipulate_parameters:
-        parameters = manipulate_parameters(parameters)
+    transform_parameters = transforms_registry.get_transform_parameters(family)
+    if transform_parameters:
+        parameters = transform_parameters(parameters)
 
     if term.is_censored:
         observed = data[:, 0]
@@ -80,13 +92,28 @@ def build_response_term(term, parameters, family, model):
             weighted_dist(term.label, weights, **parameters, observed=observed, dims=dims)
     else:
 
-        manipulate_data = DATA_MANIPULATIONS.get((family,), None)
-        if manipulate_data:
-            data_mapping = manipulate_data(data)
+        transform_data = transforms_registry.get_transform_data(family)
+        if transform_data:
+            data_mapping = transform_data(data)
         else:
             data_mapping = {"observed": data}
 
-        # All of the other response kinds are not special and are thus handled the same way
-        distribution(term.label, **parameters, **data_mapping, dims=dims, model=model)
+        with model:
+            # All of the other response kinds are not special and are thus handled the same way
+            distribution(term.label, **parameters, **data_mapping, dims=dims)
 
     return None
+
+
+def prepare_binary_data(term):
+    # Data is 2d when the user passes categorical response without specifying the reference level.
+    # In that case, data is a one-hot encoded matrix. Otherwise it's a binary 1d array.
+    if term.data.ndim == 1:
+        return term.data
+    idx = term.levels.index(term.reference)
+    return term.data[:, idx]
+
+
+def prepare_categorical_data(term):
+    # Data is a one-hot encoded matrix. PyMC needs a vector of indices of observed categories.
+    return np.nonzero(term.data)[1]
