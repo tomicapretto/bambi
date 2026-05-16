@@ -28,7 +28,7 @@ dependencies = [
     "matplotlib>=3.9.0",
     "pandas>=1.0.0",
     "pytensor>=3.0.0,<4.0.0",  
-    "pymc @ git+https://github.com/pymc-devs/pymc.git",
+    "pymc>=6.0.0,<7.0.0",
     "seaborn>=0.13.2,<0.14",
     "sparse>=0.17.0,<0.18",
 ]
@@ -41,7 +41,7 @@ jax = [
 ]
 nutpie = [
     "numba>=0.61.2",
-    "nutpie @ git+https://github.com/pymc-devs/nutpie.git",
+    "nutpie>=0.16.10,<1",
 ]
 
 [project.urls]
@@ -113,10 +113,7 @@ numpyro = ">=0.19,<0.20"
 
 [tool.pixi.feature.nutpie.dependencies]
 numba = ">=0.61.2"
-# nutpie = ">=0.15,<0.16"
-
-[tool.pixi.feature.nutpie.pypi-dependencies]
-nutpie = { git = "https://github.com/pymc-devs/nutpie.git" }
+nutpie = ">=0.16.10,<1"
 
 [tool.pixi.feature.py312.dependencies]
 python = "~=3.12.0"
