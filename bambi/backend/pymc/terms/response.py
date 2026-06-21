@@ -18,9 +18,12 @@ def build_response_term(term, parameters, family, model):
     else:
         data = term.data
 
-    dims = tuple(
-        model.__bambi_attrs__["response_coords_data"] | model.__bambi_attrs__["response_coords"]
-    )
+    if family.RESPONSE_NDIM == 1:
+        dims = tuple(model.__bambi_attrs__["response_coords_data"])
+    else:
+        dims = tuple(
+            model.__bambi_attrs__["response_coords_data"] | model.__bambi_attrs__["response_coords"]
+        )
     distribution = get_distribution_from_likelihood(family.likelihood)
 
     transform_parameters = transforms_registry.get_transform_parameters(family)

@@ -62,17 +62,10 @@ def build_group_specific_term_idx(term, model):
     data_idx_name = f"{term.label}_idx"
     param_name = term.label
 
-    coords = term.coords.copy()
-    if len(coords) == 1:
-        (dims_factor,) = tuple(coords)
-        dims_expr = tuple()
-    elif len(coords) == 2:
-        # Get strings, need tuples
-        dims_factor, dims_expr = coords
-        dims_factor = (dims_factor,)
-        dims_expr = (dims_expr,)
-    else:
-        raise ValueError("no no!")
+    coords_expr, coords_factor = coords_from_group_specific(term)
+    coords = coords_factor | coords_expr
+    dims_expr = tuple(coords_expr)
+    dims_factor = tuple(coords_factor)
 
     # Register coords
     # Data is not checked as no coords are registered for it
@@ -88,10 +81,7 @@ def build_group_specific_term_idx(term, model):
     group_idx_data = pm.Data(data_idx_name, term.group_index, dims=("__obs__",), model=model)
 
     # Register parameter
-    dims_output = tuple(
-        model.__bambi_attrs__["response_coords_data"]
-        | model.__bambi_attrs__["response_coords_reduced"]
-    )
+    dims_output = tuple(model.__bambi_attrs__["response_coords_reduced"])
     param_rv = build_distribution(
         prior=term.prior,
         label=param_name,

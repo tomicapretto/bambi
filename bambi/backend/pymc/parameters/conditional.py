@@ -16,7 +16,7 @@ from bambi.backend.pymc.transform import transforms_registry
 
 
 def _get_ensure_ndim(model):
-    if model.__bambi_attrs__["response_ndim"] == 1:
+    if not model.__bambi_attrs__["response_coords_reduced"]:
         return pt.atleast_1d
     return pt.atleast_2d
 
@@ -109,16 +109,27 @@ def build_conditional_parameter(parameter, family, model):
         value += _build_group_specific(parameter.group_specific_terms, model)
 
     # TODO: Make sure parameters are built in the appropriate order
-    transform_parameter = transforms_registry.get_transform_parameters(family)
-    if transform_parameter:
+    transform_predictor = transforms_registry.get_transform_predictor(family, parameter.name)
+    if transform_predictor:
         parameters = {
-            name: model[name] for name in family.likelihood.parameters if name != parameter.name
+            name: model[name] for name in family.likelihood.params if name != parameter.name
         }
-        value = transform_parameter(value, parameters, inverse_link)
+        value = transform_predictor(value, parameters, inverse_link)
     else:
         value = inverse_link(value)
 
-    dims = tuple(
+    value = pt.as_tensor_variable(value)
+    coords = (
         model.__bambi_attrs__["response_coords_data"] | model.__bambi_attrs__["response_coords"]
     )
+    dims = tuple(coords)
+    only_intercept = (
+        parameter.intercept_term
+        and not parameter.common_terms
+        and not parameter.group_specific_terms
+        and not parameter.offset_terms
+        and not parameter.hsgp_terms
+    )
+    if value.ndim < len(dims) or only_intercept:
+        value = pt.broadcast_to(value, tuple(len(coord) for coord in coords.values()))
     return pm.Deterministic(parameter.label, value, dims=dims, model=model)

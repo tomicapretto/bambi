@@ -44,13 +44,16 @@ class TransformsRegistry:
         return decorator
 
     def get_transform_predictor(self, family, parameter):
-        return self.additive_predictors.get((family, parameter), None)
+        return self.additive_predictors.get((self._family_key(family), parameter), None)
 
     def get_transform_parameters(self, family):
-        return self.parameters.get((family,), None)
+        return self.parameters.get((self._family_key(family),), None)
 
     def get_transform_data(self, family):
-        return self.data.get((family,), None)
+        return self.data.get((self._family_key(family),), None)
+
+    def _family_key(self, family):
+        return family if isinstance(family, type) else type(family)
 
 
 transforms_registry = TransformsRegistry()

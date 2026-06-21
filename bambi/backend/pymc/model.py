@@ -62,7 +62,34 @@ class PyMCModel:
 
         self.model = model
 
-    def run(self):
+    def run(
+        self,
+        draws=1000,
+        tune=1000,
+        discard_tuned_samples=True,
+        omit_offsets=True,  # pylint: disable=unused-argument
+        include_response_params=False,  # pylint: disable=unused-argument
+        inference_method="pymc",
+        init="auto",
+        n_init=50000,
+        chains=None,
+        cores=None,
+        random_seed=None,
+        **kwargs,
+    ):
+        if inference_method != "pymc":
+            raise NotImplementedError("Only inference_method='pymc' is currently supported")
+
         with self.model:
-            output = pm.sample()
+            output = pm.sample(
+                draws=draws,
+                tune=tune,
+                discard_tuned_samples=discard_tuned_samples,
+                init=init,
+                n_init=n_init,
+                chains=chains,
+                cores=cores,
+                random_seed=random_seed,
+                **kwargs,
+            )
         return output
