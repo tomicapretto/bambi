@@ -40,20 +40,6 @@ class CommonTerm(BaseTerm):
         return self.term.name
 
     @property
-    def coords(self):
-        # Obtain pymc coordinates, only for categorical components of a term.
-        # A categorical component can have up to two coordinates in the same model if it is
-        # includied with both reduced and full rank encodings.
-        coords = {}
-        if self.categorical:
-            name = self.name + "_dim"
-            coords[name] = self.levels
-        elif self.data.ndim > 1 and self.data.shape[1] > 1:
-            name = self.name + "_dim"
-            coords[name] = np.arange(self.data.shape[1])
-        return coords
-
-    @property
     def data(self):
         return self._data
 
@@ -83,7 +69,4 @@ class CommonTerm(BaseTerm):
         return self.term.levels
 
     def __str__(self):
-        args = []
-        if self.coords:
-            args = [f"coords: {self.coords}"]
-        return self.make_str(args)
+        return self.make_str()

@@ -1,17 +1,26 @@
 import numpy as np
 import pymc as pm
 
-from bambi.backend.new_pymc.utils import (
+from bambi.backend.pymc.utils import (
     make_weighted_distribution,
     get_distribution_from_likelihood,
 )
 
-from bambi.backend.new_pymc.transform import transforms_registry
+from bambi.backend.pymc.transform import transforms_registry
 
 
 def build_response_term(term, parameters, family, model):
-    data = term.data
-    dims = tuple(model.__bambi_attrs__["response_coords"])
+
+    if family.DATA_TYPE == "binary":
+        data = prepare_binary_data(term)
+    elif family.DATA_TYPE == "categorical":
+        data = prepare_categorical_data(term)
+    else:
+        data = term.data
+
+    dims = tuple(
+        model.__bambi_attrs__["response_coords_data"] | model.__bambi_attrs__["response_coords"]
+    )
     distribution = get_distribution_from_likelihood(family.likelihood)
 
     transform_parameters = transforms_registry.get_transform_parameters(family)
@@ -90,3 +99,17 @@ def build_response_term(term, parameters, family, model):
         distribution(term.label, **parameters, **data_mapping, dims=dims, model=model)
 
     return None
+
+
+def prepare_binary_data(term):
+    # Data is 2d when the user passes categorical response without specifying the reference level.
+    # In that case, data is a one-hot encoded matrix. Otherwise it's a binary 1d array.
+    if term.data.ndim == 1:
+        return term.data
+    idx = term.levels.index(term.reference)
+    return term.data[:, idx]
+
+
+def prepare_categorical_data(term):
+    # Data is a one-hot encoded matrix. PyMC needs a vector of indices of observed categories.
+    return np.nonzero(term.data)[1]

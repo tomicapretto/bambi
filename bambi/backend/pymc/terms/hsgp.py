@@ -2,7 +2,7 @@ import numpy as np
 import pymc as pm
 import pytensor.tensor as pt
 
-from bambi.backend.new_pymc.utils import get_distribution_from_prior
+from bambi.backend.pymc.utils import get_distribution_from_prior
 from bambi.priors import Prior  # TODO: remove?
 
 
@@ -97,7 +97,10 @@ def build_hsgp_term(term, model):
         # In general:
         # coeff_dims: ('weights_dim', ) -> ('weights_dim', f'{response}_dim')
         # contribution_dims: ('__obs__', ) -> ('__obs__', f'{response}_dim')
-        response_dims = tuple(model.__bambi_attrs__["response_coords"])
+        response_dims = tuple(
+            model.__bambi_attrs__["response_coords_data"]
+            | model.__bambi_attrs__["response_coords_reduced"]
+        )
         coeff_dims = coeff_dims + response_dims
         contribution_dims = contribution_dims + response_dims
 

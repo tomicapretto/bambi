@@ -1,18 +1,38 @@
 import numpy as np
 
 
-def coords_from_response(term):
-    # TODO: Get response coords directly from the term, do not interact with the family directly.
-    # Wait, coords are a pymc thing, so I think this should be something done by the backend?
-    # But, how do we make it interact with the family? The family determines some things,
-    # such as levels.
-    coords = {"__obs__": np.arange(term.shape[0])}
-    if hasattr(term.family, "get_response_coords"):
-        coords.update(term.family.get_response_coords(term))
-    return coords
+def coords_from_response(term, family):
+    coords_data = {"__obs__": np.arange(term.shape[0])}
+    coords = {}
+    coords_reduced = {}
+
+    if hasattr(family, "get_levels"):
+        levels = family.get_levels(term)
+    else:
+        levels = term.levels
+
+    if levels:
+        coords[f"{term.label}_levels"] = levels
+        if term.reference:
+            # There's a restriction applied when there is a reference level
+            levels_restricted = [level for level in levels if level != term.reference]
+        else:
+            levels_restricted = levels[1:]
+
+        coords_reduced[f"{term.label}_levels_reduced"] = levels_restricted
+
+    elif term.ndim > 1:
+        # A multidimensional numeric outcome.
+        # Both non-reduced and reduced dimensions are called the same.
+        # Dict union will make sure we attempt to add the dimension only once.
+        # We still need regular and reduced coords because that is what things such as
+        # additive predictors expect.
+        coords[f"{term.label}_levels"] = np.arange(term.shape[1])
+        coords_reduced[f"{term.label}_levels"] = np.arange(term.shape[1])
+
+    return coords_data, coords, coords_reduced
 
 
-# TODO: Term has to have "label" instead of name. It's the alias if there's one, else it's name.
 def coords_from_term(term):
     # Single numeric
     if term.kind == "numeric":

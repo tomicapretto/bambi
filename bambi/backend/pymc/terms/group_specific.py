@@ -3,8 +3,8 @@ import pymc as pm
 import pytensor.tensor as pt
 
 from bambi.priors import Prior
-from bambi.backend.new_pymc.coords import coords_from_group_specific
-from bambi.backend.new_pymc.utils import get_distribution_from_prior
+from bambi.backend.pymc.coords import coords_from_group_specific
+from bambi.backend.pymc.utils import get_distribution_from_prior
 
 # Data will be either a matrix or a vector.
 # If it is a matrix, it can be
@@ -36,7 +36,7 @@ def build_group_specific_term_dot(term, model):
     pm.Data(data_name, data, dims=data_dims, model=model)
 
     # Register parameter
-    dims_output = tuple(model.__bambi_attrs__["response_coords"])[1:]
+    dims_output = tuple(model.__bambi_attrs__["response_coords_reduced"])
     param_rv = build_distribution(
         prior=term.prior,
         label=param_name,
@@ -88,7 +88,10 @@ def build_group_specific_term_idx(term, model):
     group_idx_data = pm.Data(data_idx_name, term.group_index, dims=("__obs__",), model=model)
 
     # Register parameter
-    dims_output = tuple(model.__bambi_attrs__["response_coords"])[1:]
+    dims_output = tuple(
+        model.__bambi_attrs__["response_coords_data"]
+        | model.__bambi_attrs__["response_coords_reduced"]
+    )
     param_rv = build_distribution(
         prior=term.prior,
         label=param_name,

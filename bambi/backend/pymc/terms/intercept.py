@@ -1,10 +1,10 @@
 import numpy as np
 
-from bambi.backend.new_pymc.utils import get_distribution_from_prior
+from bambi.backend.pymc.utils import get_distribution_from_prior
 
 
 def build_intercept_term(term, model):
-    coords = {k: v for k, v in model.__bambi_attrs__["response_coords"].items() if k != "__obs__"}
+    coords = model.__bambi_attrs__["response_coords_reduced"]
     dims = tuple(coords)
     param_shape = tuple(len(coord) for coord in coords.values()) or (1,)
     kwargs = {name: np.broadcast_to(value, param_shape) for name, value in term.prior.args.items()}

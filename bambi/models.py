@@ -17,9 +17,11 @@ from arviz_stats import residual_r2
 from bambi.backend import PyMCModel
 from bambi.defaults import get_builtin_family
 from bambi.model_components import ConstantComponent, DistributionalComponent, ResponseComponent
-from bambi.families import Family, univariate
+from bambi.families import Family
+from bambi.families.builtin import Bernoulli, Cumulative, StoppingRatio
 from bambi.formula import Formula, check_ordinal_formula
 from bambi.priors import Prior, scale_priors
+from bambi.terms import ResponseTerm
 from bambi.transformations import transformations_namespace
 from bambi.utils import (
     clean_formula_lhs,
@@ -32,7 +34,7 @@ from bambi.utils import (
 
 _log = logging.getLogger("bambi")
 
-ORDINAL_FAMILIES = (univariate.Cumulative, univariate.StoppingRatio)
+ORDINAL_FAMILIES = (Cumulative, StoppingRatio)
 
 __version__ = version("bambi")
 
@@ -185,6 +187,7 @@ class Model:
 
         # Add response component
         self.response_component = ResponseComponent(design.response, self)
+        self.response_term = ResponseTerm(self.response_component.term, self)
 
         # Add component for parent parameter
         self.components[self.family.likelihood.parent] = DistributionalComponent(
@@ -331,11 +334,11 @@ class Model:
             self.build()
 
         # Tell user which event is being modeled
-        if isinstance(self.family, univariate.Bernoulli):
+        if isinstance(self.family, Bernoulli):
             _log.info(
                 "Modeling the probability that %s==%s",
                 self.response_component.term.name,
-                str(self.response_component.term.success),
+                str(self.response_component.term.reference or 1),
             )
 
         if include_mean is not None:
@@ -366,8 +369,8 @@ class Model:
 
         Creates an instance of the underlying PyMC model and adds all the necessary terms to it.
         """
-        self.backend = PyMCModel()
-        self.backend.build(self)
+        self.backend = PyMCModel(self)
+        self.backend.build()
         self.built = True
 
     def set_priors(self, priors=None, common=None, group_specific=None):

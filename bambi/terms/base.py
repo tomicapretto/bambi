@@ -45,6 +45,10 @@ class BaseTerm(ABC):
         self._alias = value
 
     @property
+    def label(self):
+        return self.alias or self.name
+
+    @property
     def prior(self):
         return self._prior
 

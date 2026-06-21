@@ -5,7 +5,12 @@ import numpy as np
 import xarray as xr
 
 from bambi.defaults import get_default_prior
-from bambi.families import univariate, multivariate
+from bambi.families.builtin import (
+    Bernoulli,
+    Categorical,
+    Multinomial,
+    MultivariateFamily,
+)
 from bambi.priors import Prior
 from bambi.terms import CommonTerm, GroupSpecificTerm, HSGPTerm, OffsetTerm, ResponseTerm
 from bambi.utils import get_aliased_name, is_hsgp_term
@@ -148,13 +153,13 @@ class DistributionalComponent:
         design_matrix_dims = (response_dim, "__variables__")
 
         # These families drop a level in the response
-        if isinstance(self.spec.family, (multivariate.Multinomial, univariate.Categorical)):
+        if isinstance(self.spec.family, (Multinomial, Categorical)):
             response_levels_dim = response_name + "_reduced_dim"
             to_stack_dims = to_stack_dims + (response_levels_dim,)
             linear_predictor_dims = linear_predictor_dims + (response_levels_dim,)
 
         # These families don't drop any level in the response
-        elif isinstance(self.spec.family, multivariate.MultivariateFamily):
+        elif isinstance(self.spec.family, MultivariateFamily):
             response_levels_dim = response_name + "_dim"
             to_stack_dims = to_stack_dims + (response_levels_dim,)
             linear_predictor_dims = linear_predictor_dims + (response_levels_dim,)
@@ -554,10 +559,10 @@ class ResponseComponent:
 
         # This is a historical feature.
         # It's not clear how many family specific checks should be added here
-        if reference is not None and not isinstance(self.spec.family, univariate.Bernoulli):
+        if reference is not None and not isinstance(self.spec.family, Bernoulli):
             raise ValueError("Index notation for response is only available for 'bernoulli' family")
 
-        if isinstance(self.spec.family, univariate.Bernoulli):
+        if isinstance(self.spec.family, Bernoulli):
             if response.kind == "categoric" and response.levels is None and reference is None:
                 raise ValueError("Categoric response must be binary for 'bernoulli' family.")
             if response.kind == "numeric" and not all(np.isin(response.design_matrix, (0, 1))):

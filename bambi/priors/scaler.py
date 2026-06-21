@@ -2,7 +2,7 @@ import warnings
 
 import numpy as np
 
-from bambi.families.univariate import (
+from bambi.families.builtin import (
     Bernoulli,
     Binomial,
     Cumulative,

@@ -4,7 +4,7 @@ import functools
 import pymc as pm
 import pytensor.tensor as pt
 
-from bambi.backend.new_pymc.links import (
+from bambi.backend.pymc.links import (
     cloglog,
     identity,
     inverse_squared,

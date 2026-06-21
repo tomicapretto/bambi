@@ -1,8 +1,8 @@
 import pymc as pm
 
-from bambi.backend.new_pymc.coords import coords_from_response
-from bambi.backend.new_pymc.parameters import build_conditional_parameter, build_marginal_parameter
-from bambi.backend.new_pymc.terms import build_response_term
+from bambi.backend.pymc.coords import coords_from_response
+from bambi.backend.pymc.parameters import build_conditional_parameter, build_marginal_parameter
+from bambi.backend.pymc.terms import build_response_term
 
 
 class PyMCModel:
@@ -31,11 +31,16 @@ class PyMCModel:
         # 3. Build random variables
         # 4. Build response, again grabbing stuff from the PyMC model.
 
-        response_coords = coords_from_response(self.spec.response_term)
-        model = pm.Model(coords=response_coords)
+        response_coords_data, response_coords, response_coords_reduced = coords_from_response(
+            self.spec.response_term, self.spec.family
+        )
+
+        model = pm.Model(coords=response_coords_data | response_coords | response_coords_reduced)
         model.__bambi_attrs__ = {
             "response_ndim": self.spec.family.response_ndim,
+            "response_coords_data": response_coords_data,
             "response_coords": response_coords,
+            "response_coords_reduced": response_coords_reduced,
         }
 
         marginal_parameters = {}
@@ -56,3 +61,8 @@ class PyMCModel:
         )
 
         self.model = model
+
+    def run(self):
+        with self.model:
+            output = pm.sample()
+        return output

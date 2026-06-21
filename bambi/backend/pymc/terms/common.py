@@ -1,8 +1,8 @@
 import numpy as np
 import pymc as pm
 
-from bambi.backend.new_pymc.coords import coords_from_common
-from bambi.backend.new_pymc.utils import get_distribution_from_prior
+from bambi.backend.pymc.coords import coords_from_common
+from bambi.backend.pymc.utils import get_distribution_from_prior
 
 
 def build_common_term(term, model):
@@ -41,10 +41,7 @@ def build_common_term(term, model):
         pm.Data(data_name, np.reshape(term.data, data_shape), dims=data_dims, model=model)
 
     # Register parameter
-    response_coords = {
-        k: v for k, v in model.__bambi_attrs__["response_coords"].items() if k != "__obs__"
-    }
-    param_coords = coords | response_coords
+    param_coords = coords | model.__bambi_attrs__["response_coords_reduced"]
     param_dims = tuple(param_coords)
     param_shape = tuple(len(coord) for coord in param_coords.values())
 

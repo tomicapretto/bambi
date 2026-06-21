@@ -1,6 +1,6 @@
 import pytensor.tensor as pt
 
-from bambi.backend.new_pymc.transform.register import transforms_registry
+from bambi.backend.pymc.transform.register import transforms_registry
 from bambi.families.builtin import (
     Beta,
     BetaBinomial,

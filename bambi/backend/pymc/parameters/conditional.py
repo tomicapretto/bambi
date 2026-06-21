@@ -4,15 +4,15 @@ import pytensor.tensor as pt
 import pytensor.sparse as ps
 import scipy as sp
 
-from bambi.backend.new_pymc.terms import (
+from bambi.backend.pymc.terms import (
     build_common_term,
     build_group_specific_term_dot,
     build_intercept_term,
     build_group_specific_term_idx,
 )
-from bambi.backend.new_pymc.utils import INVERSE_LINKS
+from bambi.backend.pymc.utils import INVERSE_LINKS
 from bambi.config import config as bmb_config
-from bambi.backend.new_pymc.transform import transforms_registry
+from bambi.backend.pymc.transform import transforms_registry
 
 
 def _get_ensure_ndim(model):
@@ -88,7 +88,6 @@ def _build_group_specific_idx(terms, model):
 
 def build_conditional_parameter(parameter, family, model):
     value = 0
-    dims = tuple(model.__bambi_attrs__["response_coords"])
     inverse_link = INVERSE_LINKS.get(family.link[parameter.name].name, lambda x: x)
 
     if parameter.intercept_term:
@@ -112,4 +111,7 @@ def build_conditional_parameter(parameter, family, model):
     else:
         value = inverse_link(value)
 
+    dims = tuple(
+        model.__bambi_attrs__["response_coords_data"] | model.__bambi_attrs__["response_coords"]
+    )
     return pm.Deterministic(parameter.label, value, dims=dims, model=model)

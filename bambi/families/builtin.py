@@ -1,16 +1,14 @@
-# pylint: disable=unused-argument
 from bambi.families.family import Family
 from bambi.transformations import transformations_namespace
-from bambi.utils import extract_argument_names, get_aliased_name
-
-import numpy as np
+from bambi.utils import extract_argument_names
 
 
 class UnivariateFamily(Family):
     KIND = "Univariate"
     ORDINAL = False
-    OUTCOME_NDIM = 1
     PARAMETER_NDIM = 1
+    DATA_TYPE = "numeric"
+    INVLINK_KWARGS = {}
 
 
 class AsymmetricLaplace(UnivariateFamily):
@@ -24,17 +22,7 @@ class AsymmetricLaplace(UnivariateFamily):
 
 class Bernoulli(UnivariateFamily):
     SUPPORTED_LINKS = {"p": ["identity", "logit", "probit", "cloglog"]}
-
-    def get_data(self, response):
-        if response.term.data.ndim == 1:
-            return response.term.data
-        idx = response.levels.index(response.success)
-        return response.term.data[:, idx]
-
-    def get_success_level(self, response):
-        if response.categorical:
-            return get_success_level(response.term)
-        return 1
+    DATA_TYPE = "binary"
 
 
 class Beta(UnivariateFamily):
@@ -63,25 +51,14 @@ class Categorical(UnivariateFamily):
     SUPPORTED_LINKS = {"p": ["softmax"]}
     INVLINK_KWARGS = {"axis": -1}
     PARAMETER_NDIM = 2
-
-    def get_data(self, response):
-        return np.nonzero(response.term.data)[1]
-
-    def get_coords(self, response):
-        name = get_aliased_name(response) + "_reduced_dim"
-        return {name: [level for level in response.levels if level != response.reference]}
-
-    def get_reference(self, response):
-        return get_reference_level(response.term)
+    DATA_TYPE = "categorical"
 
 
 class Cumulative(UnivariateFamily):
     SUPPORTED_LINKS = {"p": ["logit", "probit", "cloglog"], "threshold": ["identity"]}
     PARAMETER_NDIM = 2
     ORDINAL = True
-
-    def get_data(self, response):
-        return np.nonzero(response.term.data)[1]
+    DATA_TYPE = "categorical"
 
 
 class Exponential(UnivariateFamily):
@@ -140,9 +117,7 @@ class StoppingRatio(UnivariateFamily):
     SUPPORTED_LINKS = {"p": ["logit", "probit", "cloglog"], "threshold": ["identity"]}
     PARAMETER_NDIM = 2
     ORDINAL = True
-
-    def get_data(self, response):
-        return np.nonzero(response.term.data)[1]
+    DATA_TYPE = "categorical"
 
 
 class StudentT(UnivariateFamily):
@@ -180,59 +155,16 @@ class ZeroInflatedPoisson(UnivariateFamily):
     SUPPORTED_LINKS = {"mu": ["identity", "log"], "psi": ["logit", "probit", "cloglog"]}
 
 
-# pylint: disable = protected-access
-def get_success_level(term):
-    """Returns the success level of a categorical term
-
-    Whenever the concept of "success level" does not apply, it returns `None`.
-    """
-    if term.kind != "categoric":
-        return None
-
-    if term.levels is None:
-        return term.components[0].reference
-
-    levels = term.levels
-    intermediate_data = term.components[0]._intermediate_data
-    if hasattr(intermediate_data, "_contrast"):
-        return intermediate_data._contrast.reference
-
-    return levels[0]
-
-
-# pylint: disable = protected-access
-def get_reference_level(term):
-    """Returns the reference level of a categorical term
-
-    Whenever the concept of "reference level" does not apply, it returns `None`.
-    """
-    if term.kind != "categoric":
-        return None
-
-    if term.levels is None:
-        return None
-
-    levels = term.levels
-    intermediate_data = term.components[0]._intermediate_data
-    if hasattr(intermediate_data, "_contrast"):
-        return intermediate_data._contrast.reference
-
-    return levels[0]
-
-
 class MultivariateFamily(Family):
     KIND = "Multivariate"
+    ORDINAL = False
+    DATA_TYPE = "numeric"
+    INVLINK_KWARGS = {}
 
 
 class Multinomial(MultivariateFamily):
     SUPPORTED_LINKS = {"p": ["softmax"]}
     INVLINK_KWARGS = {"axis": -1}
-
-    def get_coords(self, response):
-        # For the moment, it always uses the first column as reference.
-        name = get_aliased_name(response) + "_reduced_dim"
-        labels = self.get_levels(response)
-        return {name: labels[1:]}
 
     def get_levels(self, response):
         labels = extract_argument_names(response.name, list(transformations_namespace))
@@ -244,21 +176,8 @@ class Multinomial(MultivariateFamily):
 class DirichletMultinomial(MultivariateFamily):
     SUPPORTED_LINKS = {"a": ["log"]}
 
-    def get_coords(self, response):
-        name = get_aliased_name(response) + "_dim"
-        labels = self.get_levels(response)
-        return {name: labels}
-
     def get_levels(self, response):
-        labels = extract_argument_names(response.name, list(transformations_namespace))
-        if labels:
-            return labels
+        levels = extract_argument_names(response.name, list(transformations_namespace))
+        if levels:
+            return levels
         return [str(level) for level in range(response.data.shape[1])]
-
-
-# NOTE: How do we go from reduced to complete dims?
-#       This is the case for models such as Categorical, Multinomial, etc.
-#       Basically, every place where we use a reference encoding in the response
-#       (constrained multivariate responses)
-#       Should we pad directly in the pymc model?
-#       Well, we actually do, but we're not registering it as a deterministic
