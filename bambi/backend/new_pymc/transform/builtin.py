@@ -1,53 +1,48 @@
 import pytensor.tensor as pt
 
-from bambi.backend.new_pymc.transform.register import (
-    transform_additive_predictor,
-    manipulate_data,
-    manipulate_parameters,
-)
-
-from bambi.families.univariate import (
+from bambi.backend.new_pymc.transform.register import transforms_registry
+from bambi.families.builtin import (
     Beta,
     BetaBinomial,
     Binomial,
     Categorical,
     Cumulative,
+    DirichletMultinomial,
     Exponential,
     Gamma,
     HurdleGamma,
+    Multinomial,
     StoppingRatio,
     Weibull,
     ZeroInflatedBinomial,
 )
 
-from bambi.families.multivariate import Multinomial, DirichletMultinomial
 
-
-@manipulate_parameters(Beta)
+@transforms_registry.transform_parameters(Beta)
 def _(parameters):
     mu = parameters["mu"]
     kappa = parameters["kappa"]
     return {"alpha": mu * kappa, "beta": (1 - mu) * kappa}
 
 
-@manipulate_data(Binomial)
+@transforms_registry.transform_data(Binomial)
 def _(data):
     return {"observed": data[:, 0], "n": data[:, 1]}
 
 
-@manipulate_parameters(BetaBinomial)
+@transforms_registry.transform_parameters(BetaBinomial)
 def _(parameters):
     mu = parameters["mu"]
     kappa = parameters["kappa"]
     return {"alpha": mu * kappa, "beta": (1 - mu) * kappa}
 
 
-@manipulate_data(BetaBinomial)
+@transforms_registry.transform_data(BetaBinomial)
 def _(data):
     return {"observed": data[:, 0], "n": data[:, 1]}
 
 
-@transform_additive_predictor(Categorical, "p")
+@transforms_registry.transform_predictor(Categorical, "p")
 def _(predictor, parameters, inverse_link):
     if predictor.ndim == 1:
         zeros = pt.zeros(shape=(1,))
@@ -56,7 +51,7 @@ def _(predictor, parameters, inverse_link):
     return inverse_link(pt.concatenate((zeros, predictor), axis=-1))
 
 
-@transform_additive_predictor(Cumulative, "p")
+@transforms_registry.transform_predictor(Cumulative, "p")
 def _(predictor, parameters, inverse_link):
     # P(Y = k) = F(threshold_k - predictor) - F(threshold_{k - 1} - predictor)
     threshold = parameters["threshold"]
@@ -80,22 +75,22 @@ def _(predictor, parameters, inverse_link):
     return probability
 
 
-@manipulate_parameters(Cumulative)
+@transforms_registry.transform_parameters(Cumulative)
 def _(parameters):
     return {"p": parameters["p"]}
 
 
-@manipulate_data(DirichletMultinomial)
+@transforms_registry.transform_data(DirichletMultinomial)
 def _(data):
     return {"observed": data, "n": data.sum(axis=1).astype(int)}
 
 
-@manipulate_parameters(Exponential)
+@transforms_registry.transform_parameters(Exponential)
 def _(parameters):
     return {"lam": 1 / parameters["mu"]}
 
 
-@manipulate_parameters(Gamma)
+@transforms_registry.transform_parameters(Gamma)
 def _(parameters):
     return {
         "mu": parameters["mu"],
@@ -103,7 +98,7 @@ def _(parameters):
     }
 
 
-@manipulate_parameters(HurdleGamma)
+@transforms_registry.transform_parameters(HurdleGamma)
 def _(parameters):
     return {
         "mu": parameters["mu"],
@@ -112,7 +107,7 @@ def _(parameters):
     }
 
 
-@transform_additive_predictor(Multinomial, "p")
+@transforms_registry.transform_predictor(Multinomial, "p")
 def _(predictor, parameters, inverse_link):
     if predictor.ndim == 1:
         zeros = pt.zeros(shape=(1,))
@@ -121,12 +116,12 @@ def _(predictor, parameters, inverse_link):
     return inverse_link(pt.concatenate((zeros, predictor), axis=-1))
 
 
-@manipulate_data(Multinomial)
+@transforms_registry.transform_data(Multinomial)
 def _(data):
     return {"observed": data, "n": data.sum(axis=1).astype(int)}
 
 
-@transform_additive_predictor(StoppingRatio, "p")
+@transforms_registry.transform_predictor(StoppingRatio, "p")
 def _(predictor, parameters, inverse_link):
     # P(Y = k) = F(threshold_k - predictor) * prod_(j=1)^(k-1)(1 - F(threshold_j - predictor))
     threshold = parameters["threshold"]
@@ -157,12 +152,12 @@ def _(predictor, parameters, inverse_link):
     return probability
 
 
-@manipulate_parameters(StoppingRatio)
+@transforms_registry.transform_parameters(StoppingRatio)
 def _(parameters):
     return {"p": parameters["p"]}
 
 
-@manipulate_parameters(Weibull)
+@transforms_registry.transform_parameters(Weibull)
 def _(parameters):
     mu = parameters["mu"]
     alpha = parameters["alpha"]
@@ -172,6 +167,6 @@ def _(parameters):
     }
 
 
-@manipulate_data(ZeroInflatedBinomial)
+@transforms_registry.transform_data(ZeroInflatedBinomial)
 def _(data):
     return {"observed": data[:, 0], "n": data[:, 1]}

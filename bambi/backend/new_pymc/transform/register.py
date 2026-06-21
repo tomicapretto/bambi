@@ -1,39 +1,56 @@
-TRANSFORMATIONS = {}
-PARAMETERS_MANIPULATIONS = {}
-DATA_MANIPULATIONS = {}
+class TransformsRegistry:
+    def __init__(self):
+        self.additive_predictors = {}
+        self.parameters = {}
+        self.data = {}
+
+    def transform_predictor(self, family, parameter):
+        """Register transformation function for additive predictors."""
+
+        def decorator(function):
+            self.additive_predictors[(family, parameter)] = function
+
+            def wrapper(*args, **kwargs):
+                return function(*args, **kwargs)
+
+            return wrapper
+
+        return decorator
+
+    def transform_parameters(self, family):
+        """Register transformation function for parameters of the observational model."""
+
+        def decorator(function):
+            self.parameters[(family,)] = function
+
+            def wrapper(*args, **kwargs):
+                return function(*args, **kwargs)
+
+            return wrapper
+
+        return decorator
+
+    def transform_data(self, family):
+        """Register transformation function for observational model data."""
+
+        def decorator(function):
+            self.data[(family,)] = function
+
+            def wrapper(*args, **kwargs):
+                return function(*args, **kwargs)
+
+            return wrapper
+
+        return decorator
+
+    def get_transform_predictor(self, family, parameter):
+        return self.additive_predictors.get((family, parameter), None)
+
+    def get_transform_parameters(self, family):
+        return self.parameters.get((family,), None)
+
+    def get_transform_data(self, family):
+        return self.data.get((family,), None)
 
 
-def transform_additive_predictor(family, parameter):
-    def decorator(function):
-        TRANSFORMATIONS[(family, parameter)] = function
-
-        def wrapper(*args, **kwargs):
-            return function(*args, **kwargs)
-
-        return wrapper
-
-    return decorator
-
-
-def manipulate_parameters(family):
-    def decorator(function):
-        PARAMETERS_MANIPULATIONS[(family,)] = function
-
-        def wrapper(*args, **kwargs):
-            return function(*args, **kwargs)
-
-        return wrapper
-
-    return decorator
-
-
-def manipulate_data(family):
-    def decorator(function):
-        DATA_MANIPULATIONS[(family,)] = function
-
-        def wrapper(*args, **kwargs):
-            return function(*args, **kwargs)
-
-        return wrapper
-
-    return decorator
+transforms_registry = TransformsRegistry()

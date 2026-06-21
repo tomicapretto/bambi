@@ -6,7 +6,7 @@ from bambi.backend.new_pymc.utils import (
     get_distribution_from_likelihood,
 )
 
-from bambi.backend.new_pymc.transform.register import PARAMETERS_MANIPULATIONS, DATA_MANIPULATIONS
+from bambi.backend.new_pymc.transform import transforms_registry
 
 
 def build_response_term(term, parameters, family, model):
@@ -14,9 +14,9 @@ def build_response_term(term, parameters, family, model):
     dims = tuple(model.__bambi_attrs__["response_coords"])
     distribution = get_distribution_from_likelihood(family.likelihood)
 
-    manipulate_parameters = PARAMETERS_MANIPULATIONS.get((family,), None)
-    if manipulate_parameters:
-        parameters = manipulate_parameters(parameters)
+    transform_parameters = transforms_registry.get_transform_parameters(family)
+    if transform_parameters:
+        parameters = transform_parameters(parameters)
 
     if term.is_censored:
         observed = data[:, 0]
@@ -80,9 +80,9 @@ def build_response_term(term, parameters, family, model):
             weighted_dist(term.label, weights, **parameters, observed=observed, dims=dims)
     else:
 
-        manipulate_data = DATA_MANIPULATIONS.get((family,), None)
-        if manipulate_data:
-            data_mapping = manipulate_data(data)
+        transform_data = transforms_registry.get_transform_data(family)
+        if transform_data:
+            data_mapping = transform_data(data)
         else:
             data_mapping = {"observed": data}
 

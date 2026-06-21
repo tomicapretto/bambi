@@ -12,7 +12,7 @@ from bambi.backend.new_pymc.terms import (
 )
 from bambi.backend.new_pymc.utils import INVERSE_LINKS
 from bambi.config import config as bmb_config
-from bambi.backend.new_pymc.transform.register import TRANSFORMATIONS
+from bambi.backend.new_pymc.transform import transforms_registry
 
 
 def _get_ensure_ndim(model):
@@ -39,6 +39,7 @@ def _build_common(terms, center, model):
     params = pt.concatenate(param_list, axis=0)  # (p, ) or (p, K)
     data = pt.concatenate(data_list, axis=1)  # (n, p)
 
+    # TODO: Register as a deterministic
     if center:
         data = data - data.mean(0)
 
@@ -71,8 +72,11 @@ def _build_group_specific_dot(terms, model):
         coefs = coefs[:, np.newaxis]
 
     # (n, ) or (n, K)
-    # FIXME: Do we always need to squeeze?
-    return ps.structured_dot(data, coefs).squeeze()
+    dot_output = ps.structured_dot(data, coefs)
+    if coefs.ndim == 1:
+        return dot_output.squeeze()
+
+    return dot_output
 
 
 def _build_group_specific_idx(terms, model):
@@ -99,7 +103,7 @@ def build_conditional_parameter(parameter, family, model):
         value += _build_group_specific(parameter.group_specific_terms, model)
 
     # TODO: Make sure parameters are built in the appropriate order
-    transform_parameter = TRANSFORMATIONS.get((family, parameter.name), None)
+    transform_parameter = transforms_registry.get_transform_parameters(family)
     if transform_parameter:
         parameters = {
             name: model[name] for name in family.likelihood.parameters if name != parameter.name

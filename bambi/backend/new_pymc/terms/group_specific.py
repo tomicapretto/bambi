@@ -114,7 +114,7 @@ def build_group_specific_term_idx(term, model):
         # (n, q_j, K) -> (n, K)
         contribution = contribution.sum(axis=1)
 
-    # NOTE: This returns something already done, the others return multiple things
+    # NOTE: This returns something already in final state, the others return multiple things
     return contribution
 
 
@@ -136,7 +136,7 @@ def build_distribution(prior, label, dims_factor, dims_expr, dims_output, noncen
         else:
             kwargs[name] = value
 
-    # From lowest to fastest changing
+    # From slowest to fastest changing
     dims = dims_factor + dims_expr + dims_output
     if noncentered and any(isinstance(v, pt.TensorVariable) for v in kwargs.values()):
         # non-centered is only relevant when distribution arguments are random variables.
