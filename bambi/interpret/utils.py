@@ -65,7 +65,7 @@ def get_response_and_target(model: Model, target: str) -> tuple[str, str | None]
     model : Model
         The fitted Bambi model.
     target : str
-        Target model parameter (e.g., 'mean', or a distributional component name).
+        Target model parameter (e.g., 'mean', or a conditional parameter name).
 
     Returns
     -------
@@ -77,18 +77,18 @@ def get_response_and_target(model: Model, target: str) -> tuple[str, str | None]
     match target:
         case "mean":
             return (
-                get_aliased_name(model.response_component.term),
+                get_aliased_name(model.response_term),
                 model.family.likelihood.parent,
             )
         case _:
-            component = model.components[target]
+            parameter = model.parameters[target]
             return (
                 (
-                    get_aliased_name(component)
-                    if component.alias
-                    else get_aliased_name(model.response_component.term)
+                    get_aliased_name(parameter)
+                    if parameter.alias
+                    else get_aliased_name(model.response_term)
                 ),
-                None if component.alias else target,
+                None if parameter.alias else target,
             )
 
 
@@ -139,7 +139,7 @@ def aggregate(
 
 
 def get_model_terms(model: Model) -> dict:
-    """Loop through the distributional components of a Bambi model and return terms.
+    """Loop through the conditional parameters of a Bambi model and return terms.
 
     Parameters
     ----------
@@ -149,10 +149,10 @@ def get_model_terms(model: Model) -> dict:
     Returns
     -------
     dict
-        A dictionary containing all terms from the model's distributional components.
+        A dictionary containing all terms from the model's conditional parameters.
     """
     terms = {}
-    for component in model.distributional_components.values():
+    for component in model.conditional_parameters.values():
         if component.design.common:
             terms.update(component.design.common.terms)
 

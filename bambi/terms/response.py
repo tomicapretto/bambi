@@ -26,6 +26,10 @@ class ResponseTerm(BaseTerm):
         return self.term.name
 
     @property
+    def data(self):
+        return self.term.data
+
+    @property
     def shape(self):
         return self.data.shape
 

@@ -145,12 +145,18 @@ def build_distribution(prior, label, dims_factor, dims_expr, dims_output, noncen
         # non-centered is only relevant when distribution arguments are random variables.
         if prior.name == "Normal" and isinstance(kwargs.get("sigma", None), pt.TensorVariable):
             sigma = kwargs["sigma"]
-            offset = pm.Normal(label + "_offset", mu=0, sigma=1, dims=dims, model=model)
-            return pm.Deterministic(label, offset * sigma, dims=dims, model=model)
+            with model:
+                offset = pm.Normal(label + "_offset", mu=0, sigma=1, dims=dims)
+                rv = pm.Deterministic(label, offset * sigma, dims=dims)
+            return rv
 
         raise NotImplementedError(
             "The non-centered parametrization is only supported for Normal priors"
         )
 
     dist = get_distribution_from_prior(prior)
-    return dist(label, **kwargs, dims=dims, model=model)
+
+    with model:
+        rv = dist(label, **kwargs, dims=dims)
+
+    return rv

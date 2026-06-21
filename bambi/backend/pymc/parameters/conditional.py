@@ -21,6 +21,13 @@ def _get_ensure_ndim(model):
     return pt.atleast_2d
 
 
+def _ensure_2d(x):
+    # Concatenation requires data arrays to be all 2d
+    if x.ndim == 1:
+        return x[:, np.newaxis]
+    return x
+
+
 def _build_intercept(term, model):
     ensure_ndim = _get_ensure_ndim(model)
     return ensure_ndim(build_intercept_term(term, model))
@@ -33,7 +40,7 @@ def _build_common(terms, center, model):
 
     for term in terms.values():
         data, param = build_common_term(term, model)
-        data_list.append(data)
+        data_list.append(_ensure_2d(data))
         param_list.append(ensure_ndim(param))
 
     params = pt.concatenate(param_list, axis=0)  # (p, ) or (p, K)

@@ -7,8 +7,8 @@ class UnivariateFamily(Family):
     KIND = "Univariate"
     ORDINAL = False
     PARAMETER_NDIM = 1
+    RESPONSE_NDIM = 1
     DATA_TYPE = "numeric"
-    INVLINK_KWARGS = {}
 
 
 class AsymmetricLaplace(UnivariateFamily):
@@ -49,7 +49,6 @@ class Binomial(UnivariateFamily):
 
 class Categorical(UnivariateFamily):
     SUPPORTED_LINKS = {"p": ["softmax"]}
-    INVLINK_KWARGS = {"axis": -1}
     PARAMETER_NDIM = 2
     DATA_TYPE = "categorical"
 
@@ -159,12 +158,11 @@ class MultivariateFamily(Family):
     KIND = "Multivariate"
     ORDINAL = False
     DATA_TYPE = "numeric"
-    INVLINK_KWARGS = {}
+    RESPONSE_NDIM = 2
 
 
 class Multinomial(MultivariateFamily):
     SUPPORTED_LINKS = {"p": ["softmax"]}
-    INVLINK_KWARGS = {"axis": -1}
 
     def get_levels(self, response):
         labels = extract_argument_names(response.name, list(transformations_namespace))

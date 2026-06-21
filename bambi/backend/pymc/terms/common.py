@@ -37,8 +37,7 @@ def build_common_term(term, model):
     if data_name not in model:
         # Reshapes to 2D if not already
         data_dims = ("__obs__", *coords)
-        data_shape = (term.data.shape[0], -1)
-        pm.Data(data_name, np.reshape(term.data, data_shape), dims=data_dims, model=model)
+        pm.Data(data_name, term.data, dims=data_dims, model=model)
 
     # Register parameter
     param_coords = coords | model.__bambi_attrs__["response_coords_reduced"]
@@ -48,6 +47,8 @@ def build_common_term(term, model):
     # Makes sure arguments are of the shape implied by dims and their coords
     kwargs = {name: np.broadcast_to(value, param_shape) for name, value in term.prior.args.items()}
     dist = get_distribution_from_prior(term.prior)
-    dist(param_name, **kwargs, dims=param_dims, model=model)
+
+    with model:
+        dist(param_name, **kwargs, dims=param_dims)
 
     return model[data_name], model[param_name]

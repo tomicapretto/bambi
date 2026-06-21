@@ -95,8 +95,9 @@ def build_response_term(term, parameters, family, model):
         else:
             data_mapping = {"observed": data}
 
-        # All of the other response kinds are not special and are thus handled the same way
-        distribution(term.label, **parameters, **data_mapping, dims=dims, model=model)
+        with model:
+            # All of the other response kinds are not special and are thus handled the same way
+            distribution(term.label, **parameters, **data_mapping, dims=dims)
 
     return None
 

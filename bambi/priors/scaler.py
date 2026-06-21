@@ -11,7 +11,7 @@ from bambi.families.builtin import (
     StudentT,
     VonMises,
 )
-from bambi.model_components import ConstantComponent
+from bambi.parameters import MarginalParameter
 from bambi.priors.prior import Prior
 
 
@@ -114,29 +114,29 @@ def _get_common_term_stats(term, model, response_std):
 def _scale_marginal_parameters(model, response_std):
     """Scale priors for response parameters when the family requires it."""
     if isinstance(model.family, (Gaussian, StudentT)):
-        sigma = model.components["sigma"]
-        if isinstance(sigma, ConstantComponent) and getattr(sigma.prior, "auto_scale", False):
+        sigma = model.parameters["sigma"]
+        if isinstance(sigma, MarginalParameter) and getattr(sigma.prior, "auto_scale", False):
             sigma.prior = Prior("HalfStudentT", nu=4, sigma=response_std)
     elif isinstance(model.family, VonMises):
-        kappa = model.components["kappa"]
-        if isinstance(kappa, ConstantComponent) and getattr(kappa.prior, "auto_scale", False):
+        kappa = model.parameters["kappa"]
+        if isinstance(kappa, MarginalParameter) and getattr(kappa.prior, "auto_scale", False):
             kappa.prior = Prior("HalfStudentT", nu=4, sigma=response_std)
     elif isinstance(model.family, Cumulative):
-        threshold = model.components["threshold"]
-        is_constant = isinstance(threshold, ConstantComponent)
+        threshold = model.parameters["threshold"]
+        is_constant = isinstance(threshold, MarginalParameter)
         is_normal = threshold.prior.name == "Normal"
         auto_scale = getattr(threshold.prior, "auto_scale", False)
         if is_constant and is_normal and auto_scale:
-            response_level_n = len(np.unique(model.response_component.term.data))
+            response_level_n = len(np.unique(model.response_term.data))
             mu = np.round(np.linspace(-2, 2, num=response_level_n - 1), 2)
             threshold.prior.update(mu=mu, sigma=1, transform="ordered")
     elif isinstance(model.family, StoppingRatio):
-        threshold = model.components["threshold"]
-        is_constant = isinstance(threshold, ConstantComponent)
+        threshold = model.parameters["threshold"]
+        is_constant = isinstance(threshold, MarginalParameter)
         is_normal = threshold.prior.name == "Normal"
         auto_scale = getattr(threshold.prior, "auto_scale", False)
         if is_constant and is_normal and auto_scale:
-            response_level_n = len(np.unique(model.response_component.term.data))
+            response_level_n = len(np.unique(model.response_term.data))
             mu = np.zeros(response_level_n - 1)
             threshold.prior.update(mu=mu, sigma=1)
 
@@ -172,15 +172,15 @@ def _scale_group_specific_half_normal(term, intercept_stats, response_std):
 
 
 def scale_priors(model):
-    main_parameter = model.components[model.family.likelihood.parent]
+    main_parameter = model.parameters[model.family.likelihood.parent]
 
     has_intercept = main_parameter.intercept_term is not None
     common_terms = main_parameter.common_terms
     common_priors = {}
 
     if isinstance(model.family, (Gaussian, StudentT)):
-        response_mean = np.mean(model.response_component.term.data)
-        response_std = np.std(model.response_component.term.data)
+        response_mean = np.mean(model.response_term.data)
+        response_std = np.std(model.response_term.data)
     else:
         response_mean = 0
         response_std = 1
