@@ -119,6 +119,7 @@ def categorical_response_data(n: int = 72) -> pd.DataFrame:
     rng = np.random.default_rng(RNG_SEED)
     x = rng.normal(size=n)
     group = rng.choice(["a", "b"], size=n)
+    subject = rng.choice([f"s{i}" for i in range(8)], size=n)
     logits = np.column_stack(
         [
             np.zeros(n),
@@ -129,7 +130,7 @@ def categorical_response_data(n: int = 72) -> pd.DataFrame:
     p = np.exp(logits)
     p = p / p.sum(axis=1, keepdims=True)
     y = [rng.choice(["low", "mid", "high"], p=row) for row in p]
-    return pd.DataFrame({"y": pd.Categorical(y), "x": x, "group": group})
+    return pd.DataFrame({"y": pd.Categorical(y), "x": x, "group": group, "subject": subject})
 
 
 CASES = [
@@ -180,6 +181,18 @@ CASES = [
     Case("categorical_numeric", "y ~ x", categorical_response_data, family="categorical"),
     Case(
         "categorical_categorical", "y ~ x + group", categorical_response_data, family="categorical"
+    ),
+    Case(
+        "categorical_group_numeric",
+        "y ~ x + (x|subject)",
+        categorical_response_data,
+        family="categorical",
+    ),
+    Case(
+        "categorical_group_categorical",
+        "y ~ group + (group|subject)",
+        categorical_response_data,
+        family="categorical",
     ),
     Case(
         "gamma_distributional",

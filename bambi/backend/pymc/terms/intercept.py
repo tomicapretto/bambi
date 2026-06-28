@@ -1,5 +1,6 @@
 import numpy as np
 import pymc as pm
+import pytensor.tensor as pt
 
 from bambi.backend.pymc.utils import get_distribution_from_prior
 
@@ -16,7 +17,12 @@ def build_intercept_term(term, data_mean, common_params, model):
             # TODO: Automatic transformation of intercept prior such that users can pass it cleanly.
             # Covariates are centered, thus we uncenter the intercept.
             rv = dist(term.label + "_centered", **kwargs, dims=dims)
-            pm.Deterministic(term.label, rv - pm.math.sum(data_mean * common_params), dims=dims)
+            data_mean = data_mean.reshape((-1,))
+            if common_params.ndim == 1:
+                offset = pm.math.sum(data_mean * common_params)
+            else:
+                offset = pt.dot(data_mean, common_params)
+            pm.Deterministic(term.label, rv - offset, dims=dims)
         else:
             rv = dist(term.label, **kwargs, dims=dims)
 
