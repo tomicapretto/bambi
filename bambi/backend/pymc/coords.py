@@ -1,18 +1,6 @@
 import numpy as np
 
 
-def _label(term):
-    return getattr(term, "label", term.name)
-
-
-def _shape(term):
-    return getattr(term, "shape", np.shape(term.data))
-
-
-def _ndim(term):
-    return getattr(term, "ndim", len(_shape(term)))
-
-
 def coords_from_response(term, family):
     coords_data = {"__obs__": np.arange(term.shape[0])}
     coords = {}
@@ -24,14 +12,14 @@ def coords_from_response(term, family):
         levels = term.levels
 
     if levels:
-        coords[f"{term.label}_levels"] = levels
+        coords[f"{term.name}_levels"] = levels
         if term.reference:
             # There's a restriction applied when there is a reference level
             levels_restricted = [level for level in levels if level != term.reference]
         else:
             levels_restricted = levels[1:]
 
-        coords_reduced[f"{term.label}_levels_reduced"] = levels_restricted
+        coords_reduced[f"{term.name}_levels_reduced"] = levels_restricted
 
     elif term.ndim > 1:
         # A multidimensional numeric outcome.
@@ -39,27 +27,25 @@ def coords_from_response(term, family):
         # Dict union will make sure we attempt to add the dimension only once.
         # We still need regular and reduced coords because that is what things such as
         # additive predictors expect.
-        coords[f"{term.label}_levels"] = np.arange(term.shape[1])
-        coords_reduced[f"{term.label}_levels"] = np.arange(term.shape[1])
+        coords[f"{term.name}_levels"] = np.arange(term.shape[1])
+        coords_reduced[f"{term.name}_levels"] = np.arange(term.shape[1])
 
     return coords_data, coords, coords_reduced
 
 
-def coords_from_term(term):
+def coords_from_common(term):
     # Single numeric
     if term.kind == "numeric":
-        if _ndim(term) == 1:
+        if term.ndim == 1:
             return {}
-
-        # A numeric that spans multiple columns (e.g., a spline)
-        return {f"{_label(term)}_levels": np.arange(_shape(term)[1])}
+        return {f"{term.name}_levels": np.arange(term.shape[1])}
 
     # Single categoric
     if term.kind == "categoric":
         if term.spans_intercept:
-            name = f"{_label(term)}_levels"
+            name = f"{term.name}_levels"
         else:
-            name = f"{_label(term)}_levels_reduced"
+            name = f"{term.name}_levels_reduced"
         return {name: term.levels}
 
     # Interaction
@@ -87,23 +73,57 @@ def coords_from_term(term):
     return {}
 
 
-def coords_from_common(term):
-    return coords_from_term(term)
-
-
 def coords_from_group_specific(term):
-    group_specific_term = getattr(term, "term", term)
-    return coords_from_term(group_specific_term.expr), coords_from_term(group_specific_term.factor)
+    expr_coords = {}
+    factor_coords = {}
+    expr = term.term.expr
+    factor = term.term.factor
+
+    # Expression term
+    if expr.kind == "numeric" and expr.data.ndim > 1:
+        # If numeric, it's non empty only when the term spans multiple columns
+        expr_coords = {f"{expr.name}_levels": np.arange(expr.data.shape[1])}
+    elif expr.kind == "categoric":
+        # Single numeric
+        if expr.spans_intercept:
+            name = f"{expr.name}_levels"
+        else:
+            name = f"{expr.name}_levels_reduced"
+        expr_coords = {name: expr.levels}
+    elif expr.kind == "interaction" and any(el.kind == "categoric" for el in expr.components):
+        for el in expr.components:
+            # A numeric that spans multiple columns (e.g., a spline)
+            if el.kind == "numeric" and el.value.ndim == 2 and el.value.shape[1] > 1:
+                expr_coords[f"{el.name}_levels"] = np.arange(el.value.shape[1])
+
+            if el.kind == "categoric":
+                if el.spans_intercept:
+                    name = f"{el.name}_levels"
+                else:
+                    name = f"{el.name}_levels_reduced"
+                expr_coords[name] = el.contrast_matrix.labels
+
+    # Factor term
+    # Factor terms are always non-numeric and non-reduced
+    if factor.kind == "categoric":
+        factor_coords = {f"{factor.name}_levels": factor.levels}
+    elif factor.kind == "interaction":
+        # NOTE: Is it true that these components are always categoric?
+        #       They should. They should also always span the intercept.
+        for el in factor.components:
+            factor_coords[f"{el.name}_levels"] = el.contrast_matrix.labels
+
+    return expr_coords, factor_coords
 
 
 def coords_from_hsgp(term):
     # This handles univariate and multivariate cases
-    coords = {f"{term.label}_weights_dim": np.arange(np.prod(term.m))}
+    coords = {f"{term.name}_weights_dim": np.arange(np.prod(term.m))}
 
     if term.by_levels is not None:
-        coords[f"{term.label}_by"] = term.by_levels
+        coords[f"{term.name}_by"] = term.by_levels
 
     if not term.iso and term.shape[1] > 1:
-        coords[f"{term.label}_var"] = np.arange(term.shape[1])
+        coords[f"{term.name}_var"] = np.arange(term.shape[1])
 
     return coords
