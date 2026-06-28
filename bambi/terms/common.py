@@ -11,7 +11,7 @@ class CommonTerm(BaseTerm):
     def __init__(self, term, prior, prefix=None):
         self.term = term
         self.prior = prior
-        self.data = np.squeeze(term.data)
+        self.data = term.data
         self.prefix = prefix
 
         if self.categorical and len(self.levels) == 1 and (self.data == self.data[0]).all():

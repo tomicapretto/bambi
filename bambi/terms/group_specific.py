@@ -7,13 +7,14 @@ from bambi.priors.prior import Prior
 
 
 class GroupSpecificTerm(BaseTerm):  # pylint: disable=too-many-instance-attributes
-    def __init__(self, term, prior, prefix=None):
+    def __init__(self, term, prior, prefix=None, noncentered=True):
         self._hyperprior_alias = {}
         self.term = term
         self.prior = prior
         self.data = term.data
         self.group_index = self.invert_dummies(self.grouper)
         self.prefix = prefix
+        self.noncentered = noncentered
 
     def invert_dummies(self, dummies):
         """Invert dummies

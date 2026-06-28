@@ -64,7 +64,7 @@ class ConditionalParameter:
     def add_group_specific_terms(self, priors):
         for name, term in self.design.group.terms.items():
             prior = priors.pop(name, priors.get("group_specific", None))
-            self.terms[name] = GroupSpecificTerm(term, prior, self.prefix)
+            self.terms[name] = GroupSpecificTerm(term, prior, self.prefix, self.spec.noncentered)
 
     def add_hsgp_terms(self, priors):
         for name, term in self.design.common.terms.items():
