@@ -6,6 +6,7 @@ import pymc as pm
 
 from bambi.utils import listify
 from bambi.backend.pymc import probit, cloglog
+from bambi.backend.pymc.terms.common import shape_data
 from bambi.backend.utils import make_weighted_distribution
 from bambi.transformations import censored, constrained, truncated, weighted
 
@@ -14,6 +15,22 @@ def test_listify():
     assert listify(None) == []
     assert listify([1, 2, 3]) == [1, 2, 3]
     assert listify("giraffe") == ["giraffe"]
+
+
+def test_shape_data_no_coords_single_column():
+    data = np.arange(5)[:, np.newaxis]
+
+    result = shape_data(data, {})
+
+    assert result.shape == (5,)
+    assert np.array_equal(result, np.arange(5))
+
+
+def test_shape_data_no_coords_multi_column():
+    data = np.arange(10).reshape(5, 2)
+
+    with pytest.raises(ValueError, match="without coordinates"):
+        shape_data(data, {})
 
 
 def test_probit():

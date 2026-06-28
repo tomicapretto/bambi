@@ -6,21 +6,35 @@ from bambi.backend.pymc.utils import get_distribution_from_prior
 
 
 def shape_data(data, coords):
-    if not coords:
-        return data
-
-    shape = tuple(len(coord) for coord in coords.values())
-    size = np.prod(shape)
     data = np.asarray(data)
 
+    if not coords:
+        # Without term coords, PyMC data is registered only over observations.
+        # Single-column design matrices therefore represent scalar terms and become vectors.
+        if data.ndim == 2 and data.shape[1] == 1:
+            return data[:, 0]
+        if data.ndim > 1:
+            raise ValueError("Common term data without coordinates must be one-dimensional.")
+        return data
+
+    # Coords describe all non-observation dimensions for the term.
+    # Formulae usually gives common terms as flat design-matrix columns,
+    # while PyMC data is registered with named dimensions.
+    # This restores the named coordinate shape.
+    shape = tuple(len(coord) for coord in coords.values())
+    size = np.prod(shape)
+
+    # Data may already be shaped as (__obs__, *coords), e.g. after a model update.
     if data.ndim == len(shape) + 1 and data.shape[1:] == shape:
         return data
 
+    # A vector can only be expanded when the coords imply a single column.
     if data.ndim == 1:
         if size != 1:
             raise ValueError("Cannot reshape one-dimensional common term data to multiple levels.")
         return data[:, np.newaxis]
 
+    # Convert flat design-matrix columns back into the named coordinate dimensions.
     if data.ndim == 2 and data.shape[1] == size:
         return data.reshape((data.shape[0], *shape))
 
@@ -30,6 +44,8 @@ def shape_data(data, coords):
 def flatten_data(data, coords):
     if not coords:
         return data
+    # The linear predictor is computed with dot(data, params),
+    # so named term dimensions are flattened back into design-matrix columns.
     return data.reshape((data.shape[0], -1))
 
 
@@ -37,6 +53,8 @@ def flatten_param(param, term_coords, response_coords):
     if not term_coords:
         return param
 
+    # Match the flattened term data: dimensions collapse into one coefficient axis,
+    # while response dimensions stay separate.
     response_shape = tuple(len(coord) for coord in response_coords.values())
     if response_shape:
         return param.reshape((-1, *response_shape))
@@ -48,6 +66,7 @@ def shape_prior_arg(value, shape):
     if value.shape == shape:
         return value
     if value.size == np.prod(shape):
+        # Flat prior arguments are interpreted in the same coordinate order as the parameter.
         return value.reshape(shape)
     return np.broadcast_to(value, shape)
 
