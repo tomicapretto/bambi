@@ -2,6 +2,12 @@ from bambi.families.family import Family
 from bambi.transformations import transformations_namespace
 from bambi.utils import extract_argument_names
 
+# TODO: Determine what we mean by
+# - RESPONSE_NDIM
+# - PARAMETER_NDIM
+# and whether it makes sense for PARAMETER_NDIM to be an attribute of the family instead of
+# the parameter.
+
 
 class UnivariateFamily(Family):
     KIND = "Univariate"

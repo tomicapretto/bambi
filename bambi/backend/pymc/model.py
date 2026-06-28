@@ -60,6 +60,7 @@ class PyMCModel:
         model = pm.Model(coords=response_coords_data | response_coords | response_coords_reduced)
         model.__bambi_attrs__ = {
             "response_ndim": self.spec.family.RESPONSE_NDIM,
+            "parameter_ndim": self.spec.family.PARAMETER_NDIM,
             "response_coords_data": response_coords_data,
             "response_coords": response_coords,
             "response_coords_reduced": response_coords_reduced,

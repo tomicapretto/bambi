@@ -92,7 +92,7 @@ def build_hsgp_term(term, model):
 
     # Build weights coefficient
     # Handle the case where the outcome is multivariate
-    if model.__bambi_attrs__["response_ndim"] == 2:
+    if model.__bambi_attrs__["parameter_ndim"] == 2:
         # Append the dims of the response variables to the coefficient and contribution dims
         # In general:
         # coeff_dims: ('weights_dim', ) -> ('weights_dim', f'{response}_dim')

@@ -16,7 +16,7 @@ from bambi.backend.pymc.transform import transforms_registry
 
 
 def _get_ensure_ndim(model):
-    if not model.__bambi_attrs__["response_coords_reduced"]:
+    if model.__bambi_attrs__["parameter_ndim"] == 1:
         return pt.atleast_1d
     return pt.atleast_2d
 
@@ -126,7 +126,6 @@ def build_conditional_parameter(parameter, family, model):
     else:
         value = inverse_link(value)
 
-    value = pt.as_tensor_variable(value)
     coords = (
         model.__bambi_attrs__["response_coords_data"] | model.__bambi_attrs__["response_coords"]
     )
