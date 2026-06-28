@@ -28,9 +28,9 @@ def _ensure_2d(x):
     return x
 
 
-def _build_intercept(term, model):
+def _build_intercept(term, data_mean, common_params, model):
     ensure_ndim = _get_ensure_ndim(model)
-    return ensure_ndim(build_intercept_term(term, model))
+    return ensure_ndim(build_intercept_term(term, data_mean, common_params, model))
 
 
 def _build_common(terms, center, model):
@@ -46,12 +46,15 @@ def _build_common(terms, center, model):
     params = pt.concatenate(param_list, axis=0)  # (p, ) or (p, K)
     data = pt.concatenate(data_list, axis=1)  # (n, p)
 
-    # TODO: Register as a deterministic
     if center:
-        data = data - data.mean(0)
+        data_mean = data.mean(0)
+        data = data - data_mean
+    else:
+        data_mean = None
 
     # (n, ) or (n, K)
-    return pt.dot(data, params)
+    contribution = pt.dot(data, params)
+    return contribution, data_mean, params
 
 
 def _build_group_specific(terms, model):
@@ -95,15 +98,20 @@ def _build_group_specific_idx(terms, model):
 
 def build_conditional_parameter(parameter, family, model):
     value = 0
+    common_data_mean = None
+    common_params = None
     inverse_link = INVERSE_LINKS.get(family.link[parameter.name].name, lambda x: x)
+    center_predictors = parameter.intercept_term and parameter.center_predictors
+
+    # Common terms are built before the intercept so we can uncenter the intercept later.
+    if parameter.common_terms:
+        contribution, common_data_mean, common_params = _build_common(
+            parameter.common_terms, center_predictors, model
+        )
+        value += contribution
 
     if parameter.intercept_term:
-        value += _build_intercept(parameter.intercept_term, model)
-
-    if parameter.common_terms:
-        # TODO: parameter.center_predictors should query the bambi model
-        center = parameter.intercept_term and parameter.center_predictors
-        value += _build_common(parameter.common_terms, center, model)
+        value += _build_intercept(parameter.intercept_term, common_data_mean, common_params, model)
 
     if parameter.group_specific_terms:
         value += _build_group_specific(parameter.group_specific_terms, model)
