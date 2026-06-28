@@ -143,6 +143,17 @@ CASES = [
     Case("gaussian_cell_means", "y ~ 0 + group", gaussian_data),
     Case("gaussian_group_intercept", "y ~ x + (1|subject)", gaussian_data),
     Case("gaussian_group_slope", "y ~ x + (x|subject)", gaussian_data),
+    Case("gaussian_group_interaction_numeric_numeric", "y ~ x * z + (x:z|subject)", gaussian_data),
+    Case(
+        "gaussian_group_interaction_numeric_categorical",
+        "y ~ x * group + (x:group|subject)",
+        gaussian_data,
+    ),
+    Case(
+        "gaussian_group_interaction_categorical_categorical",
+        "y ~ group * condition + (group:condition|subject)",
+        gaussian_data,
+    ),
     Case("gaussian_two_group_intercepts", "y ~ x + (1|subject) + (1|item)", gaussian_data),
     Case("gaussian_two_group_slopes", "y ~ x + (x|subject) + (z|item)", gaussian_data),
     Case(

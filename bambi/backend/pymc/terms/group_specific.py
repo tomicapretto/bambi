@@ -4,12 +4,39 @@ import pytensor.tensor as pt
 
 from bambi.priors import Prior
 from bambi.backend.pymc.coords import coords_from_group_specific
+from bambi.backend.pymc.terms.common import shape_prior_arg
 from bambi.backend.pymc.utils import get_distribution_from_prior
 
-# Data will be either a matrix or a vector.
-# If it is a matrix, it can be
-# - (__obs__, *dims_factor)
-# - (__obs__, *(expr_factor + dims_factor))
+
+def shape_predictor(data, coords):
+    data = np.asarray(data)
+
+    if not coords:
+        if data.ndim == 2 and data.shape[1] == 1:
+            return data[:, 0]
+        if data.ndim > 1:
+            raise ValueError(
+                "Group-specific predictor data without coordinates must be one-dimensional."
+            )
+        return data
+
+    shape = tuple(len(coord) for coord in coords.values())
+    size = np.prod(shape)
+
+    if data.ndim == len(shape) + 1 and data.shape[1:] == shape:
+        return data
+
+    if data.ndim == 1:
+        if size != 1:
+            raise ValueError(
+                "Cannot reshape one-dimensional group-specific predictor data to multiple levels."
+            )
+        return data[:, np.newaxis]
+
+    if data.ndim == 2 and data.shape[1] == size:
+        return data.reshape((data.shape[0], *shape))
+
+    raise ValueError("Group-specific predictor data shape does not match its coordinates.")
 
 
 # NOTE: Can we assume data_name is unique?
@@ -73,9 +100,9 @@ def build_group_specific_term_idx(term, model):
         model.add_coords(coords)
 
     # Register data, predictor
-    # TODO: Add dims for second dim and coords, if needed
     predictor_dims = ("__obs__",) + dims_expr
-    predictor_data = pm.Data(data_value_name, term.predictor, dims=predictor_dims, model=model)
+    predictor = shape_predictor(term.predictor, coords_expr)
+    predictor_data = pm.Data(data_value_name, predictor, dims=predictor_dims, model=model)
 
     # Register data, group index (which index of parameter to select from)
     group_idx_data = pm.Data(data_idx_name, term.group_index, dims=("__obs__",), model=model)
@@ -95,7 +122,7 @@ def build_group_specific_term_idx(term, model):
     if dims_output:
         # (n, )    -> (n, 1)
         # (n, q_j) -> (n, q_j, 1)
-        predictor_data = predictor_data[:, np.newaxis]
+        predictor_data = predictor_data[..., np.newaxis]
 
     # (n, ) * (n, )             -> (n, )
     # (n, q_j) * (n, q_j)       -> (n, q_j)
@@ -103,9 +130,8 @@ def build_group_specific_term_idx(term, model):
     # (n, q_j, K) * (n, q_j, 1) -> (n, q_j, K)
     contribution = param_rv[group_idx_data] * predictor_data
     if dims_expr:
-        # (n, q_j) -> (n, )
-        # (n, q_j, K) -> (n, K)
-        contribution = contribution.sum(axis=1)
+        axes = tuple(range(1, len(dims_expr) + 1))
+        contribution = contribution.sum(axis=axes)
 
     # NOTE: This returns something already in final state, the others return multiple things
     return contribution
@@ -113,6 +139,10 @@ def build_group_specific_term_idx(term, model):
 
 def build_distribution(prior, label, dims_factor, dims_expr, dims_output, noncentered, model):
     kwargs = {}
+    # From slowest to fastest changing
+    dims = dims_factor + dims_expr + dims_output
+    shape = tuple(len(model.coords[dim]) for dim in dims)
+
     for name, value in prior.args.items():
         if isinstance(value, Prior):
             hyperparam_name = name
@@ -127,10 +157,8 @@ def build_distribution(prior, label, dims_factor, dims_expr, dims_output, noncen
                 model=model,
             )
         else:
-            kwargs[name] = value
+            kwargs[name] = shape_prior_arg(value, shape)
 
-    # From slowest to fastest changing
-    dims = dims_factor + dims_expr + dims_output
     if noncentered and any(isinstance(v, pt.TensorVariable) for v in kwargs.values()):
         # non-centered is only relevant when distribution arguments are random variables.
         if prior.name == "Normal" and isinstance(kwargs.get("sigma", None), pt.TensorVariable):
