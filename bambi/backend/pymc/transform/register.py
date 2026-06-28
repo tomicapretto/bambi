@@ -6,53 +6,44 @@ class TransformsRegistry:
 
     def transform_predictor(self, family, parameter):
         """Register transformation function for additive predictors."""
+        family = self._family_class(family)
 
         def decorator(function):
             self.additive_predictors[(family, parameter)] = function
-
-            def wrapper(*args, **kwargs):
-                return function(*args, **kwargs)
-
-            return wrapper
+            return function
 
         return decorator
 
     def transform_parameters(self, family):
         """Register transformation function for parameters of the observational model."""
+        family = self._family_class(family)
 
         def decorator(function):
-            self.parameters[(family,)] = function
-
-            def wrapper(*args, **kwargs):
-                return function(*args, **kwargs)
-
-            return wrapper
+            self.parameters[family] = function
+            return function
 
         return decorator
 
     def transform_data(self, family):
         """Register transformation function for observational model data."""
+        family = self._family_class(family)
 
         def decorator(function):
-            self.data[(family,)] = function
-
-            def wrapper(*args, **kwargs):
-                return function(*args, **kwargs)
-
-            return wrapper
+            self.data[family] = function
+            return function
 
         return decorator
 
     def get_transform_predictor(self, family, parameter):
-        return self.additive_predictors.get((self._family_key(family), parameter), None)
+        return self.additive_predictors.get((self._family_class(family), parameter), None)
 
     def get_transform_parameters(self, family):
-        return self.parameters.get((self._family_key(family),), None)
+        return self.parameters.get(self._family_class(family), None)
 
     def get_transform_data(self, family):
-        return self.data.get((self._family_key(family),), None)
+        return self.data.get(self._family_class(family), None)
 
-    def _family_key(self, family):
+    def _family_class(self, family):
         return family if isinstance(family, type) else type(family)
 
 
