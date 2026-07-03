@@ -5,9 +5,9 @@ import pandas as pd
 import pymc as pm
 
 from bambi.utils import listify
-from bambi.backend.pymc import probit, cloglog
+from bambi.backend.pymc.links import cloglog, probit
 from bambi.backend.pymc.terms.common import shape_data
-from bambi.backend.utils import make_weighted_distribution
+from bambi.backend.pymc.utils import make_weighted_distribution
 from bambi.transformations import censored, constrained, truncated, weighted
 
 
