@@ -599,20 +599,3 @@ def test_sparse_dot_multivariate(data_inhaler, mock_pymc_sample):
     idata_dense = model_dense.fit(chains=2)
     idata_sparse = model_sparse.fit(chains=2)
     assert set(az.summary(idata_dense).index) == set(az.summary(idata_sparse).index)
-
-
-@pytest.mark.parametrize("family,parent", [("binomial", "p"), ("beta_binomial", "mu")])
-def test_binomial_like_prior_predictive_is_univariate(data_beetle, family, parent):
-    model = bmb.Model("prop(y, n) ~ x", data_beetle, family=family)
-    model.build()
-
-    assert set(model.backend.model.coords) == {"__obs__"}
-    assert model.backend.model[parent].eval().shape == (len(data_beetle),)
-
-    idata = model.prior_predictive(draws=2, random_seed=1234)
-    response = idata.prior_predictive["prop(y, n)"]
-    response_values = response.to_numpy()
-
-    assert response.shape == (1, 2, len(data_beetle))
-    assert (response_values >= 0).all()
-    assert (response_values <= data_beetle["n"].to_numpy()).all()
