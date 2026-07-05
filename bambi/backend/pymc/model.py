@@ -68,7 +68,7 @@ class PyMCModel:
         marginal_parameters = {}
         conditional_parameters = {}
         for name, parameter in self.spec.marginal_parameters.items():
-            marginal_parameters[name] = build_marginal_parameter(parameter, model)
+            marginal_parameters[name] = build_marginal_parameter(parameter, self.spec.family, model)
 
         for name, parameter in self.spec.conditional_parameters.items():
             conditional_parameters[name] = build_conditional_parameter(

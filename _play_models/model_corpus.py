@@ -8,6 +8,7 @@ suite churn during the refactor.
 from __future__ import annotations
 
 import argparse
+import pathlib
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -94,6 +95,16 @@ def count_data(n: int = 60) -> pd.DataFrame:
     return pd.DataFrame({"y": y, "x": x, "group": group})
 
 
+def zero_inflated_count_data() -> pd.DataFrame:
+    rng = np.random.default_rng(1234)
+    n1, n2 = 30, 70
+    y = np.concatenate([np.zeros(n1), rng.poisson(3, size=n2)])
+    x = np.concatenate(
+        [rng.normal(loc=-1, scale=0.25, size=n1), rng.normal(loc=0.5, scale=0.5, size=n2)]
+    )
+    return pd.DataFrame({"x": x, "y": y})
+
+
 def gamma_data(n: int = 60) -> pd.DataFrame:
     rng = np.random.default_rng(RNG_SEED)
     x = rng.normal(size=n)
@@ -131,6 +142,35 @@ def categorical_response_data(n: int = 72) -> pd.DataFrame:
     p = p / p.sum(axis=1, keepdims=True)
     y = [rng.choice(["low", "mid", "high"], p=row) for row in p]
     return pd.DataFrame({"y": pd.Categorical(y), "x": x, "group": group, "subject": subject})
+
+
+def inhaler_data() -> pd.DataFrame:
+    data_path = pathlib.Path(__file__).resolve().parents[1] / "tests" / "data" / "inhaler.csv"
+    data = pd.read_csv(data_path)
+    data["rating"] = pd.Categorical(data["rating"], categories=[1, 2, 3, 4])
+    return data
+
+
+def ordinal_inhaler_data() -> pd.DataFrame:
+    data = inhaler_data()
+    data["carry"] = pd.Categorical(data["carry"])
+    return data
+
+
+def multinomial_inhaler_data() -> pd.DataFrame:
+    data = inhaler_data()
+
+    counts = data.groupby(["treat", "carry", "rating"], as_index=False, observed=False).size()
+    table = pd.pivot_table(
+        counts,
+        values="size",
+        columns="rating",
+        index=["treat", "carry"],
+        fill_value=0,
+        observed=False,
+    ).reset_index()
+    table.columns = ["treat", "carry", "y1", "y2", "y3", "y4"]
+    return table
 
 
 CASES = [
@@ -175,9 +215,29 @@ CASES = [
     Case("poisson_numeric", "y ~ x", count_data, family="poisson"),
     Case("poisson_categorical", "y ~ x + group", count_data, family="poisson"),
     Case("negativebinomial_numeric", "y ~ x", count_data, family="negativebinomial"),
+    Case(
+        "hurdle_negativebinomial_intercept",
+        "y ~ 1",
+        zero_inflated_count_data,
+        family="hurdle_negativebinomial",
+    ),
     Case("gamma_numeric", "y ~ x", gamma_data, family="gamma", kwargs={"link": "log"}),
     Case("gamma_categorical", "y ~ x + group", gamma_data, family="gamma", kwargs={"link": "log"}),
     Case("beta_numeric", "y ~ x", beta_data, family="beta"),
+    Case(
+        "cumulative_inhaler",
+        "rating ~ period + carry + treat",
+        ordinal_inhaler_data,
+        family="cumulative",
+        kwargs={"link": "logit"},
+    ),
+    Case(
+        "sratio_inhaler",
+        "rating ~ period + carry + treat",
+        ordinal_inhaler_data,
+        family="sratio",
+        kwargs={"link": "logit"},
+    ),
     Case("categorical_numeric", "y ~ x", categorical_response_data, family="categorical"),
     Case(
         "categorical_categorical", "y ~ x + group", categorical_response_data, family="categorical"
@@ -200,6 +260,12 @@ CASES = [
         gamma_data,
         family="gamma",
         kwargs={"link": {"mu": "log", "alpha": "log"}},
+    ),
+    Case(
+        "dirichlet_multinomial_inhaler",
+        "c(y1, y2, y3, y4) ~ 0 + treat",
+        multinomial_inhaler_data,
+        family="dirichlet_multinomial",
     ),
 ]
 

@@ -127,18 +127,9 @@ def _scale_marginal_parameters(model, response_std):
         is_normal = threshold.prior.name == "Normal"
         auto_scale = getattr(threshold.prior, "auto_scale", False)
         if is_constant and is_normal and auto_scale:
-            response_level_n = len(np.unique(model.response_term.data))
+            response_level_n = len(model.response_term.levels)
             mu = np.round(np.linspace(-2, 2, num=response_level_n - 1), 2)
             threshold.prior.update(mu=mu, sigma=1, transform="ordered")
-    elif isinstance(model.family, StoppingRatio):
-        threshold = model.parameters["threshold"]
-        is_constant = isinstance(threshold, MarginalParameter)
-        is_normal = threshold.prior.name == "Normal"
-        auto_scale = getattr(threshold.prior, "auto_scale", False)
-        if is_constant and is_normal and auto_scale:
-            response_level_n = len(np.unique(model.response_term.data))
-            mu = np.zeros(response_level_n - 1)
-            threshold.prior.update(mu=mu, sigma=1)
 
 
 def _scale_common_normal(model, term, response_std, common_priors):
