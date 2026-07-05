@@ -2,15 +2,14 @@ import numpy as np
 import pymc as pm
 import pytensor.tensor as pt
 
-from bambi.priors import Prior
 from bambi.backend.pymc.coords import coords_from_group_specific
 from bambi.backend.pymc.terms.common import shape_prior_arg
 from bambi.backend.pymc.utils import get_distribution_from_prior
+from bambi.priors.prior import Prior
+from bambi.types import CoefSpec, Constraint, Coords, Dims
 
 
-def shape_predictor(data, coords):
-    data = np.asarray(data)
-
+def shape_predictor(data: np.ndarray, coords: Coords) -> np.ndarray:
     if not coords:
         if data.ndim == 2 and data.shape[1] == 1:
             return data[:, 0]
@@ -42,7 +41,9 @@ def shape_predictor(data, coords):
 # NOTE: Can we assume data_name is unique?
 #       How do we manage the case where we have `x` and `sigma_x`?
 #       That woud cause `data_name` to be in conflict.
-def build_group_specific_term_dot(term, model):
+def build_group_specific_term_dot(
+    term, coef_spec: CoefSpec, model: pm.Model
+) -> tuple[pt.Variable, pt.Variable]:
     data_name = f"{term.label}_data"
     param_name = term.label
 
@@ -63,7 +64,13 @@ def build_group_specific_term_dot(term, model):
     pm.Data(data_name, data, dims=data_dims, model=model)
 
     # Register parameter
-    dims_output = tuple(model.__bambi_attrs__["response_coords_reduced"])
+    dims_output = tuple()
+    if coef_spec.ndim > 0:
+        if coef_spec.constraint == Constraint.REFERENCE:
+            dims_output = tuple(model.__bambi_attrs__["response_coords_reduced"])
+        else:
+            dims_output = tuple(model.__bambi_attrs__["response_coords"])
+
     param_rv = build_distribution(
         prior=term.prior,
         label=param_name,
@@ -84,7 +91,7 @@ def build_group_specific_term_dot(term, model):
     return model[data_name], param_rv
 
 
-def build_group_specific_term_idx(term, model):
+def build_group_specific_term_idx(term, coef_spec: CoefSpec, model: pm.Model) -> pt.Variable:
     data_value_name = f"{term.label}_data"
     data_idx_name = f"{term.label}_idx"
     param_name = term.label
@@ -108,7 +115,13 @@ def build_group_specific_term_idx(term, model):
     group_idx_data = pm.Data(data_idx_name, term.group_index, dims=("__obs__",), model=model)
 
     # Register parameter
-    dims_output = tuple(model.__bambi_attrs__["response_coords_reduced"])
+    dims_output = tuple()
+    if coef_spec.ndim > 0:
+        if coef_spec.constraint == Constraint.REFERENCE:
+            dims_output = tuple(model.__bambi_attrs__["response_coords_reduced"])
+        else:
+            dims_output = tuple(model.__bambi_attrs__["response_coords"])
+
     param_rv = build_distribution(
         prior=term.prior,
         label=param_name,
@@ -137,7 +150,15 @@ def build_group_specific_term_idx(term, model):
     return contribution
 
 
-def build_distribution(prior, label, dims_factor, dims_expr, dims_output, noncentered, model):
+def build_distribution(
+    prior: Prior,
+    label: str,
+    dims_factor: Dims,
+    dims_expr: Dims,
+    dims_output: Dims,
+    noncentered: bool,
+    model: pm.Model,
+) -> pt.Variable:
     kwargs = {}
     # From slowest to fastest changing
     dims = dims_factor + dims_expr + dims_output

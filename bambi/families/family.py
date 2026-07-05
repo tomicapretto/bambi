@@ -1,4 +1,5 @@
-from bambi.families.link import Link
+from bambi.families.link import LINKS, Link
+from bambi.types import ResponseType
 
 
 class Family:
@@ -41,16 +42,9 @@ class Family:
     ```
     """
 
-    SUPPORTED_LINKS = [
-        "cloglog",
-        "identity",
-        "inverse_squared",
-        "inverse",
-        "log",
-        "logit",
-        "probit",
-        "softmax",
-    ]
+    DATA_TYPE = ResponseType.NUMERIC
+    RESPONSE_NDIM = 0
+    PARAMETERS = None
 
     def __init__(self, name, likelihood, link: str | dict[str, str | Link]):
         self.name = name
@@ -94,10 +88,10 @@ class Family:
 
     def check_string_link(self, link_name, param_name):
         # When you instantiate Family directly
-        if isinstance(self.SUPPORTED_LINKS, list):
-            supported_links = self.SUPPORTED_LINKS
+        if self.PARAMETERS is None:
+            supported_links = LINKS
         else:
-            supported_links = self.SUPPORTED_LINKS[param_name]
+            supported_links = self.PARAMETERS[param_name].links
 
         if link_name not in supported_links:
             raise ValueError(

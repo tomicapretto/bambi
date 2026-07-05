@@ -1,13 +1,13 @@
 import numpy as np
 import pymc as pm
+import pytensor.tensor as pt
 
 from bambi.backend.pymc.coords import coords_from_common
 from bambi.backend.pymc.utils import get_distribution_from_prior
+from bambi.types import CoefSpec, Constraint, Coords
 
 
-def shape_data(data, coords):
-    data = np.asarray(data)
-
+def shape_data(data: np.ndarray, coords: Coords) -> np.ndarray:
     if not coords:
         # Without term coords, PyMC data is registered only over observations.
         # Single-column design matrices therefore represent scalar terms and become vectors.
@@ -41,7 +41,7 @@ def shape_data(data, coords):
     raise ValueError("Common term data shape does not match its coordinates.")
 
 
-def flatten_data(data, coords):
+def flatten_data(data: pt.Variable, coords: Coords) -> pt.Variable:
     if not coords:
         return data
     # The linear predictor is computed with dot(data, params),
@@ -49,7 +49,7 @@ def flatten_data(data, coords):
     return data.reshape((data.shape[0], -1))
 
 
-def flatten_param(param, term_coords, response_coords):
+def flatten_param(param: pt.Variable, term_coords: Coords, response_coords: Coords) -> pt.Variable:
     if not term_coords:
         return param
 
@@ -61,36 +61,24 @@ def flatten_param(param, term_coords, response_coords):
     return param.reshape((-1,))
 
 
-def shape_prior_arg(value, shape):
-    value = np.asarray(value)
+def shape_prior_arg(value: np.ndarray, shape: tuple[int, ...]) -> np.ndarray:
     if value.shape == shape:
         return value
+
     if value.size == np.prod(shape):
         # Flat prior arguments are interpreted in the same coordinate order as the parameter.
         return value.reshape(shape)
+
+    if value.shape == shape[: value.ndim]:
+        # Term-shaped prior arguments broadcast across response dimensions.
+        value = value.reshape((*value.shape, *(1 for _ in shape[value.ndim :])))
+
     return np.broadcast_to(value, shape)
 
 
-def build_common_term(term, model):
-    """_summary_
-
-    Parameters
-    ----------
-    term : bambi.terms.CommonTerm
-        ...
-    model : pymc.Model
-        ...
-
-    Returns
-    -------
-    _type_
-        _description_
-
-    Raises
-    ------
-    ValueError
-        _description_
-    """
+def build_common_term(
+    term, coef_spec: CoefSpec, model: pm.Model
+) -> tuple[pt.Variable, pt.Variable]:
     data_name = f"{term.label}_data"
     param_name = term.label
     coords = coords_from_common(term)
@@ -106,7 +94,13 @@ def build_common_term(term, model):
         pm.Data(data_name, data, dims=data_dims, model=model)
 
     # Register parameter
-    response_coords = model.__bambi_attrs__["response_coords_reduced"]
+    response_coords = {}
+    if coef_spec.ndim > 0:
+        if coef_spec.constraint == Constraint.REFERENCE:
+            response_coords = model.__bambi_attrs__["response_coords_reduced"]
+        else:
+            response_coords = model.__bambi_attrs__["response_coords"]
+
     param_coords = coords | response_coords
     param_dims = tuple(param_coords)
     param_shape = tuple(len(coord) for coord in param_coords.values())
