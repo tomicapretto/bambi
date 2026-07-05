@@ -14,7 +14,7 @@ from bambi.backend.pymc.utils import INVERSE_LINKS
 from bambi.backend.pymc.transform import transforms_registry
 from bambi.config import config as bmb_config
 from bambi.families import Family
-from bambi.types import CoefSpec, ParamSpec
+from bambi.families.types import ParamSpec
 
 
 _ENSURE_NDIM_MAPPING = {
@@ -31,10 +31,10 @@ def _ensure_2d(x):
 
 
 def _build_common_and_intercept(
-    common_terms, intercept_term, center: bool, coef_spec: CoefSpec, model: pm.Model
+    common_terms, intercept_term, center: bool, param_spec: ParamSpec, model: pm.Model
 ):
     # Build common terms, then build intercept
-    ndim = coef_spec.ndim
+    ndim = param_spec.ndim
     ensure_ndim = _ENSURE_NDIM_MAPPING[ndim]
     data_mean = None
     params = None
@@ -46,7 +46,7 @@ def _build_common_and_intercept(
         param_list = []
 
         for term in common_terms.values():
-            data, param = build_common_term(term, coef_spec, model)
+            data, param = build_common_term(term, param_spec, model)
             data_list.append(_ensure_2d(data))
             param_list.append(ensure_ndim(param))
 
@@ -62,23 +62,23 @@ def _build_common_and_intercept(
 
     if intercept_term:
         intercept_contribution = ensure_ndim(
-            build_intercept_term(intercept_term, data_mean, params, coef_spec, model)
+            build_intercept_term(intercept_term, data_mean, params, param_spec, model)
         )
 
     return intercept_contribution + common_contribution
 
 
-def _build_group_specific(terms, coef_spec: CoefSpec, model: pm.Model):
+def _build_group_specific(terms, param_spec: ParamSpec, model: pm.Model):
     if bmb_config["SPARSE_DOT"]:
-        return _build_group_specific_dot(terms=terms, coef_spec=coef_spec, model=model)
-    return _build_group_specific_idx(terms=terms, coef_spec=coef_spec, model=model)
+        return _build_group_specific_dot(terms=terms, param_spec=param_spec, model=model)
+    return _build_group_specific_idx(terms=terms, param_spec=param_spec, model=model)
 
 
-def _build_group_specific_dot(terms, coef_spec: CoefSpec, model: pm.Model):
+def _build_group_specific_dot(terms, param_spec: ParamSpec, model: pm.Model):
     data_blocks = []
     param_blocks = []
     for term in terms.values():
-        data, param = build_group_specific_term_dot(term, coef_spec, model)
+        data, param = build_group_specific_term_dot(term, param_spec, model)
         data_blocks.append(data)
         param_blocks.append(param)
 
@@ -100,18 +100,17 @@ def _build_group_specific_dot(terms, coef_spec: CoefSpec, model: pm.Model):
     return dot_output
 
 
-def _build_group_specific_idx(terms, coef_spec: CoefSpec, model: pm.Model):
+def _build_group_specific_idx(terms, param_spec: ParamSpec, model: pm.Model):
     contribution = 0
     for term in terms.values():
-        contribution += build_group_specific_term_idx(term, coef_spec, model)
+        contribution += build_group_specific_term_idx(term, param_spec, model)
     return contribution
 
 
 def build_conditional_parameter(parameter, family: Family, model: pm.Model):
+    # NOTE: `param_spec` does not work with families that have None in PARAMETERS.
     value = 0
-    parameter_spec = (
-        family.PARAMETERS[parameter.name] if family.PARAMETERS is not None else ParamSpec(links=[])
-    )
+    param_spec = family.PARAMETERS[parameter.name]
     inverse_link = INVERSE_LINKS.get(family.link[parameter.name].name, lambda x: x)
     center_predictors = parameter.intercept_term and parameter.center_predictors
 
@@ -120,13 +119,13 @@ def build_conditional_parameter(parameter, family: Family, model: pm.Model):
             common_terms=parameter.common_terms,
             intercept_term=parameter.intercept_term,
             center=center_predictors,
-            coef_spec=parameter_spec.coef_spec,
+            param_spec=param_spec,
             model=model,
         )
 
     if parameter.group_specific_terms:
         value += _build_group_specific(
-            terms=parameter.group_specific_terms, coef_spec=parameter_spec.coef_spec, model=model
+            terms=parameter.group_specific_terms, param_spec=param_spec, model=model
         )
 
     # TODO: Make sure parameters are built in the appropriate order
@@ -140,7 +139,7 @@ def build_conditional_parameter(parameter, family: Family, model: pm.Model):
         value = inverse_link(value)
 
     coords = model.__bambi_attrs__["response_coords_data"]
-    if parameter_spec.ndim > 0:
+    if param_spec.ndim > 0:
         coords = coords | model.__bambi_attrs__["response_coords"]
     dims = tuple(coords)
     only_intercept = (

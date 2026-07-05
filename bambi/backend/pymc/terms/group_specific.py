@@ -4,9 +4,10 @@ import pytensor.tensor as pt
 
 from bambi.backend.pymc.coords import coords_from_group_specific
 from bambi.backend.pymc.terms.common import shape_prior_arg
+from bambi.backend.pymc.types import Coords, Dims
 from bambi.backend.pymc.utils import get_distribution_from_prior
 from bambi.priors.prior import Prior
-from bambi.types import CoefSpec, Constraint, Coords, Dims
+from bambi.families.types import ParamSpec
 
 
 def shape_predictor(data: np.ndarray, coords: Coords) -> np.ndarray:
@@ -42,7 +43,7 @@ def shape_predictor(data: np.ndarray, coords: Coords) -> np.ndarray:
 #       How do we manage the case where we have `x` and `sigma_x`?
 #       That woud cause `data_name` to be in conflict.
 def build_group_specific_term_dot(
-    term, coef_spec: CoefSpec, model: pm.Model
+    term, param_spec: ParamSpec, model: pm.Model
 ) -> tuple[pt.Variable, pt.Variable]:
     data_name = f"{term.label}_data"
     param_name = term.label
@@ -65,11 +66,11 @@ def build_group_specific_term_dot(
 
     # Register parameter
     dims_output = tuple()
-    if coef_spec.ndim > 0:
-        if coef_spec.constraint == Constraint.REFERENCE:
+    if param_spec.ndim > 0:
+        if param_spec.coefs_dim == "response":
+            dims_output = tuple(model.__bambi_attrs__["response_coordsd"])
+        elif param_spec.coefs_dim == "response_reduced":
             dims_output = tuple(model.__bambi_attrs__["response_coords_reduced"])
-        else:
-            dims_output = tuple(model.__bambi_attrs__["response_coords"])
 
     param_rv = build_distribution(
         prior=term.prior,
@@ -91,7 +92,7 @@ def build_group_specific_term_dot(
     return model[data_name], param_rv
 
 
-def build_group_specific_term_idx(term, coef_spec: CoefSpec, model: pm.Model) -> pt.Variable:
+def build_group_specific_term_idx(term, param_spec: ParamSpec, model: pm.Model) -> pt.Variable:
     data_value_name = f"{term.label}_data"
     data_idx_name = f"{term.label}_idx"
     param_name = term.label
@@ -116,11 +117,11 @@ def build_group_specific_term_idx(term, coef_spec: CoefSpec, model: pm.Model) ->
 
     # Register parameter
     dims_output = tuple()
-    if coef_spec.ndim > 0:
-        if coef_spec.constraint == Constraint.REFERENCE:
+    if param_spec.ndim > 0:
+        if param_spec.coefs_dim == "response":
+            dims_output = tuple(model.__bambi_attrs__["response_coordsd"])
+        elif param_spec.coefs_dim == "response_reduced":
             dims_output = tuple(model.__bambi_attrs__["response_coords_reduced"])
-        else:
-            dims_output = tuple(model.__bambi_attrs__["response_coords"])
 
     param_rv = build_distribution(
         prior=term.prior,

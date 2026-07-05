@@ -1,5 +1,5 @@
 from bambi.families.link import LINKS, Link
-from bambi.types import ResponseType
+from bambi.families.types import ResponseType
 
 
 class Family:

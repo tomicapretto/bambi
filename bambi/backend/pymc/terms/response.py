@@ -7,10 +7,12 @@ from bambi.backend.pymc.utils import (
 )
 
 from bambi.backend.pymc.transform import transforms_registry
-from bambi.types import Dims, ResponseType
+from bambi.backend.pymc.types import Dims
+from bambi.families.family import Family
+from bambi.families.types import ResponseType
 
 
-def build_response_term(term, parameters: dict, family, model: pm.Model) -> None:
+def build_response_term(term, parameters: dict, family: Family, model: pm.Model) -> None:
     if family.DATA_TYPE == ResponseType.BINARY:
         data = prepare_binary_data(term)
     elif family.DATA_TYPE in (ResponseType.CATEGORICAL, ResponseType.ORDINAL):
@@ -100,7 +102,7 @@ def build_response_term(term, parameters: dict, family, model: pm.Model) -> None
     return None
 
 
-def response_dims(family, model: pm.Model) -> Dims:
+def response_dims(family: Family, model: pm.Model) -> Dims:
     coords = model.__bambi_attrs__["response_coords_data"]
 
     response_is_indexed = family.DATA_TYPE in (
