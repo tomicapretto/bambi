@@ -7,18 +7,20 @@ import scipy as sp
 from bambi.backend.pymc.terms import (
     build_common_term,
     build_group_specific_term_dot,
-    build_intercept_term,
     build_group_specific_term_idx,
+    build_intercept_term,
 )
 from bambi.backend.pymc.utils import INVERSE_LINKS
-from bambi.config import config as bmb_config
 from bambi.backend.pymc.transform import transforms_registry
+from bambi.config import config as bmb_config
+from bambi.families import Family
+from bambi.types import CoefSpec, ParamSpec
 
 
-def _get_ensure_ndim(model):
-    if model.__bambi_attrs__["parameter_ndim"] == 1:
-        return pt.atleast_1d
-    return pt.atleast_2d
+_ENSURE_NDIM_MAPPING = {
+    0: pt.atleast_1d,
+    1: pt.atleast_2d,
+}
 
 
 def _ensure_2d(x):
@@ -28,46 +30,55 @@ def _ensure_2d(x):
     return x
 
 
-def _build_intercept(term, data_mean, common_params, model):
-    ensure_ndim = _get_ensure_ndim(model)
-    return ensure_ndim(build_intercept_term(term, data_mean, common_params, model))
+def _build_common_and_intercept(
+    common_terms, intercept_term, center: bool, coef_spec: CoefSpec, model: pm.Model
+):
+    # Build common terms, then build intercept
+    ndim = coef_spec.ndim
+    ensure_ndim = _ENSURE_NDIM_MAPPING[ndim]
+    data_mean = None
+    params = None
+    intercept_contribution = 0
+    common_contribution = 0
+
+    if common_terms:
+        data_list = []
+        param_list = []
+
+        for term in common_terms.values():
+            data, param = build_common_term(term, coef_spec, model)
+            data_list.append(_ensure_2d(data))
+            param_list.append(ensure_ndim(param))
+
+        params = pt.concatenate(param_list, axis=0)  # (p, ) or (p, K)
+        data = pt.concatenate(data_list, axis=1)  # (n, p)
+
+        if center:
+            data_mean = data.mean(0)
+            data = data - data_mean
+
+        # (n, ) or (n, K)
+        common_contribution = pt.dot(data, params)
+
+    if intercept_term:
+        intercept_contribution = ensure_ndim(
+            build_intercept_term(intercept_term, data_mean, params, coef_spec, model)
+        )
+
+    return intercept_contribution + common_contribution
 
 
-def _build_common(terms, center, model):
-    data_list = []
-    param_list = []
-    ensure_ndim = _get_ensure_ndim(model)
-
-    for term in terms.values():
-        data, param = build_common_term(term, model)
-        data_list.append(_ensure_2d(data))
-        param_list.append(ensure_ndim(param))
-
-    params = pt.concatenate(param_list, axis=0)  # (p, ) or (p, K)
-    data = pt.concatenate(data_list, axis=1)  # (n, p)
-
-    if center:
-        data_mean = data.mean(0)
-        data = data - data_mean
-    else:
-        data_mean = None
-
-    # (n, ) or (n, K)
-    contribution = pt.dot(data, params)
-    return contribution, data_mean, params
-
-
-def _build_group_specific(terms, model):
+def _build_group_specific(terms, coef_spec: CoefSpec, model: pm.Model):
     if bmb_config["SPARSE_DOT"]:
-        return _build_group_specific_dot(terms, model)
-    return _build_group_specific_idx(terms, model)
+        return _build_group_specific_dot(terms=terms, coef_spec=coef_spec, model=model)
+    return _build_group_specific_idx(terms=terms, coef_spec=coef_spec, model=model)
 
 
-def _build_group_specific_dot(terms, model):
+def _build_group_specific_dot(terms, coef_spec: CoefSpec, model: pm.Model):
     data_blocks = []
     param_blocks = []
     for term in terms.values():
-        data, param = build_group_specific_term_dot(term, model)
+        data, param = build_group_specific_term_dot(term, coef_spec, model)
         data_blocks.append(data)
         param_blocks.append(param)
 
@@ -89,32 +100,34 @@ def _build_group_specific_dot(terms, model):
     return dot_output
 
 
-def _build_group_specific_idx(terms, model):
+def _build_group_specific_idx(terms, coef_spec: CoefSpec, model: pm.Model):
     contribution = 0
     for term in terms.values():
-        contribution += build_group_specific_term_idx(term, model)
+        contribution += build_group_specific_term_idx(term, coef_spec, model)
     return contribution
 
 
-def build_conditional_parameter(parameter, family, model):
+def build_conditional_parameter(parameter, family: Family, model: pm.Model):
     value = 0
-    common_data_mean = None
-    common_params = None
+    parameter_spec = (
+        family.PARAMETERS[parameter.name] if family.PARAMETERS is not None else ParamSpec(links=[])
+    )
     inverse_link = INVERSE_LINKS.get(family.link[parameter.name].name, lambda x: x)
     center_predictors = parameter.intercept_term and parameter.center_predictors
 
-    # Common terms are built before the intercept so we can uncenter the intercept later.
-    if parameter.common_terms:
-        contribution, common_data_mean, common_params = _build_common(
-            parameter.common_terms, center_predictors, model
+    if parameter.common_terms or parameter.intercept_term:
+        value += _build_common_and_intercept(
+            common_terms=parameter.common_terms,
+            intercept_term=parameter.intercept_term,
+            center=center_predictors,
+            coef_spec=parameter_spec.coef_spec,
+            model=model,
         )
-        value += contribution
-
-    if parameter.intercept_term:
-        value += _build_intercept(parameter.intercept_term, common_data_mean, common_params, model)
 
     if parameter.group_specific_terms:
-        value += _build_group_specific(parameter.group_specific_terms, model)
+        value += _build_group_specific(
+            terms=parameter.group_specific_terms, coef_spec=parameter_spec.coef_spec, model=model
+        )
 
     # TODO: Make sure parameters are built in the appropriate order
     transform_predictor = transforms_registry.get_transform_predictor(family, parameter.name)
@@ -126,9 +139,9 @@ def build_conditional_parameter(parameter, family, model):
     else:
         value = inverse_link(value)
 
-    coords = (
-        model.__bambi_attrs__["response_coords_data"] | model.__bambi_attrs__["response_coords"]
-    )
+    coords = model.__bambi_attrs__["response_coords_data"]
+    if parameter_spec.ndim > 0:
+        coords = coords | model.__bambi_attrs__["response_coords"]
     dims = tuple(coords)
     only_intercept = (
         parameter.intercept_term

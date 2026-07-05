@@ -7,23 +7,18 @@ from bambi.backend.pymc.utils import (
 )
 
 from bambi.backend.pymc.transform import transforms_registry
+from bambi.types import Dims, ResponseType
 
 
-def build_response_term(term, parameters, family, model):
-
-    if family.DATA_TYPE == "binary":
+def build_response_term(term, parameters: dict, family, model: pm.Model) -> None:
+    if family.DATA_TYPE == ResponseType.BINARY:
         data = prepare_binary_data(term)
-    elif family.DATA_TYPE == "categorical":
+    elif family.DATA_TYPE in (ResponseType.CATEGORICAL, ResponseType.ORDINAL):
         data = prepare_categorical_data(term)
     else:
         data = term.data
 
-    if family.RESPONSE_NDIM == 1:
-        dims = tuple(model.__bambi_attrs__["response_coords_data"])
-    else:
-        dims = tuple(
-            model.__bambi_attrs__["response_coords_data"] | model.__bambi_attrs__["response_coords"]
-        )
+    dims = response_dims(family, model)
     distribution = get_distribution_from_likelihood(family.likelihood)
 
     transform_parameters = transforms_registry.get_transform_parameters(family)
@@ -105,7 +100,21 @@ def build_response_term(term, parameters, family, model):
     return None
 
 
-def prepare_binary_data(term):
+def response_dims(family, model: pm.Model) -> Dims:
+    coords = model.__bambi_attrs__["response_coords_data"]
+
+    response_is_indexed = family.DATA_TYPE in (
+        ResponseType.BINARY,
+        ResponseType.CATEGORICAL,
+        ResponseType.ORDINAL,
+    )
+    if response_is_indexed:
+        return tuple(coords)
+
+    return tuple(coords | model.__bambi_attrs__["response_coords"])
+
+
+def prepare_binary_data(term) -> np.ndarray:
     # Data is 2d when the user passes categorical response without specifying the reference level.
     # In that case, data is a one-hot encoded matrix. Otherwise it's a binary 1d array.
     if term.data.ndim == 1:
@@ -114,6 +123,6 @@ def prepare_binary_data(term):
     return term.data[:, idx]
 
 
-def prepare_categorical_data(term):
+def prepare_categorical_data(term) -> np.ndarray:
     # Data is a one-hot encoded matrix. PyMC needs a vector of indices of observed categories.
     return np.nonzero(term.data)[1]
