@@ -34,7 +34,7 @@ def _build_common_and_intercept(
     common_terms, intercept_term, center: bool, param_spec: ParamSpec, model: pm.Model
 ):
     # Build common terms, then build intercept
-    ndim = param_spec.ndim
+    ndim = 0 if param_spec.coefs_dim is None else 1
     ensure_ndim = _ENSURE_NDIM_MAPPING[ndim]
     data_mean = None
     params = None
@@ -141,6 +141,7 @@ def build_conditional_parameter(parameter, family: Family, model: pm.Model):
     coords = model.__bambi_attrs__["response_coords_data"]
     if param_spec.ndim > 0:
         coords = coords | model.__bambi_attrs__["response_coords"]
+
     dims = tuple(coords)
     only_intercept = (
         parameter.intercept_term
