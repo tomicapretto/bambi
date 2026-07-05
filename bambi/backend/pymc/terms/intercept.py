@@ -3,23 +3,23 @@ import pymc as pm
 import pytensor.tensor as pt
 
 from bambi.backend.pymc.utils import get_distribution_from_prior
-from bambi.types import CoefSpec, Constraint
+from bambi.families.types import ParamSpec
 
 
 def build_intercept_term(
     term,
     data_mean: np.ndarray | None,
     common_params: pt.Variable | None,
-    coef_spec: CoefSpec,
+    param_spec: ParamSpec,
     model: pm.Model,
 ) -> pt.Variable:
     # NOTE (idea): Transform the intercept prior such that users can pass it cleanly.
     coords = {}
-    if coef_spec.ndim > 0:
-        if coef_spec.constraint == Constraint.REFERENCE:
-            coords = model.__bambi_attrs__["response_coords_reduced"]
-        else:
+    if param_spec.ndim > 0:
+        if param_spec.coefs_dim == "response":
             coords = model.__bambi_attrs__["response_coords"]
+        elif param_spec.coefs_dim == "response_reduced":
+            coords = model.__bambi_attrs__["response_coords_reduced"]
 
     dims = tuple(coords)
     param_shape = tuple(len(coord) for coord in coords.values())

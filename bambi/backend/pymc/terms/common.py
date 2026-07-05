@@ -4,7 +4,8 @@ import pytensor.tensor as pt
 
 from bambi.backend.pymc.coords import coords_from_common
 from bambi.backend.pymc.utils import get_distribution_from_prior
-from bambi.types import CoefSpec, Constraint, Coords
+from bambi.backend.pymc.types import Coords
+from bambi.families.types import ParamSpec
 
 
 def shape_data(data: np.ndarray, coords: Coords) -> np.ndarray:
@@ -77,7 +78,7 @@ def shape_prior_arg(value: np.ndarray, shape: tuple[int, ...]) -> np.ndarray:
 
 
 def build_common_term(
-    term, coef_spec: CoefSpec, model: pm.Model
+    term, param_spec: ParamSpec, model: pm.Model
 ) -> tuple[pt.Variable, pt.Variable]:
     data_name = f"{term.label}_data"
     param_name = term.label
@@ -95,11 +96,11 @@ def build_common_term(
 
     # Register parameter
     response_coords = {}
-    if coef_spec.ndim > 0:
-        if coef_spec.constraint == Constraint.REFERENCE:
-            response_coords = model.__bambi_attrs__["response_coords_reduced"]
-        else:
+    if param_spec.ndim > 0:
+        if param_spec.coefs_dim == "response":
             response_coords = model.__bambi_attrs__["response_coords"]
+        elif param_spec.coefs_dim == "response_reduced":
+            response_coords = model.__bambi_attrs__["response_coords_reduced"]
 
     param_coords = coords | response_coords
     param_dims = tuple(param_coords)
