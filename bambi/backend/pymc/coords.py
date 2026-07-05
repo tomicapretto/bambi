@@ -127,3 +127,6 @@ def coords_from_hsgp(term):
         coords[f"{term.name}_var"] = np.arange(term.shape[1])
 
     return coords
+
+
+def coords_for_cutpoints(): ...

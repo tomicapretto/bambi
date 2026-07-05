@@ -1,6 +1,6 @@
 from bambi.families.family import Family
+from bambi.families.types import DimType, ResponseType, ParamSpec
 from bambi.transformations import transformations_namespace
-from bambi.types import CoefSpec, Constraint, ResponseType, ParamSpec
 from bambi.utils import extract_argument_names
 
 
@@ -53,19 +53,16 @@ class Binomial(Family):
 class Categorical(Family):
     DATA_TYPE = ResponseType.CATEGORICAL
     PARAMETERS = {
-        "p": ParamSpec(
-            links=["softmax"], ndim=1, coef_spec=CoefSpec(ndim=1, constraint=Constraint.REFERENCE)
-        ),
+        "p": ParamSpec(links=["softmax"], ndim=1, coefs_dim=DimType.RESPONSE_REDUCED),
     }
 
 
 class Cumulative(Family):
     # There's a single linear predictor, not as many linear predictors as response levels.
-    # FIXME: I'm still not happy with how we're treating thresholds
     DATA_TYPE = ResponseType.ORDINAL
     PARAMETERS = {
         "p": ParamSpec(links=["logit", "probit", "cloglog"], ndim=1),
-        "threshold": ParamSpec(links=["identity"], ndim=1, ordinal=True),
+        "threshold": ParamSpec(links=["identity"], ndim=1, coefs_dim=DimType.RESPONSE_CUTPOINTS),
     }
 
 
@@ -146,7 +143,7 @@ class StoppingRatio(Family):
     DATA_TYPE = ResponseType.ORDINAL
     PARAMETERS = {
         "p": ParamSpec(links=["logit", "probit", "cloglog"], ndim=1),
-        "threshold": ParamSpec(links=["identity"], ndim=1, ordinal=True),
+        "threshold": ParamSpec(links=["identity"], ndim=1, coefs_dim=DimType.RESPONSE_CUTPOINTS),
     }
 
 
@@ -204,9 +201,7 @@ class ZeroInflatedPoisson(Family):
 class Multinomial(Family):
     RESPONSE_NDIM = 1
     PARAMETERS = {
-        "p": ParamSpec(
-            links=["softmax"], ndim=1, coef_spec=CoefSpec(ndim=1, constraint=Constraint.REFERENCE)
-        ),
+        "p": ParamSpec(links=["softmax"], ndim=1, coefs_dim=DimType.RESPONSE_REDUCED),
     }
 
     def get_levels(self, response):
@@ -219,7 +214,7 @@ class Multinomial(Family):
 class DirichletMultinomial(Family):
     RESPONSE_NDIM = 1
     PARAMETERS = {
-        "a": ParamSpec(links=["log"], ndim=1, coef_spec=CoefSpec(ndim=1)),
+        "a": ParamSpec(links=["log"], ndim=1, coefs_dim=DimType.RESPONSE),
     }
 
     def get_levels(self, response):
