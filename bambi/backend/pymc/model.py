@@ -7,9 +7,11 @@ from importlib.metadata import version
 import numpy as np
 import pymc as pm
 from pymc.util import get_default_varnames
+from pymc.model.fgraph import clone_model
 
 from bambi.backend.pymc.coords import coords_from_response
 from bambi.backend.pymc.parameters import build_conditional_parameter, build_marginal_parameter
+from bambi.backend.pymc.parameters.conditional import get_conditional_parameter_data
 from bambi.backend.pymc.terms import build_response_term
 
 _log = logging.getLogger("bambi")
@@ -154,6 +156,41 @@ class PyMCModel:
         self.fit = True
         return result
 
+    def predict(
+        self,
+        idata,
+        data=None,
+        include_group_specific=True,
+        sample_new_groups=False,
+        random_seed=None,
+        kind="response",
+    ):
+        # NOTE: How to handle `include_group_specific`?
+        # I guess one route is graph intervention. We can set all parameters to 0.
+        new_data = {}
+        new_coords = {"__obs__": range(len(data))}
+
+        # Iterate over conditional parameters and populate `new_data`
+        #     Within parameter, iterate over all terms, calling `eval_new_data` and manipulating
+        #     data before passing it to `new_data` as needed.
+
+        # Clone pymc model and set `new_data`, together with the coords for the new observation range.
+        # Using the cloned model, obtain predictions.
+        # If kind is 'response'.
+        # Let's start using 'predictions' group for out of sample predictions
+        # and 'posterior' for those obtained in-sample.
+
+        for parameter in self.spec.conditional_parameters.values():
+            new_data.update(get_conditional_parameter_data(parameter, data, self.model))
+
+        with clone_model(self.model):
+            pm.set_data(new_data, coords=new_coords)
+            predictions = pm.sample_posterior_predictive(
+                idata, predictions=True, random_seed=random_seed
+            )
+
+        return predictions
+
     def _run_mcmc(
         self,
         draws,
@@ -236,6 +273,7 @@ class PyMCModel:
             idata.posterior = idata.posterior.drop_vars(offset_vars)
 
         if include_response_params:
+            # NOTE: Just compute deterministics
             self.spec.predict(idata)
 
         return idata

@@ -3,40 +3,12 @@ import pymc as pm
 import pytensor.tensor as pt
 
 from bambi.backend.pymc.coords import coords_from_group_specific
+from bambi.backend.pymc.data import shape_common_data
 from bambi.backend.pymc.terms.common import shape_prior_arg
-from bambi.backend.pymc.types import Coords, Dims
+from bambi.backend.pymc.types import Dims
 from bambi.backend.pymc.utils import get_distribution_from_prior
 from bambi.priors.prior import Prior
 from bambi.families.types import ParamSpec
-
-
-def shape_predictor(data: np.ndarray, coords: Coords) -> np.ndarray:
-    if not coords:
-        if data.ndim == 2 and data.shape[1] == 1:
-            return data[:, 0]
-        if data.ndim > 1:
-            raise ValueError(
-                "Group-specific predictor data without coordinates must be one-dimensional."
-            )
-        return data
-
-    shape = tuple(len(coord) for coord in coords.values())
-    size = np.prod(shape)
-
-    if data.ndim == len(shape) + 1 and data.shape[1:] == shape:
-        return data
-
-    if data.ndim == 1:
-        if size != 1:
-            raise ValueError(
-                "Cannot reshape one-dimensional group-specific predictor data to multiple levels."
-            )
-        return data[:, np.newaxis]
-
-    if data.ndim == 2 and data.shape[1] == size:
-        return data.reshape((data.shape[0], *shape))
-
-    raise ValueError("Group-specific predictor data shape does not match its coordinates.")
 
 
 # NOTE: Can we assume data_name is unique?
@@ -61,7 +33,7 @@ def build_group_specific_term_dot(
     # Register data (sparse matrix)
     data = term.data
     data_dims = ("__obs__", f"{term.label}_col")
-    model.add_coords({data_dims[1]: np.arange(data.shape[1])})
+    model.add_coords({data_dims[1]: range(data.shape[1])})
     pm.Data(data_name, data, dims=data_dims, model=model)
 
     # Register parameter
@@ -109,7 +81,7 @@ def build_group_specific_term_idx(term, param_spec: ParamSpec, model: pm.Model) 
 
     # Register data, predictor
     predictor_dims = ("__obs__",) + dims_expr
-    predictor = shape_predictor(term.predictor, coords_expr)
+    predictor = shape_common_data(term.predictor, coords_expr)
     predictor_data = pm.Data(data_value_name, predictor, dims=predictor_dims, model=model)
 
     # Register data, group index (which index of parameter to select from)
