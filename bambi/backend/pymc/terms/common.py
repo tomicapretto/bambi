@@ -5,41 +5,8 @@ import pytensor.tensor as pt
 from bambi.backend.pymc.coords import coords_from_common
 from bambi.backend.pymc.utils import get_distribution_from_prior
 from bambi.backend.pymc.types import Coords
+from bambi.backend.pymc.data import shape_common_data
 from bambi.families.types import ParamSpec
-
-
-def shape_data(data: np.ndarray, coords: Coords) -> np.ndarray:
-    if not coords:
-        # Without term coords, PyMC data is registered only over observations.
-        # Single-column design matrices therefore represent scalar terms and become vectors.
-        if data.ndim == 2 and data.shape[1] == 1:
-            return data[:, 0]
-        if data.ndim > 1:
-            raise ValueError("Common term data without coordinates must be one-dimensional.")
-        return data
-
-    # Coords describe all non-observation dimensions for the term.
-    # Formulae usually gives common terms as flat design-matrix columns,
-    # while PyMC data is registered with named dimensions.
-    # This restores the named coordinate shape.
-    shape = tuple(len(coord) for coord in coords.values())
-    size = np.prod(shape)
-
-    # Data may already be shaped as (__obs__, *coords), e.g. after a model update.
-    if data.ndim == len(shape) + 1 and data.shape[1:] == shape:
-        return data
-
-    # A vector can only be expanded when the coords imply a single column.
-    if data.ndim == 1:
-        if size != 1:
-            raise ValueError("Cannot reshape one-dimensional common term data to multiple levels.")
-        return data[:, np.newaxis]
-
-    # Convert flat design-matrix columns back into the named coordinate dimensions.
-    if data.ndim == 2 and data.shape[1] == size:
-        return data.reshape((data.shape[0], *shape))
-
-    raise ValueError("Common term data shape does not match its coordinates.")
 
 
 def flatten_data(data: pt.Variable, coords: Coords) -> pt.Variable:
@@ -91,7 +58,7 @@ def build_common_term(
     # Register data
     if data_name not in model:
         data_dims = ("__obs__", *coords)
-        data = shape_data(term.data, coords)
+        data = shape_common_data(term.data, coords)
         pm.Data(data_name, data, dims=data_dims, model=model)
 
     # Register parameter
