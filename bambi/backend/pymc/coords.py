@@ -2,7 +2,7 @@ import numpy as np
 
 
 def coords_from_response(term, family):
-    coords_data = {"__obs__": np.arange(term.shape[0])}
+    coords_data = {"__obs__": range(term.shape[0])}
     coords = {}
     coords_reduced = {}
 
@@ -27,8 +27,8 @@ def coords_from_response(term, family):
         # Dict union will make sure we attempt to add the dimension only once.
         # We still need regular and reduced coords because that is what things such as
         # additive predictors expect.
-        coords[f"{term.name}_levels"] = np.arange(term.shape[1])
-        coords_reduced[f"{term.name}_levels"] = np.arange(term.shape[1])
+        coords[f"{term.name}_levels"] = range(term.shape[1])
+        coords_reduced[f"{term.name}_levels"] = range(term.shape[1])
 
     return coords_data, coords, coords_reduced
 
@@ -38,7 +38,7 @@ def coords_from_common(term):
     if term.kind == "numeric":
         if term.ndim == 1:
             return {}
-        return {f"{term.name}_levels": np.arange(term.shape[1])}
+        return {f"{term.name}_levels": range(term.shape[1])}
 
     # Single categoric
     if term.kind == "categoric":
@@ -58,7 +58,7 @@ def coords_from_common(term):
         for el in term.components:
             # A numeric that spans multiple columns (e.g., a spline)
             if el.kind == "numeric" and el.value.ndim == 2 and el.value.shape[1] > 1:
-                coords[f"{el.name}_levels"] = np.arange(el.value.shape[1])
+                coords[f"{el.name}_levels"] = range(el.value.shape[1])
 
             if el.kind == "categoric":
                 if el.spans_intercept:
@@ -82,7 +82,7 @@ def coords_from_group_specific(term):
     # Expression term
     if expr.kind == "numeric" and expr.data.ndim > 1:
         # If numeric, it's non empty only when the term spans multiple columns
-        expr_coords = {f"{expr.name}_levels": np.arange(expr.data.shape[1])}
+        expr_coords = {f"{expr.name}_levels": range(expr.data.shape[1])}
     elif expr.kind == "categoric":
         # Single numeric
         if expr.spans_intercept:
@@ -94,7 +94,7 @@ def coords_from_group_specific(term):
         for el in expr.components:
             # A numeric that spans multiple columns (e.g., a spline)
             if el.kind == "numeric" and el.value.ndim == 2 and el.value.shape[1] > 1:
-                expr_coords[f"{el.name}_levels"] = np.arange(el.value.shape[1])
+                expr_coords[f"{el.name}_levels"] = range(el.value.shape[1])
 
             if el.kind == "categoric":
                 if el.spans_intercept:
@@ -118,13 +118,13 @@ def coords_from_group_specific(term):
 
 def coords_from_hsgp(term):
     # This handles univariate and multivariate cases
-    coords = {f"{term.name}_weights_dim": np.arange(np.prod(term.m))}
+    coords = {f"{term.name}_weights_dim": range(np.prod(term.m))}
 
     if term.by_levels is not None:
         coords[f"{term.name}_by"] = term.by_levels
 
     if not term.iso and term.shape[1] > 1:
-        coords[f"{term.name}_var"] = np.arange(term.shape[1])
+        coords[f"{term.name}_var"] = range(term.shape[1])
 
     return coords
 

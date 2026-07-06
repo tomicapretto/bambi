@@ -926,45 +926,7 @@ class Model:
                 FutureWarning,
             )
 
-        if not inplace:
-            idata = deepcopy(idata)
-
-        # Populate the posterior in the InferenceData object with the likelihood parameters
-        idata = self._compute_likelihood_params(
-            idata=idata,
-            data=data,
-            include_group_specific=include_group_specific,
-            sample_new_groups=sample_new_groups,
-            random_seed=random_seed,
-        )
-
-        # Only if requested predict the predictive distribution
-        if kind == "response":
-            response_aliased_name = get_aliased_name(self.response_term)
-            required_kwargs = {
-                "model": self,
-                "posterior": idata.posterior,
-                "random_seed": random_seed,
-            }
-            optional_kwargs = {"data": data}
-
-            posterior_predictive = self.family.posterior_predictive(
-                **required_kwargs, **optional_kwargs
-            )
-            posterior_predictive = posterior_predictive.to_dataset(name=response_aliased_name)
-
-            if "posterior_predictive" in idata:
-                del idata.posterior_predictive
-
-            idata.add_groups({"posterior_predictive": posterior_predictive})
-            idata.posterior_predictive = idata.posterior_predictive.assign_attrs(
-                modeling_interface="bambi", modeling_interface_version=__version__
-            )
-
-        if inplace:
-            return None
-        else:
-            return idata
+        return self.backend.predict(idata=idata, data=data)
 
     def r2_score(self, idata, summary=True):
         """R² for Bayesian regression models.

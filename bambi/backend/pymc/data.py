@@ -1,0 +1,35 @@
+import numpy as np
+
+from bambi.backend.pymc.types import Coords
+
+
+def shape_common_data(data: np.ndarray, coords: Coords) -> np.ndarray:
+    if not coords:
+        # Since we don't have coords, this must be a single numeric column.
+        # Data only has the "__obs__" dim.
+        if data.ndim == 2 and data.shape[1] == 1:
+            return data.flatten()
+        if data.ndim > 1:
+            raise ValueError("Common term data without coordinates must be one-dimensional.")
+        # It's already one dimensional.
+        return data
+
+    # Coords describe all non-observation dimensions for the term.
+    # Formulae gives common terms as flat design-matrix columns,
+    # while PyMC data is registered with named dimensions.
+    # This restores the named coordinate shape.
+    coords_shape = tuple(len(coord) for coord in coords.values())
+    coords_cardinality = np.prod(coords_shape)
+
+    # A vector is expantded into a single column matrix only when coords imply a single column.
+    if data.ndim == 1:
+        if coords_cardinality != 1:
+            raise ValueError("Cannot reshape one-dimensional common term data to multiple levels.")
+        return data[:, np.newaxis]
+
+    # Convert design-matrix columns into an array of shape given by coords, including __obs__.
+    if data.ndim == 2 and data.shape[1] == coords_cardinality:
+        # (__obs__, *coords)
+        return data.reshape((data.shape[0], *coords_shape))
+
+    raise ValueError("Common term data shape does not match its coordinates.")

@@ -12,6 +12,8 @@ from bambi.families.family import Family
 from bambi.families.types import ResponseType
 
 
+# NOTE(tomi): I think we'll need to register used data with pm.Data containers to have full power.
+#             For now, I'm leaving it as it is, but I may revisit this soon.
 def build_response_term(term, parameters: dict, family: Family, model: pm.Model) -> None:
     if family.DATA_TYPE == ResponseType.BINARY:
         data = prepare_binary_data(term)
@@ -20,7 +22,7 @@ def build_response_term(term, parameters: dict, family: Family, model: pm.Model)
     else:
         data = term.data
 
-    dims = response_dims(family, model)
+    dims = get_response_dims(family, model)
     distribution = get_distribution_from_likelihood(family.likelihood)
 
     transform_parameters = transforms_registry.get_transform_parameters(family)
@@ -102,7 +104,7 @@ def build_response_term(term, parameters: dict, family: Family, model: pm.Model)
     return None
 
 
-def response_dims(family: Family, model: pm.Model) -> Dims:
+def get_response_dims(family: Family, model: pm.Model) -> Dims:
     coords = model.__bambi_attrs__["response_coords_data"]
 
     response_is_indexed = family.DATA_TYPE in (
