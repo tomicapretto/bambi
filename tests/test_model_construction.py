@@ -455,6 +455,61 @@ def test_potentials():
     assert pot1.__str__() == "Switch(Gt.0, 0, -inf)"
 
 
+def test_potentials_resolve_aliases():
+    data = pd.DataFrame(np.repeat((0, 1), (18, 20)), columns=["w"])
+    priors = {"Intercept": bmb.Prior("Uniform", lower=0, upper=1)}
+    potentials = [("alpha", lambda x: bmb.math.switch(x > 0.55, 0, -np.inf))]
+
+    model = bmb.Model(
+        "w ~ 1",
+        data,
+        family="bernoulli",
+        link="identity",
+        priors=priors,
+        potentials=potentials,
+    )
+    model.set_alias({"Intercept": "alpha"})
+    model.build()
+
+    assert len(model.backend.model.potentials) == 1
+
+
+def test_potentials_missing_variable():
+    data = pd.DataFrame(np.repeat((0, 1), (18, 20)), columns=["w"])
+    priors = {"Intercept": bmb.Prior("Uniform", lower=0, upper=1)}
+    potentials = [("not_a_variable", lambda x: x)]
+
+    model = bmb.Model(
+        "w ~ 1",
+        data,
+        family="bernoulli",
+        link="identity",
+        priors=priors,
+        potentials=potentials,
+    )
+
+    with pytest.raises(ValueError, match="not_a_variable"):
+        model.build()
+
+
+def test_potentials_non_callable_constraint():
+    data = pd.DataFrame(np.repeat((0, 1), (18, 20)), columns=["w"])
+    priors = {"Intercept": bmb.Prior("Uniform", lower=0, upper=1)}
+    potentials = [("Intercept", 1)]
+
+    model = bmb.Model(
+        "w ~ 1",
+        data,
+        family="bernoulli",
+        link="identity",
+        priors=priors,
+        potentials=potentials,
+    )
+
+    with pytest.raises(TypeError, match="must be callable"):
+        model.build()
+
+
 @pytest.mark.skip(reason="this example no longer trigger the fallback to adapt_diag")
 def test_init_fallback(init_data, caplog):
     model = bmb.Model("od ~ temp + (1|source) + 0", init_data)
