@@ -12,7 +12,8 @@ from bambi.backend.pymc.terms import (
 )
 from bambi.backend.pymc.utils import INVERSE_LINKS
 from bambi.backend.pymc.transform import transforms_registry
-from bambi.backend.pymc.data import shape_common_data
+from bambi.backend.pymc.coords import coords_from_common, coords_from_group_specific
+from bambi.backend.pymc.data import predictor_data_name, shape_common_data
 from bambi.config import config as bmb_config
 from bambi.families import Family
 from bambi.families.types import ParamSpec
@@ -157,11 +158,11 @@ def build_conditional_parameter(parameter, family: Family, model: pm.Model):
 
 
 def get_conditional_parameter_data(parameter, data, model: pm.Model):
-    shape_common_data
     data_dict = {}
 
     for term in parameter.common_terms.values():
-        term_data_name = f"{term.label}_data"
+        coords = coords_from_common(term)
+        term_data_name = predictor_data_name(term.label, ("__obs__", *coords), model)
         term_data_dims = model.named_vars_to_dims[term_data_name][1:]  # drop __obs__
         term_data = shape_common_data(
             data=term.term.eval_new_data(data),
@@ -176,14 +177,20 @@ def get_conditional_parameter_data(parameter, data, model: pm.Model):
             term_data = term.term.eval_new_data(data)
             data_dict.update({term_data_name: term_data})
         else:
-            term_value_name = f"{term.label}_data"
-            term_idx_name = f"{term.label}_idx"
-            term_value_dims = model.named_vars_to_dims[term_value_name][1:]  # drop __obs__
-            term_value_data = shape_common_data(
-                data=term.term.expr.eval_new_data(data),
-                coords={dim: model.coords[dim] for dim in term_value_dims},
-            )
-            term_idx_data = term.invert_dummies(term.term.factor.eval_new_data(data))
-            data_dict.update({term_value_name: term_value_data, term_idx_name: term_idx_data})
+            term_idx_name = f"{term.factor_name}__idx"
+            term_idx_data = term.invert_dummies(term.factor.eval_new_data(data))
+            data_dict[term_idx_name] = term_idx_data
+
+            if not term.is_intercept:
+                coords_expr, _ = coords_from_group_specific(term)
+                term_value_name = predictor_data_name(
+                    term.expr_name, ("__obs__", *coords_expr), model
+                )
+                term_value_dims = model.named_vars_to_dims[term_value_name][1:]  # drop __obs__
+                term_value_data = shape_common_data(
+                    data=term.expr.eval_new_data(data),
+                    coords={dim: model.coords[dim] for dim in term_value_dims},
+                )
+                data_dict[term_value_name] = term_value_data
 
     return data_dict
