@@ -510,6 +510,91 @@ def test_potentials_non_callable_constraint():
         model.build()
 
 
+def test_compute_log_likelihood(data_random_n100, mock_pymc_sample):
+    data = data_random_n100.iloc[:10].copy()
+    model = bmb.Model("continuous1 ~ continuous2", data)
+    idata = model.fit(draws=4, chains=2)
+    assert model.backend.model.__bambi_attrs__["response_data_name"] == "continuous1_data"
+
+    result = model.compute_log_likelihood(idata, inplace=False)
+
+    assert "log_likelihood" not in idata
+    assert result.log_likelihood["continuous1"].shape == (2, 4, 10)
+    assert result.log_likelihood.attrs["modeling_interface"] == "bambi"
+
+    same_data_result = model.compute_log_likelihood(idata, data=data, inplace=False)
+    assert (
+        same_data_result.log_likelihood["continuous1"] == result.log_likelihood["continuous1"]
+    ).all()
+
+    new_data = data.iloc[:3].copy()
+    new_result = model.compute_log_likelihood(idata, data=new_data, inplace=False)
+    assert new_result.log_likelihood["continuous1"].shape == (2, 4, 3)
+
+    model.compute_log_likelihood(idata)
+    assert idata.log_likelihood["continuous1"].shape == (2, 4, 10)
+
+
+def test_compute_log_likelihood_transformed_response(data_beetle, mock_pymc_sample):
+    model = bmb.Model("prop(y, n) ~ x", data_beetle, family="binomial")
+    idata = model.fit(draws=4, chains=2)
+    assert model.backend.model.__bambi_attrs__["response_data_name"] == "prop(y, n)_data"
+
+    model.compute_log_likelihood(idata)
+    assert idata.log_likelihood["prop(y, n)"].shape == (2, 4, len(data_beetle))
+
+    same_data_result = model.compute_log_likelihood(idata, data=data_beetle, inplace=False)
+    assert (
+        same_data_result.log_likelihood["prop(y, n)"] == idata.log_likelihood["prop(y, n)"]
+    ).all()
+
+    result = model.compute_log_likelihood(idata, data=data_beetle.head(3), inplace=False)
+    assert result.log_likelihood["prop(y, n)"].shape == (2, 4, 3)
+
+
+def test_predict_transformed_response_side_data(data_beetle, mock_pymc_sample):
+    model = bmb.Model("prop(y, n) ~ x", data_beetle, family="binomial")
+    idata = model.fit(draws=4, chains=2)
+
+    response_data = model.backend.model.__bambi_attrs__["response_data"]
+    assert {item["role"] for item in response_data} == {"observed", "n"}
+
+    result = model.predict(idata, kind="response", data=data_beetle.head(3), inplace=False)
+    samples = result.posterior_predictive["prop(y, n)"]
+    assert samples.shape == (2, 4, 3)
+    assert (samples <= data_beetle["n"].to_numpy()[:3][None, None, :]).all()
+
+    model = bmb.Model("p(y, 62) ~ x", data_beetle, family="binomial")
+    idata = model.fit(draws=4, chains=2)
+    response_data = model.backend.model.__bambi_attrs__["response_data"]
+    assert {item["role"] for item in response_data} == {"observed"}
+
+    result = model.predict(idata, kind="response", data=data_beetle.head(3), inplace=False)
+    samples = result.posterior_predictive["p(y, 62)"]
+    assert samples.shape == (2, 4, 3)
+    assert (samples <= 62).all()
+
+
+def test_predict_truncated_response_scalar_bounds(mock_pymc_sample):
+    data = pd.DataFrame({"x": np.linspace(-1, 1, 8), "y": np.linspace(-0.5, 0.5, 8)})
+    priors = {
+        "Intercept": bmb.Prior("Normal", mu=0, sigma=1),
+        "x": bmb.Prior("Normal", mu=0, sigma=1),
+        "sigma": bmb.Prior("HalfNormal", sigma=1),
+    }
+    model = bmb.Model("truncated(y, -5, 5) ~ x", data, priors=priors)
+    idata = model.fit(draws=4, chains=2)
+
+    response_data = model.backend.model.__bambi_attrs__["response_data"]
+    assert {item["role"] for item in response_data} == {"observed"}
+
+    result = model.predict(idata, kind="response", data=data.head(3), inplace=False)
+    samples = result.posterior_predictive["truncated(y, -5, 5)"]
+    assert samples.shape == (2, 4, 3)
+    assert (samples > -5).all()
+    assert (samples < 5).all()
+
+
 @pytest.mark.skip(reason="this example no longer trigger the fallback to adapt_diag")
 def test_init_fallback(init_data, caplog):
     model = bmb.Model("od ~ temp + (1|source) + 0", init_data)

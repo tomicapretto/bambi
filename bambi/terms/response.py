@@ -1,4 +1,5 @@
 import formulae.terms
+from formulae.terms.call_resolver import get_function_from_module
 
 from bambi.terms.base import BaseTerm
 from bambi.terms.utils import is_response_of_kind
@@ -54,6 +55,29 @@ class ResponseTerm(BaseTerm):
             return self.term.components[0].reference
 
         return self.term.levels[0]
+
+    def eval_new_data(self, data):
+        """Evaluate response data on a new data frame."""
+        if len(self.components) != 1:
+            return self.term.eval_new_data(data)
+
+        component = self.components[0]
+        if not hasattr(component, "call"):
+            return self.term.eval_new_data(data)
+
+        function = get_function_from_module(component.call.callee, component.env)
+        args = [
+            arg.eval(data, component.env) if hasattr(arg, "eval") else arg
+            for arg in component.call.args
+        ]
+        kwargs = {
+            name: value.eval(data, component.env) if hasattr(value, "eval") else value
+            for name, value in component.call.kwargs.items()
+        }
+        value = function(*args, **kwargs)
+        if hasattr(value, "eval"):
+            return value.eval()
+        return value
 
     def __str__(self):
         extras = []
