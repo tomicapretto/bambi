@@ -1,2 +1,2 @@
-type Coords = dict[str, list[str]]
-type Dims = tuple[str]
+Coords = dict[str, list[str]]
+Dims = tuple[str, ...]

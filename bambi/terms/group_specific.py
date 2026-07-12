@@ -55,6 +55,30 @@ class GroupSpecificTerm(BaseTerm):  # pylint: disable=too-many-instance-attribut
         return self.term.kind
 
     @property
+    def expr(self):
+        return self.term.expr
+
+    @property
+    def factor(self):
+        return self.term.factor
+
+    @property
+    def expr_name(self):
+        return self.expr.name
+
+    @property
+    def factor_name(self):
+        return self.factor.name
+
+    @property
+    def expr_kind(self):
+        return self.expr.kind
+
+    @property
+    def is_intercept(self):
+        return self.expr_kind == "intercept"
+
+    @property
     def shape(self):
         return self.data.shape
 
@@ -62,7 +86,7 @@ class GroupSpecificTerm(BaseTerm):  # pylint: disable=too-many-instance-attribut
     def categorical(self):
         # Determine if the expression is categorical
         if self.kind == "interaction":
-            return any(component.kind == "categoric" for component in self.term.expr.components)
+            return any(component.kind == "categoric" for component in self.expr.components)
         return self.kind == "categoric"
 
     @property
@@ -89,11 +113,11 @@ class GroupSpecificTerm(BaseTerm):  # pylint: disable=too-many-instance-attribut
 
     @property
     def predictor(self):
-        return self.term.expr.data
+        return self.expr.data
 
     @property
     def grouper(self):
-        return self.term.factor.data
+        return self.factor.data
 
     @property
     def hyperprior_alias(self):
