@@ -34,13 +34,13 @@ class TransformsRegistry:
 
         return decorator
 
-    def get_transform_predictor(self, family, parameter):
+    def get_predictor_transform(self, family, parameter):
         return self.additive_predictors.get((self._family_class(family), parameter), None)
 
-    def get_transform_parameters(self, family):
+    def get_parameter_transform(self, family):
         return self.parameters.get(self._family_class(family), None)
 
-    def get_transform_data(self, family):
+    def get_data_transform(self, family):
         return self.data.get(self._family_class(family), None)
 
     def _family_class(self, family):
