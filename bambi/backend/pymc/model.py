@@ -12,7 +12,7 @@ from pymc.model.fgraph import clone_model
 from bambi.backend.pymc.coords import coords_from_response
 from bambi.backend.pymc.parameters import build_conditional_parameter, build_marginal_parameter
 from bambi.backend.pymc.parameters.conditional import get_conditional_parameter_data
-from bambi.backend.pymc.terms import build_response_term
+from bambi.backend.pymc.terms import build_potentials, build_response_term
 
 _log = logging.getLogger("bambi")
 
@@ -83,6 +83,8 @@ class PyMCModel:
             family=self.spec.family,
             model=model,
         )
+
+        build_potentials(self.spec.potentials, model)
 
         self.model = model
 
