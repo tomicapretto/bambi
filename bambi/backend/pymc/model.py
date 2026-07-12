@@ -6,6 +6,7 @@ from importlib.metadata import version
 
 import numpy as np
 import pymc as pm
+import xarray as xr
 from pymc.util import get_default_varnames
 from pymc.model.fgraph import clone_model
 
@@ -13,8 +14,9 @@ from bambi.backend.pymc.coords import coords_from_response
 from bambi.backend.pymc.parameters import build_conditional_parameter, build_marginal_parameter
 from bambi.backend.pymc.parameters.conditional import get_conditional_parameter_data
 from bambi.backend.pymc.terms import build_potentials, build_response_term
+from bambi.backend.pymc.terms.response import get_response_data
 
-_log = logging.getLogger("bambi")
+_logger = logging.getLogger("bambi")
 
 
 __version__ = version("bambi")
@@ -166,32 +168,105 @@ class PyMCModel:
         sample_new_groups=False,
         random_seed=None,
         kind="response",
+        inplace=True,
+        progressbar=True,
     ):
-        # NOTE: How to handle `include_group_specific`?
-        # I guess one route is graph intervention. We can set all parameters to 0.
-        new_data = {}
+        # NOTE:
+        # - How to handle `include_group_specific`? Set parameters to 0 via graph intervention?
+        # - How to handle `sample_new_groups`? Not sure if there's a PyMC native way.
+
+        if not inplace:
+            idata = deepcopy(idata)
+
+        parameters_names = [param.label for param in self.spec.conditional_parameters.values()]
+        responses_names = [self.spec.response_term.label]
+
+        if data is None:
+            # In sample prediction
+            with self.model:
+                idata["posterior"] = pm.compute_deterministics(
+                    dataset=idata["posterior"],
+                    var_names=parameters_names,
+                    merge_dataset=True,
+                    progressbar=progressbar,
+                )
+                if kind == "response":
+                    pm.sample_posterior_predictive(
+                        trace=idata,
+                        var_names=responses_names,
+                        random_seed=random_seed,
+                        extend_inferencedata=True,
+                    )
+        else:
+            # Out of sample prediction
+            # NOTE: Should we make use of the 'predictions' group?
+            #       I am assuming the computation of deterministics will raise an error due to
+            #       inconsisten coordinates.
+            new_data, new_coords = self._get_new_data(data, for_prediction=True)
+            var_names = parameters_names
+            if kind == "response":
+                var_names += responses_names
+
+            with clone_model(self.model):
+                pm.set_data(new_data=new_data, coords=new_coords)
+                pm.sample_posterior_predictive(
+                    trace=idata,
+                    var_names=var_names,
+                    progressbar=progressbar,
+                    random_seed=random_seed,
+                    extend_inferencedata=True,
+                    predictions=True,
+                )
+
+        if inplace:
+            return None
+
+        return idata
+
+    def compute_log_likelihood(self, idata, data=None, inplace=True, progressbar=True):
+        if not inplace:
+            idata = deepcopy(idata)
+
+        if "log_likelihood" in idata:
+            del idata["log_likelihood"]
+
+        if data is None:
+            with self.model:
+                pm.compute_log_likelihood(
+                    idata=idata, extend_inferencedata=True, progressbar=progressbar
+                )
+        else:
+            # NOTE: Don't I first need the computation of parameters?
+            new_data, new_coords = self._get_new_data(data, for_prediction=False)
+            with clone_model(self.model):
+                pm.set_data(new_data, coords=new_coords)
+                pm.compute_log_likelihood(
+                    idata=idata, extend_inferencedata=True, progressbar=progressbar
+                )
+
+        idata["log_likelihood"] = idata["log_likelihood"].assign_attrs(
+            modeling_interface="bambi", modeling_interface_version=__version__
+        )
+
+        if inplace:
+            return None
+
+        return idata
+
+    def _get_new_data(self, data, for_prediction: bool):
+        new_data = get_response_data(
+            self.spec.response_term,
+            self.spec.family,
+            self.model,
+            data,
+            for_prediction=for_prediction,
+        )
         new_coords = {"__obs__": range(len(data))}
-
-        # Iterate over conditional parameters and populate `new_data`
-        #     Within parameter, iterate over all terms, calling `eval_new_data` and manipulating
-        #     data before passing it to `new_data` as needed.
-
-        # Clone pymc model and set `new_data`, together with the coords for the new observation range.
-        # Using the cloned model, obtain predictions.
-        # If kind is 'response'.
-        # Let's start using 'predictions' group for out of sample predictions
-        # and 'posterior' for those obtained in-sample.
 
         for parameter in self.spec.conditional_parameters.values():
             new_data.update(get_conditional_parameter_data(parameter, data, self.model))
 
-        with clone_model(self.model):
-            pm.set_data(new_data, coords=new_coords)
-            predictions = pm.sample_posterior_predictive(
-                idata, predictions=True, random_seed=random_seed
-            )
-
-        return predictions
+        return new_data, new_coords
 
     def _run_mcmc(
         self,
@@ -209,18 +284,18 @@ class PyMCModel:
         sampler_backend,
         **kwargs,
     ):
-        # Don't include the parameters of the likelihood, which are deterministics.
-        # They can take lot of space in the trace and increase RAM requirements.
+
         vars_to_sample = get_default_varnames(
             self.model.unobserved_value_vars, include_transformed=False
         )
         vars_to_sample = [variable.name for variable in vars_to_sample]
 
-        for name, variable in self.model.named_vars.items():
-            is_likelihood_param = name in self.spec.family.likelihood.params
-            is_deterministic = variable in self.model.deterministics
-            if is_likelihood_param and is_deterministic:
-                vars_to_sample.remove(name)
+        if not include_response_params:
+            parameters_names = [param.label for param in self.spec.conditional_parameters.values()]
+            vars_to_sample = [var for var in vars_to_sample if var not in parameters_names]
+
+        if omit_offsets:
+            vars_to_sample = [var for var in vars_to_sample if not var.endswith("_offset")]
 
         # pm.sample routes nuts settings via kwargs.pop("nuts", {}); only inject when provided
         # to avoid passing nuts=None which causes pm.sample's internal nuts_kwargs.copy() to fail.
@@ -244,7 +319,7 @@ class PyMCModel:
                 )
             except (RuntimeError, ValueError):
                 if "ValueError: Mass matrix contains" in traceback.format_exc() and init == "auto":
-                    _log.info(
+                    _logger.info(
                         "\nThe default initialization using init='auto' has failed, trying to "
                         "recover by switching to init='adapt_diag'",
                     )
@@ -269,14 +344,6 @@ class PyMCModel:
         for group in idata.groups():
             getattr(idata, group).attrs["modeling_interface"] = "bambi"
             getattr(idata, group).attrs["modeling_interface_version"] = __version__
-
-        if omit_offsets:
-            offset_vars = [var for var in idata.posterior.data_vars if var.endswith("_offset")]
-            idata.posterior = idata.posterior.drop_vars(offset_vars)
-
-        if include_response_params:
-            # NOTE: Just compute deterministics
-            self.spec.predict(idata)
 
         return idata
 
