@@ -3,7 +3,7 @@ import pymc as pm
 import pytensor.tensor as pt
 
 from bambi.backend.pymc.coords import coords_from_group_specific
-from bambi.backend.pymc.data import shape_common_data
+from bambi.backend.pymc.data import predictor_data_name, shape_common_data
 from bambi.backend.pymc.terms.common import shape_prior_arg
 from bambi.backend.pymc.types import Dims
 from bambi.backend.pymc.utils import get_distribution_from_prior
@@ -65,8 +65,8 @@ def build_group_specific_term_dot(
 
 
 def build_group_specific_term_idx(term, param_spec: ParamSpec, model: pm.Model) -> pt.Variable:
-    data_value_name = f"{term.label}_data"
-    data_idx_name = f"{term.label}_idx"
+    is_intercept = term.is_intercept
+    data_idx_name = f"{term.factor_name}__idx"
     param_name = term.label
 
     coords_expr, coords_factor = coords_from_group_specific(term)
@@ -79,13 +79,22 @@ def build_group_specific_term_idx(term, param_spec: ParamSpec, model: pm.Model) 
     if param_name not in model:
         model.add_coords(coords)
 
-    # Register data, predictor
-    predictor_dims = ("__obs__",) + dims_expr
-    predictor = shape_common_data(term.predictor, coords_expr)
-    predictor_data = pm.Data(data_value_name, predictor, dims=predictor_dims, model=model)
+    # Register data: predictor
+    predictor_data = None
+    if not is_intercept:
+        predictor_dims = ("__obs__",) + dims_expr
+        data_value_name = predictor_data_name(term.expr_name, predictor_dims, model)
+        if data_value_name in model:
+            predictor_data = model[data_value_name]
+        else:
+            predictor = shape_common_data(term.predictor, coords_expr)
+            predictor_data = pm.Data(data_value_name, predictor, dims=predictor_dims, model=model)
 
-    # Register data, group index (which index of parameter to select from)
-    group_idx_data = pm.Data(data_idx_name, term.group_index, dims=("__obs__",), model=model)
+    # Register data: group index
+    if data_idx_name in model:
+        group_idx_data = model[data_idx_name]
+    else:
+        group_idx_data = pm.Data(data_idx_name, term.group_index, dims=("__obs__",), model=model)
 
     # Register parameter
     dims_output = tuple()
@@ -105,7 +114,16 @@ def build_group_specific_term_idx(term, param_spec: ParamSpec, model: pm.Model) 
         model=model,
     )
 
-    if dims_output:
+    if len(dims_factor) > 1:
+        tail_shape = tuple(param_rv.shape[i] for i in range(len(dims_factor), param_rv.ndim))
+        param_rv = param_rv.reshape((-1, *tail_shape))
+
+    selected_param = param_rv[group_idx_data]
+
+    if is_intercept:
+        return selected_param
+
+    if dims_output and predictor_data is not None:
         # (n, )    -> (n, 1)
         # (n, q_j) -> (n, q_j, 1)
         predictor_data = predictor_data[..., np.newaxis]
@@ -114,7 +132,7 @@ def build_group_specific_term_idx(term, param_spec: ParamSpec, model: pm.Model) 
     # (n, q_j) * (n, q_j)       -> (n, q_j)
     # (n, K) * (n, 1)           -> (n, K)
     # (n, q_j, K) * (n, q_j, 1) -> (n, q_j, K)
-    contribution = param_rv[group_idx_data] * predictor_data
+    contribution = selected_param * predictor_data
     if dims_expr:
         axes = tuple(range(1, len(dims_expr) + 1))
         contribution = contribution.sum(axis=axes)

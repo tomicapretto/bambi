@@ -76,8 +76,8 @@ def coords_from_common(term):
 def coords_from_group_specific(term):
     expr_coords = {}
     factor_coords = {}
-    expr = term.term.expr
-    factor = term.term.factor
+    expr = term.expr
+    factor = term.factor
 
     # Expression term
     if expr.kind == "numeric" and expr.data.ndim > 1:

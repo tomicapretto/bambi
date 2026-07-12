@@ -5,7 +5,7 @@ import pytensor.tensor as pt
 from bambi.backend.pymc.coords import coords_from_common
 from bambi.backend.pymc.utils import get_distribution_from_prior
 from bambi.backend.pymc.types import Coords
-from bambi.backend.pymc.data import shape_common_data
+from bambi.backend.pymc.data import predictor_data_name, shape_common_data
 from bambi.families.types import ParamSpec
 
 
@@ -47,9 +47,10 @@ def shape_prior_arg(value: np.ndarray, shape: tuple[int, ...]) -> np.ndarray:
 def build_common_term(
     term, param_spec: ParamSpec, model: pm.Model
 ) -> tuple[pt.Variable, pt.Variable]:
-    data_name = f"{term.label}_data"
     param_name = term.label
     coords = coords_from_common(term)
+    data_dims = ("__obs__", *coords)
+    data_name = predictor_data_name(term.label, data_dims, model)
 
     # Register coords
     if data_name not in model or param_name not in model:
@@ -57,7 +58,6 @@ def build_common_term(
 
     # Register data
     if data_name not in model:
-        data_dims = ("__obs__", *coords)
         data = shape_common_data(term.data, coords)
         pm.Data(data_name, data, dims=data_dims, model=model)
 
