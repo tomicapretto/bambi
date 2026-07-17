@@ -131,7 +131,7 @@ def build_conditional_parameter(parameter, family: Family, model: pm.Model):
         )
 
     # TODO: Make sure parameters are built in the appropriate order
-    transform_predictor = transforms_registry.get_transform_predictor(family, parameter.name)
+    transform_predictor = transforms_registry.get_predictor_transform(family, parameter.name)
     if transform_predictor:
         parameters = {
             name: model[name] for name in family.likelihood.params if name != parameter.name
