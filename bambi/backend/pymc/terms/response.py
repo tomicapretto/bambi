@@ -6,66 +6,98 @@ from bambi.backend.pymc.utils import (
     make_weighted_distribution,
     get_distribution_from_likelihood,
 )
-
 from bambi.backend.pymc.transform import transforms_registry
 from bambi.backend.pymc.types import Dims
 from bambi.families.family import Family
 from bambi.families.types import ResponseType
+from bambi.terms.response import ResponseTerm
+
 
 # NOTE: There is a ton of AI generated code here. It's a very bad mess.
-
-
-def build_response_term(term, parameters: dict, family: Family, model: pm.Model) -> None:
-    data = prepare_response_data(term, family)
-    dims = get_response_dims(family, model)
-    model.__bambi_attrs__["response_data"] = []
-
+def build_response_term(
+    term: ResponseTerm, parameters: dict, family: Family, model: pm.Model
+) -> None:
     distribution = get_distribution_from_likelihood(family.likelihood)
+    data = term.data
 
-    transform_parameters = transforms_registry.get_transform_parameters(family)
-    if transform_parameters:
-        parameters = transform_parameters(parameters)
+    if family.DATA_TYPE == ResponseType.BINARY and data.ndim > 1:
+        # Data is 2D when the user passes a categoric response without setting the reference level.
+        # In that case, data is a one-hot encoded matrix and we select the corresponding column.
+        # Otherwise data is already a 1D binary array and we don't need to do anything.
+        index = term.levels.index(term.reference)
+        data = data[:, index]
+    elif family.DATA_TYPE in (ResponseType.CATEGORICAL, ResponseType.ORDINAL):
+        # Data is a one-hot encoded matrix. PyMC needs a vector of observed category indices.
+        data = np.nonzero(data)[1]
+
+    # All families get coordinates for observation indexes.
+    # Multidimensional models also get additional coords, if available.
+    dims = tuple(model.__bambi_attrs__["response_coords_data"])
+    if family.RESPONSE_NDIM > 0:
+        dims = dims + tuple(model.__bambi_attrs__["response_coords"])
+
+    transform_parameters = transforms_registry.get_parameter_transform(family)
+    parameters = transform_parameters(parameters)
 
     if term.is_censored:
-        observed = register_response_data(
-            term, model, data[:, 0], dims, "observed", column=0, update_for_prediction=True
-        )
-        censoring_code = register_response_data(
-            term,
-            model,
-            data[:, 1],
-            dims,
-            "censoring_code",
-            column=1,
-            update_for_prediction=True,
-        )
+        # NOTE: For predictions, I think we need to intervene the graph when the 'y' values
+        #       are given. Recall VV project.
+        observed = pm.Data(term.label + "_data", data[:, 0], dims=dims, model=model)
+        censoring_code = pm.Data(term.label + "_status_data", data[:, 1], dims=dims, model=model)
 
-        is_left_censored = pt.eq(censoring_code, -1)
-        is_right_censored = pt.eq(censoring_code, 1)
+        # When there's no left or right censoring, avoid pytensor constructs.
+        # Left censoring
+        if not any(data[:, 1] == -1):
+            lower = -np.inf
+        else:
+            is_left_censored = pt.eq(censoring_code, -1)
+            lower = pt.switch(is_left_censored, observed, -np.inf)
 
-        lower = pt.switch(is_left_censored, observed, -np.inf)
-        upper = pt.switch(is_right_censored, observed, np.inf)
+        # Right censoring
+        if not any(data[:, 1] == 1):
+            upper = np.inf
+        else:
+            is_right_censored = pt.eq(censoring_code, 1)
+            upper = pt.switch(is_right_censored, observed, np.inf)
+
         dist = distribution.dist(**parameters)
+
         with model:
             pm.Censored(term.label, dist, lower=lower, upper=upper, observed=observed, dims=dims)
-    elif term.is_truncated:
-        observed = register_response_data(term, model, data[:, 0], dims, "observed", column=0)
-        lower = get_truncation_bound(term, model, data, dims, "lower")
-        upper = get_truncation_bound(term, model, data, dims, "upper")
+
+        return None
+
+    if term.is_truncated or term.is_constrained:
+        # NOTE: Predictions: truncated requires us to remove Truncated, constrained does not.
+        lower_data = data[:, 1]
+        upper_data = data[:, 2]
+        observed = pm.Data(term.label + "_data", data[:, 0], dims=dims, model=model)
+
+        if all(lower_data == -np.inf):
+            lower = None
+        elif np.all(lower_data == lower_data[0]):
+            # NOTE: They could all be equal even when we pass a variable instead of a literal.
+            lower = lower_data[0]
+        else:
+            lower = pm.Data(term.label + "_lb_data", lower_data, dims=dims, model=model)
+
+        if all(upper_data == np.inf):
+            upper = None
+        elif np.all(upper_data == upper_data[0]):
+            # NOTE: They could all be equal even when we pass a variable instead of a literal.
+            upper = upper_data[0]
+        else:
+            upper = pm.Data(term.label + "_ub_data", upper_data, dims=dims, model=model)
+
         dist = distribution.dist(**parameters)
         with model:
             pm.Truncated(term.label, dist, lower=lower, upper=upper, observed=observed, dims=dims)
 
-    elif term.is_constrained:
-        # Handle constrained responses through truncated distributions
-        observed = register_response_data(term, model, data[:, 0], dims, "observed", column=0)
-        lower = get_truncation_bound(term, model, data, dims, "lower")
-        upper = get_truncation_bound(term, model, data, dims, "upper")
-        dist = distribution.dist(**parameters)
-        with model:
-            pm.Truncated(term.label, dist, lower=lower, upper=upper, observed=observed, dims=dims)
+        return None
 
-    elif term.is_weighted:
+    if term.is_weighted:
+        # TODO: Do we need to intervene for predictions?
+        #       This weighting only matters in the likelihood, but is not related to predictions.
         observed = register_response_data(term, model, data[:, 0], dims, "observed", column=0)
         weights = register_response_data(
             term,
@@ -81,26 +113,30 @@ def build_response_term(term, parameters: dict, family: Family, model: pm.Model)
 
         with model:
             weighted_dist(term.label, weights, **parameters, observed=observed, dims=dims)
+
+        return None
+
+    if needs_trials_data(family) and data.ndim == 2:
+        # TODO: 'needs' trials is too narrow. Also, I think the transform can/should handle this.
+        observed = register_response_data(term, model, data[:, 0], dims, "observed", column=0)
+        trials = get_trials_data(term, model, data, dims)
+        data_mapping = {"observed": observed, "n": trials}
     else:
-        if needs_trials_data(family) and data.ndim == 2:
-            observed = register_response_data(term, model, data[:, 0], dims, "observed", column=0)
-            trials = get_trials_data(term, model, data, dims)
-            data_mapping = {"observed": observed, "n": trials}
+        data_dims = get_response_data_dims(term, data, dims, model)
+        data = register_response_data(
+            term,
+            model,
+            data,
+            data_dims,
+            "observed",
+            update_for_prediction=needs_response_data_for_prediction(family),
+        )
+
+        transform_data = transforms_registry.get_data_transform(family)
+        if transform_data:
+            data_mapping = transform_data(data)
         else:
-            data_dims = get_response_data_dims(term, data, dims, model)
-            data = register_response_data(
-                term,
-                model,
-                data,
-                data_dims,
-                "observed",
-                update_for_prediction=needs_response_data_for_prediction(family),
-            )
-            transform_data = transforms_registry.get_transform_data(family)
-            if transform_data:
-                data_mapping = transform_data(data)
-            else:
-                data_mapping = {"observed": data}
+            data_mapping = {"observed": data}
 
         with model:
             # All of the other response kinds are not special and are thus handled the same way
@@ -144,40 +180,6 @@ def get_response_data_name(term, role: str) -> str:
     return f"{term.label}_{role}_data"
 
 
-def get_response_data(term, family: Family, model: pm.Model, data, for_prediction: bool = False):
-    values = {}
-    full_data = None
-    for info in model.__bambi_attrs__["response_data"]:
-        if for_prediction and not info["update_for_prediction"]:
-            continue
-
-        if info["source"] is None:
-            if full_data is None:
-                full_data = prepare_response_data(term, family, term.eval_new_data(data))
-            value = full_data if info["column"] is None else full_data[:, info["column"]]
-        else:
-            value = evaluate_call_arg(info["source"], data)
-
-        values[info["name"]] = value
-
-    return values
-
-
-def prepare_response_data(term, family: Family, data: np.ndarray | None = None) -> np.ndarray:
-    data = term.data if data is None else data
-    if family.DATA_TYPE == ResponseType.BINARY:
-        # Data is 2d when the user passes categorical response without specifying the reference
-        # level. In that case, data is a one-hot encoded matrix. Otherwise it's a binary 1d array.
-        if data.ndim == 1:
-            return data
-        idx = term.levels.index(term.reference)
-        return data[:, idx]
-    if family.DATA_TYPE in (ResponseType.CATEGORICAL, ResponseType.ORDINAL):
-        # Data is a one-hot encoded matrix. PyMC needs a vector of observed category indices.
-        return np.nonzero(data)[1]
-    return data
-
-
 def needs_trials_data(family: Family) -> bool:
     return family.likelihood.name in ("Binomial", "BetaBinomial", "ZeroInflatedBinomial")
 
@@ -203,39 +205,10 @@ def get_trials_data(term, model: pm.Model, data: np.ndarray, dims: Dims):
     return as_scalar(trials)
 
 
-def get_truncation_bound(term, model: pm.Model, data: np.ndarray, dims: Dims, bound: str):
-    column = 1 if bound == "lower" else 2
-    no_bound_value = -np.inf if bound == "lower" else np.inf
-    source = get_bound_source(term, bound)
-    values = data[:, column]
-
-    if source is None or not is_data_dependent(source):
-        if np.all(values == no_bound_value):
-            return None
-        return as_scalar(values)
-
-    return register_response_data(
-        term,
-        model,
-        values,
-        dims,
-        bound,
-        column=column,
-        source=source,
-        update_for_prediction=True,
-    )
-
-
 def as_scalar(values: np.ndarray):
     if np.all(values == values[0]):
         return values[0].item() if hasattr(values[0], "item") else values[0]
     return values
-
-
-def get_bound_source(term, bound: str):
-    if bound == "lower":
-        return get_call_arg(term, 1, "lb")
-    return get_call_arg(term, 2, "ub")
 
 
 def get_call_arg(term, position: int, keyword: str | None = None):
@@ -269,18 +242,6 @@ def is_data_dependent(value) -> bool:
     return False
 
 
-def evaluate_call_arg(value, data):
-    env = None
-    if isinstance(value, tuple):
-        value, env = value
-    if not hasattr(value, "eval"):
-        return value
-    result = value.eval(data, env)
-    if hasattr(result, "eval"):
-        return result.eval()
-    return result
-
-
 def get_response_data_dims(term, data: np.ndarray, dims: Dims, model: pm.Model) -> Dims:
     if data.ndim <= len(dims):
         return dims
@@ -291,17 +252,3 @@ def get_response_data_dims(term, data: np.ndarray, dims: Dims, model: pm.Model) 
     }
     model.add_coords(extra_coords)
     return tuple(dims) + extra_dims
-
-
-def get_response_dims(family: Family, model: pm.Model) -> Dims:
-    coords = model.__bambi_attrs__["response_coords_data"]
-
-    response_is_indexed = family.DATA_TYPE in (
-        ResponseType.BINARY,
-        ResponseType.CATEGORICAL,
-        ResponseType.ORDINAL,
-    )
-    if response_is_indexed:
-        return tuple(coords)
-
-    return tuple(coords | model.__bambi_attrs__["response_coords"])
