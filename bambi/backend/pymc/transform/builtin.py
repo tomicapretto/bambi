@@ -25,21 +25,11 @@ def _(parameters):
     return {"alpha": mu * kappa, "beta": (1 - mu) * kappa}
 
 
-@transforms_registry.transform_data(Binomial)
-def _(data):
-    return {"observed": data[:, 0], "n": data[:, 1]}
-
-
 @transforms_registry.transform_parameters(BetaBinomial)
 def _(parameters):
     mu = parameters["mu"]
     kappa = parameters["kappa"]
     return {"alpha": mu * kappa, "beta": (1 - mu) * kappa}
-
-
-@transforms_registry.transform_data(BetaBinomial)
-def _(data):
-    return {"observed": data[:, 0], "n": data[:, 1]}
 
 
 @transforms_registry.transform_predictor(Categorical, "p")
@@ -82,6 +72,7 @@ def _(parameters):
 
 @transforms_registry.transform_data(DirichletMultinomial)
 def _(data):
+    # NOTE: Do we want to register 'n' as a shared variable?
     return {"observed": data, "n": data.sum(axis=1).astype(int)}
 
 
@@ -118,6 +109,7 @@ def _(predictor, parameters, inverse_link):
 
 @transforms_registry.transform_data(Multinomial)
 def _(data):
+    # NOTE: Do we want to register 'n' as a shared variable?
     return {"observed": data, "n": data.sum(axis=1).astype(int)}
 
 
@@ -165,8 +157,3 @@ def _(parameters):
         "alpha": alpha,
         "beta": mu / pt.gamma(1 + 1 / alpha),
     }
-
-
-@transforms_registry.transform_data(ZeroInflatedBinomial)
-def _(data):
-    return {"observed": data[:, 0], "n": data[:, 1]}
