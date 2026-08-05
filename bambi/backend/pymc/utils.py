@@ -99,6 +99,7 @@ def make_weighted_logp(dist: pm.Distribution):
     A function that computes the weighted logp.
     """
 
+    # NOTE: Should we weight the logp or weight the p? This does the first.
     def logp(value, *dist_params, weights):
         weights = pt.as_tensor_variable(weights)
         return weights * pm.logp(dist.dist(*dist_params), value)

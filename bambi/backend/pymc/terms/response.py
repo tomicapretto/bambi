@@ -7,7 +7,6 @@ from bambi.backend.pymc.utils import (
     get_distribution_from_likelihood,
 )
 from bambi.backend.pymc.transform import transforms_registry
-from bambi.backend.pymc.types import Dims
 from bambi.families.family import Family
 from bambi.families.types import ResponseType
 from bambi.terms.response import ResponseTerm
@@ -37,13 +36,15 @@ def build_response_term(
         dims = dims + tuple(model.__bambi_attrs__["response_coords"])
 
     transform_parameters = transforms_registry.get_parameter_transform(family)
-    parameters = transform_parameters(parameters)
+    if transform_parameters is not None:
+        parameters = transform_parameters(parameters)
 
+    # NOTE: Does it make sense to use term.label + "_data"?
+    #       Shouldn't I use the variable name instead?
     if term.is_censored:
-        # NOTE: For predictions, I think we need to intervene the graph when the 'y' values
-        #       are given. Recall VV project.
+        # NOTE: Graph intervention for predictions
         observed = pm.Data(term.label + "_data", data[:, 0], dims=dims, model=model)
-        censoring_code = pm.Data(term.label + "_status_data", data[:, 1], dims=dims, model=model)
+        censoring_code = pm.Data(term.label + "_status", data[:, 1], dims=dims, model=model)
 
         # When there's no left or right censoring, avoid pytensor constructs.
         # Left censoring
@@ -79,7 +80,7 @@ def build_response_term(
             # NOTE: They could all be equal even when we pass a variable instead of a literal.
             lower = lower_data[0]
         else:
-            lower = pm.Data(term.label + "_lb_data", lower_data, dims=dims, model=model)
+            lower = pm.Data(term.label + "_lb", lower_data, dims=dims, model=model)
 
         if all(upper_data == np.inf):
             upper = None
@@ -87,7 +88,7 @@ def build_response_term(
             # NOTE: They could all be equal even when we pass a variable instead of a literal.
             upper = upper_data[0]
         else:
-            upper = pm.Data(term.label + "_ub_data", upper_data, dims=dims, model=model)
+            upper = pm.Data(term.label + "_ub", upper_data, dims=dims, model=model)
 
         dist = distribution.dist(**parameters)
         with model:
@@ -98,17 +99,8 @@ def build_response_term(
     if term.is_weighted:
         # TODO: Do we need to intervene for predictions?
         #       This weighting only matters in the likelihood, but is not related to predictions.
-        observed = register_response_data(term, model, data[:, 0], dims, "observed", column=0)
-        weights = register_response_data(
-            term,
-            model,
-            data[:, 1],
-            dims,
-            "weights",
-            column=1,
-            source=get_call_arg(term, 1),
-            update_for_prediction=True,
-        )
+        observed = pm.Data(term.label + "_data", data[:, 0], dims=dims, model=model)
+        weights = pm.Data(term.label + "_weights", data[:, 1], dims=dims, model=model)
         weighted_dist = make_weighted_distribution(distribution)
 
         with model:
@@ -116,139 +108,23 @@ def build_response_term(
 
         return None
 
-    if needs_trials_data(family) and data.ndim == 2:
-        # TODO: 'needs' trials is too narrow. Also, I think the transform can/should handle this.
-        observed = register_response_data(term, model, data[:, 0], dims, "observed", column=0)
-        trials = get_trials_data(term, model, data, dims)
-        data_mapping = {"observed": observed, "n": trials}
+    transform_data = transforms_registry.get_data_transform(family)
+    if transform_data is not None:
+        data_mapping = transform_data(data)
     else:
-        data_dims = get_response_data_dims(term, data, dims, model)
-        data = register_response_data(
-            term,
-            model,
-            data,
-            data_dims,
-            "observed",
-            update_for_prediction=needs_response_data_for_prediction(family),
-        )
+        data_mapping = {"observed": data}
 
-        transform_data = transforms_registry.get_data_transform(family)
-        if transform_data:
-            data_mapping = transform_data(data)
-        else:
-            data_mapping = {"observed": data}
+    # TODO: Can we do better at naming for function calls?
+    #       In general, we could inspect on which variable names calls depend on.
+    #       That is not a guarantee the function call returns that variable as a column.
+    #       For example, p(y, n) does that, but it can be an exception.
+    #       p(y, trials). Which name to use for each variable?
+    #       c(y1, y2, y3, y4) -> this is different, the concatenation actualle matters
+    #       log(y) ... can't avoid log(y)_data
+    # NOTE: Why don't we use 'clean' names for things we know (p, c, etc.) and go back
+    #       to defaults in things we don't know, such as a regular function call?
 
-        with model:
-            # All of the other response kinds are not special and are thus handled the same way
-            distribution(term.label, **parameters, **data_mapping, dims=dims)
+    with model:
+        distribution(term.label, **parameters, **data_mapping, dims=dims)
 
     return None
-
-
-def register_response_data(
-    term,
-    model: pm.Model,
-    data: np.ndarray,
-    dims: Dims,
-    role: str,
-    column: int | None = None,
-    source=None,
-    update_for_prediction: bool = False,
-):
-    data_name = get_response_data_name(term, role)
-    data = pm.Data(data_name, data, dims=dims, model=model)
-
-    if role == "observed":
-        model.__bambi_attrs__["response_data_name"] = data_name
-        model.__bambi_attrs__["response_data_dims"] = dims
-
-    model.__bambi_attrs__["response_data"].append(
-        {
-            "name": data_name,
-            "role": role,
-            "column": column,
-            "source": source,
-            "update_for_prediction": update_for_prediction,
-        }
-    )
-    return data
-
-
-def get_response_data_name(term, role: str) -> str:
-    if role == "observed":
-        return f"{term.label}_data"
-    return f"{term.label}_{role}_data"
-
-
-def needs_trials_data(family: Family) -> bool:
-    return family.likelihood.name in ("Binomial", "BetaBinomial", "ZeroInflatedBinomial")
-
-
-def needs_response_data_for_prediction(family: Family) -> bool:
-    return family.likelihood.name in ("Multinomial", "DirichletMultinomial")
-
-
-def get_trials_data(term, model: pm.Model, data: np.ndarray, dims: Dims):
-    source = get_call_arg(term, 1)
-    trials = data[:, 1]
-    if source is not None and is_data_dependent(source):
-        return register_response_data(
-            term,
-            model,
-            trials,
-            dims,
-            "n",
-            column=1,
-            source=source,
-            update_for_prediction=True,
-        )
-    return as_scalar(trials)
-
-
-def as_scalar(values: np.ndarray):
-    if np.all(values == values[0]):
-        return values[0].item() if hasattr(values[0], "item") else values[0]
-    return values
-
-
-def get_call_arg(term, position: int, keyword: str | None = None):
-    if len(term.components) != 1:
-        return None
-
-    component = term.components[0]
-    if not hasattr(component, "call"):
-        return None
-
-    if len(component.call.args) > position:
-        return component.call.args[position], component.env
-
-    if keyword is not None:
-        value = component.call.kwargs.get(keyword)
-        if value is not None:
-            return value, component.env
-
-    return None
-
-
-def is_data_dependent(value) -> bool:
-    if isinstance(value, tuple):
-        value = value[0]
-    if value is None:
-        return False
-    if getattr(value, "name", None) is not None:
-        return True
-    if hasattr(value, "args"):
-        return any(is_data_dependent(arg) for arg in value.args)
-    return False
-
-
-def get_response_data_dims(term, data: np.ndarray, dims: Dims, model: pm.Model) -> Dims:
-    if data.ndim <= len(dims):
-        return dims
-
-    extra_dims = tuple(f"{term.label}_data_dim_{i}" for i in range(data.ndim - len(dims)))
-    extra_coords = {
-        dim: range(data.shape[len(dims) + index]) for index, dim in enumerate(extra_dims)
-    }
-    model.add_coords(extra_coords)
-    return tuple(dims) + extra_dims
