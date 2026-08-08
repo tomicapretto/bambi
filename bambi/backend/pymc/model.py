@@ -4,17 +4,17 @@ import warnings
 from copy import deepcopy
 from importlib.metadata import version
 
+from typing import Optional
+
 import numpy as np
+import pandas as pd
 import pymc as pm
-import xarray as xr
-from pymc.util import get_default_varnames
-from pymc.model.fgraph import clone_model
 
 from bambi.backend.pymc.coords import coords_from_response
 from bambi.backend.pymc.parameters import build_conditional_parameter, build_marginal_parameter
 from bambi.backend.pymc.parameters.conditional import get_conditional_parameter_data
 from bambi.backend.pymc.terms import build_potentials, build_response_term
-from bambi.backend.pymc.terms.response import get_response_data
+from bambi.backend.pymc.terms.response import build_new_response_data
 
 _logger = logging.getLogger("bambi")
 
@@ -182,7 +182,7 @@ class PyMCModel:
         responses_names = [self.spec.response_term.label]
 
         if data is None:
-            # In sample prediction
+            # NOTE: In-sample prediction can also requires the mutation of model graph.
             with self.model:
                 idata["posterior"] = pm.compute_deterministics(
                     dataset=idata["posterior"],
@@ -199,15 +199,14 @@ class PyMCModel:
                     )
         else:
             # Out of sample prediction
-            # NOTE: Should we make use of the 'predictions' group?
-            #       I am assuming the computation of deterministics will raise an error due to
-            #       inconsisten coordinates.
-            new_data, new_coords = self._get_new_data(data, for_prediction=True)
+            # Would deterministics computation raise an error due to inconsistent coordinates?
+            new_data, new_coords = self._build_new_data(data, purpose="prediction")
             var_names = parameters_names
             if kind == "response":
                 var_names += responses_names
 
-            with clone_model(self.model):
+            # NOTE: Graph intervention for different cases
+            with pm.model.fgraph.clone_model(self.model):
                 pm.set_data(new_data=new_data, coords=new_coords)
                 pm.sample_posterior_predictive(
                     trace=idata,
@@ -223,7 +222,13 @@ class PyMCModel:
 
         return idata
 
-    def compute_log_likelihood(self, idata, data=None, inplace=True, progressbar=True):
+    def compute_log_likelihood(
+        self,
+        idata,
+        data: Optional[pd.DataFrame],
+        inplace: bool = True,
+        progressbar: bool = True,
+    ):
         if not inplace:
             idata = deepcopy(idata)
 
@@ -236,12 +241,14 @@ class PyMCModel:
                     idata=idata, extend_inferencedata=True, progressbar=progressbar
                 )
         else:
-            # NOTE: Don't I first need the computation of parameters?
-            new_data, new_coords = self._get_new_data(data, for_prediction=False)
-            with clone_model(self.model):
+            new_data, new_coords = self._build_new_data(data, purpose="log_likelihood")
+            with pm.model.fgraph.clone_model(self.model):
                 pm.set_data(new_data, coords=new_coords)
                 pm.compute_log_likelihood(
-                    idata=idata, extend_inferencedata=True, progressbar=progressbar
+                    idata=idata,
+                    var_names=[self.spec.response_term.label],
+                    extend_inferencedata=True,
+                    progressbar=progressbar,
                 )
 
         idata["log_likelihood"] = idata["log_likelihood"].assign_attrs(
@@ -253,15 +260,9 @@ class PyMCModel:
 
         return idata
 
-    def _get_new_data(self, data, for_prediction: bool):
-        new_data = get_response_data(
-            self.spec.response_term,
-            self.spec.family,
-            self.model,
-            data,
-            for_prediction=for_prediction,
-        )
+    def _build_new_data(self, data, purpose):
         new_coords = {"__obs__": range(len(data))}
+        new_data = build_new_response_data(self.spec.response_term, data, self.spec.family, purpose)
 
         for parameter in self.spec.conditional_parameters.values():
             new_data.update(get_conditional_parameter_data(parameter, data, self.model))
@@ -285,7 +286,7 @@ class PyMCModel:
         **kwargs,
     ):
 
-        vars_to_sample = get_default_varnames(
+        vars_to_sample = pm.util.get_default_varnames(
             self.model.unobserved_value_vars, include_transformed=False
         )
         vars_to_sample = [variable.name for variable in vars_to_sample]
