@@ -240,7 +240,7 @@ class PyMCModel:
             idata = deepcopy(idata)
 
         if "log_likelihood" in idata:
-            del idata["log_likelihood"]
+            del idata.log_likelihood
 
         if data is None:
             with self.model:
@@ -260,7 +260,7 @@ class PyMCModel:
                     progressbar=progressbar,
                 )
 
-        idata["log_likelihood"] = idata["log_likelihood"].assign_attrs(
+        idata.log_likelihood.attrs.update(
             modeling_interface="bambi", modeling_interface_version=__version__
         )
 
