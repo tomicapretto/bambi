@@ -9,6 +9,7 @@ import pandas as pd
 import pymc as pm
 
 from bambi.terms import CommonTerm, GroupSpecificTerm
+from bambi.backend.pymc.terms.response import untruncate_response
 from formulae import design_matrices
 from pytensor.sparse import StructuredDot
 
@@ -626,6 +627,113 @@ def test_predict_truncated_response_scalar_bounds(mock_pymc_sample):
     assert samples.shape == (2, 4, 3)
     assert (samples > -5).all()
     assert (samples < 5).all()
+
+
+def test_out_of_sample_censored_response_intervention(mock_pymc_sample):
+    data = pd.DataFrame(
+        {
+            "predictor": [-1.0, 0.0, 1.0],
+            "y": [0.0, 0.5, 1.0],
+            "status": ["left", "none", "right"],
+        }
+    )
+    model = bmb.Model("censored(y, status) ~ predictor", data)
+    idata = model.fit(draws=4, chains=2)
+
+    response = model.response_term.label
+    original_model = model.backend.model
+    original_response = original_model[response]
+    original_y_data = original_model["y_data"].get_value().copy()
+    original_status_data = original_model["status_data"].get_value().copy()
+
+    result = model.predict(idata, data=data, kind="response", inplace=False, random_seed=1234)
+    samples = result.predictions[response].to_numpy()
+
+    assert (samples[..., 0] <= data["y"].iloc[0]).all()
+    assert (samples[..., 2] >= data["y"].iloc[2]).all()
+    assert model.backend.model is original_model
+    assert model.backend.model[response] is original_response
+    np.testing.assert_array_equal(model.backend.model["y_data"].get_value(), original_y_data)
+    np.testing.assert_array_equal(
+        model.backend.model["status_data"].get_value(), original_status_data
+    )
+
+    likelihood = model.compute_log_likelihood(idata, data=data, inplace=False)
+    assert likelihood.log_likelihood[response].shape == (2, 4, len(data))
+
+
+def test_out_of_sample_truncated_response_intervention(mock_pymc_sample):
+    data = pd.DataFrame(
+        {
+            "predictor": [-1.0, 0.0, 1.0],
+            "y": [-0.5, 0.0, 0.5],
+            "lower": [-1.0, -1.5, -2.0],
+            "upper": [1.0, 1.5, 2.0],
+        }
+    )
+    model = bmb.Model("truncated(y, lower, upper) ~ predictor", data)
+    idata = model.fit(draws=4, chains=2)
+
+    response = model.response_term.label
+    original_model = model.backend.model
+    original_response = original_model[response]
+    original_y_data = original_model["y_data"].get_value().copy()
+    original_lower_data = original_model["lower_data"].get_value().copy()
+    original_upper_data = original_model["upper_data"].get_value().copy()
+
+    result = model.predict(idata, data=data, kind="response", inplace=False, random_seed=1234)
+    samples = result.predictions[response].to_numpy()
+
+    assert (samples > data["lower"].to_numpy()[None, None, :]).all()
+    assert (samples < data["upper"].to_numpy()[None, None, :]).all()
+    assert model.backend.model is original_model
+    assert model.backend.model[response] is original_response
+    np.testing.assert_array_equal(model.backend.model["y_data"].get_value(), original_y_data)
+    np.testing.assert_array_equal(
+        model.backend.model["lower_data"].get_value(), original_lower_data
+    )
+    np.testing.assert_array_equal(
+        model.backend.model["upper_data"].get_value(), original_upper_data
+    )
+
+    likelihood = model.compute_log_likelihood(idata, data=data, inplace=False)
+    assert likelihood.log_likelihood[response].shape == (2, 4, len(data))
+
+    missing_bounds = data.drop(columns="upper")
+    latent = model.predict(
+        idata, data=missing_bounds, kind="response", inplace=False, random_seed=1234
+    )
+    assert latent.predictions[response].shape == (2, 4, len(data))
+
+    latent_likelihood = model.compute_log_likelihood(idata, data=missing_bounds, inplace=False)
+    assert latent_likelihood.log_likelihood[response].shape == (2, 4, len(data))
+
+
+@pytest.mark.parametrize(
+    ("family", "response"),
+    [(None, [0.1, 0.2, 0.3]), ("gamma", [0.1, 0.2, 0.3]), ("poisson", [1, 2, 3])],
+)
+def test_untruncate_response_rebuilds_base_distribution(family, response):
+    data = pd.DataFrame(
+        {
+            "predictor": [0.0, 1.0, 2.0],
+            "y": response,
+            "lower": [0.0, 0.0, 0.0],
+            "upper": [3.0, 3.0, 3.0],
+        }
+    )
+    kwargs = {} if family is None else {"family": family}
+    model = bmb.Model("truncated(y, lower, upper) ~ predictor", data, **kwargs)
+    model.build()
+
+    response_name = model.response_term.label
+    original = model.backend.model
+    latent = untruncate_response(original, response_name)
+
+    assert latent is not original
+    assert latent[response_name] in latent.observed_RVs
+    assert "truncated" in str(original[response_name].owner.op).lower()
+    assert "truncated" not in str(latent[response_name].owner.op).lower()
 
 
 @pytest.mark.skip(reason="this example no longer trigger the fallback to adapt_diag")
