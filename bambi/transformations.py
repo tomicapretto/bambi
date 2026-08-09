@@ -9,6 +9,35 @@ def c(*args):
     return np.column_stack(args)
 
 
+def counts(*args, n=None):
+    """Construct an array of counts for a multinomial response.
+
+    Parameters
+    ----------
+    *args : array-like
+        Count columns, one for each category.
+    n : int, array-like, optional
+        The total number of counts per observation. When omitted, it is computed by summing the
+        count columns.
+    """
+    data = np.column_stack(args)
+    totals = data.sum(axis=1)
+
+    if n is not None:
+        n = np.asarray(n)
+        if n.ndim > 1:
+            raise ValueError("'n' must be a scalar or a 1-dimensional array.")
+        if n.ndim == 1 and len(n) != len(data):
+            raise ValueError("The length of 'n' must be equal to the number of observations.")
+        if not np.all(totals == n):
+            raise ValueError("The counts in each row must sum to 'n'.")
+
+    return data
+
+
+counts.__metadata__ = {"kind": "counts"}
+
+
 def censored(x, status):
     """Construct array for censored response
 
@@ -399,6 +428,7 @@ def get_distance(x):
 # These functions are made available in the namespace where the model formula is evaluated
 transformations_namespace = {
     "c": c,
+    "counts": counts,
     "censored": censored,
     "constrained": constrained,
     "truncated": truncated,
