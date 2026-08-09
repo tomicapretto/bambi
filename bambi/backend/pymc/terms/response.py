@@ -9,6 +9,10 @@ import pytensor.tensor as pt
 
 from formulae.terms.call_utils import CallVarsExtractor
 from formulae.terms.call_resolver import get_function_from_module
+from pymc.distributions.continuous import TruncatedNormalRV
+from pymc.distributions.truncated import TruncatedRV
+from pymc.model.fgraph import fgraph_from_model, model_from_fgraph
+from pymc.pytensorf import toposort_replace
 
 from bambi.backend.pymc.utils import (
     make_weighted_distribution,
@@ -106,15 +110,109 @@ def build_response_term(
 Purpose = Literal["prediction", "log_likelihood"]
 
 
+def untruncate_response(model: pm.Model, response_name: str) -> pm.Model:
+    """Return a copy of `model` with one truncated response made latent.
+
+    The transformation preserves the response as an observed RV.
+    """
+    fgraph, memo = fgraph_from_model(model)
+    response = memo[model[response_name]]
+    truncated_rv = response.owner.inputs[0]
+    untruncated_rv = _get_untruncated_rv(truncated_rv)
+    toposort_replace(fgraph, [(truncated_rv, untruncated_rv)], reverse=True)
+    return model_from_fgraph(fgraph)
+
+
+def _get_untruncated_rv(truncated_rv: pt.TensorVariable) -> pt.TensorVariable:
+    """Rebuild the base RV of a PyMC truncated random variable."""
+    if truncated_rv.owner is None:
+        raise ValueError("The response must be a PyMC random variable.")
+
+    op = truncated_rv.owner.op
+    inputs = truncated_rv.owner.inputs
+    if isinstance(op, TruncatedRV):
+        # Generic pm.Truncated stores the base RandomVariable Op and its RNG,
+        # size, and distribution parameters before the final lower and upper
+        # bound inputs.
+        return op.base_rv_op.make_node(*inputs[:-2]).default_output()
+
+    if isinstance(op, TruncatedNormalRV):
+        rng, size, mu, sigma, _, _ = inputs
+        return pm.Normal.dist(mu=mu, sigma=sigma, size=size, rng=rng)
+
+    raise ValueError(f"Cannot reconstruct the base distribution for {op}.")
+
+
+def replace_response_variables(term: ResponseTerm, model: pm.Model) -> pm.Model:
+    """Apply response-variable replacements required by the current cloned data."""
+    if term.is_truncated:
+        return _replace_truncated_response_if_needed(term, model)
+
+    return model
+
+
+def _replace_truncated_response_if_needed(term: ResponseTerm, model: pm.Model) -> pm.Model:
+    """Make a truncated response latent when new data omit named bounds."""
+    call_args = _get_call_bound_arguments(term)
+    for argument in ("lb", "ub"):
+        name = call_args.get(argument)
+        if name:
+            bound = model[name + "_data"].get_value(borrow=True)
+            if np.isnan(np.ma.filled(bound, np.nan)).any():
+                return untruncate_response(model, term.label)
+
+    return model
+
+
+def build_response_interventions(
+    term: ResponseTerm, model: pm.Model
+) -> dict[pt.TensorVariable, pt.TensorVariable]:
+    """Build `pm.do` response interventions for posterior prediction.
+
+    `model` must be an out-of-sample clone whose mutable data has already been
+    updated.  This is important because the intervention uses the response data
+    containers from that clone, rather than the data in the fitted model.
+    """
+    if term.is_censored:
+        return _build_intervention_censored(term, model)
+
+    return {}
+
+
+def _build_intervention_censored(
+    term: ResponseTerm, model: pm.Model
+) -> dict[pt.TensorVariable, pt.TensorVariable]:
+    """Replace a censored response with its conditional latent distribution."""
+    response = model[term.label]
+    base_dist = response.owner.inputs[0]
+    call_args = _get_call_bound_arguments(term)
+    observed = model[call_args["x"] + "_data"]
+    status = model[call_args["status"] + "_data"]
+
+    # A lower censoring limit means that the latent response is below that
+    # limit, and an upper censoring limit means it is above that limit.  The
+    # bounds are consequently reversed when building the truncated latent
+    # distribution.  Construct them from the clone's response data: the
+    # Censored bounds use opposite infinities for observations of the other
+    # censoring type, which cannot be exchanged directly.
+    lower = pt.switch(pt.eq(status, 1), observed, -np.inf)
+    upper = pt.switch(pt.eq(status, -1), observed, np.inf)
+    intervention = pm.Truncated.dist(base_dist, lower=lower, upper=upper)
+
+    return {response: intervention}
+
+
 def _build_censored_data(
     term: ResponseTerm, model: pm.Model, dims: tuple[str]
 ) -> dict[str, pt.TensorVariable]:
     # NOTE: Statuses could be more efficient (in some cases) if we allowed for scalars.
     #       For now, statuses are vectors of the same length as observed data.
-    var_names = list(_get_call_bound_arguments(term))
+    call_args = _get_call_bound_arguments(term)
+    value_name = call_args["x"]
+    status_name = call_args["status"]
     observed, status = term.data[:, 0], term.data[:, 1]
-    observed_data = pm.Data(var_names[0] + "_data", observed, dims=dims, model=model)
-    status_data = pm.Data(var_names[1] + "_data", status, dims=dims, model=model)
+    observed_data = pm.Data(value_name + "_data", observed, dims=dims, model=model)
+    status_data = pm.Data(status_name + "_data", status, dims=dims, model=model)
 
     lower, upper = -np.inf, np.inf
     if any(status == -1):
@@ -287,25 +385,19 @@ def _build_new_truncated_data(term: ResponseTerm, data: pd.DataFrame, purpose: P
     n = data.shape[0]
 
     # Re-evaluate the response call so transformed values and bounds stay consistent.
-    # NOTE: The first note is more adequate for building interventions.
-    # Predictions and log-likelihood are generated with a truncated distribution
-    # when lb or ub are either literals or when they are variable names available in 'data'.
-
-    # Defaults come from the original response data.
-    # These values already worked when building the model,
-    # so they are safer than arbitrary constants for re-evaluation.
+    # Missing named bounds are represented by NaN. Literal bounds need no data value.
     data_dict = {}
     if lower_name:
         if lower_name in data.columns:
             data_dict[lower_name] = data[lower_name].to_numpy()
         else:
-            data_dict[lower_name] = np.full(n, term.data[0, 1])
+            data_dict[lower_name] = np.full(n, np.nan)
 
     if upper_name:
         if upper_name in data.columns:
             data_dict[upper_name] = data[upper_name].to_numpy()
         else:
-            data_dict[upper_name] = np.full(n, term.data[0, 2])
+            data_dict[upper_name] = np.full(n, np.nan)
 
     if purpose == "prediction":
         value_data = np.full(n, term.data[0, 0])
