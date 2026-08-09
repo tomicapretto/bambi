@@ -2,7 +2,6 @@ import numpy as np
 import pymc as pm
 import pytensor.tensor as pt
 import pytensor.sparse as ps
-import scipy as sp
 
 from bambi.backend.pymc.terms import (
     build_common_term,
@@ -86,18 +85,19 @@ def _build_group_specific_dot(terms, param_spec: ParamSpec, model: pm.Model):
         param_blocks.append(param)
 
     # Design matrix Z: shape (n, q)
-    data = sp.sparse.hstack(data_blocks, format="csr")
+    data = ps.hstack(data_blocks, format="csr")
 
     # Coefficients array: shape (q, ) or (q, K)
     coefs = pt.concatenate(param_blocks, axis=0)
 
-    if coefs.ndim == 1:
+    is_univariate = coefs.ndim == 1
+    if is_univariate:
         # PyTensor expects 2D
         coefs = coefs[:, np.newaxis]
 
     # (n, ) or (n, K)
     dot_output = ps.structured_dot(data, coefs)
-    if coefs.ndim == 1:
+    if is_univariate:
         return dot_output.squeeze()
 
     return dot_output

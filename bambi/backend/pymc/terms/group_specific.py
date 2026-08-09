@@ -32,9 +32,10 @@ def build_group_specific_term_dot(
 
     # Register data (sparse matrix)
     data = term.data
-    data_dims = ("__obs__", f"{term.label}_col")
-    model.add_coords({data_dims[1]: range(data.shape[1])})
-    pm.Data(data_name, data, dims=data_dims, model=model)
+    # ArviZ cannot serialize sparse data with named dimensions. The data is still
+    # mutable (and used when predicting on new observations), but is left
+    # dimensionless because it is an internal design matrix.
+    pm.Data(data_name, data, model=model)
 
     # Register parameter
     dims_output = tuple()
@@ -57,7 +58,7 @@ def build_group_specific_term_dot(
     # If response is multivariate: (q, K)
     # If response is univariate:   (q, )
     if dims_output:
-        param_rv = param_rv.reshape(-1, param_rv.shape[-1])
+        param_rv = param_rv.reshape((-1, param_rv.shape[-1]))
     else:
         param_rv = param_rv.flatten()
 
