@@ -834,7 +834,7 @@ class Model:
         -------
         InferenceData
             `InferenceData` object with the groups `prior`, `prior_predictive` and
-            `observed_data`.
+            `observed_data`, and, when applicable, `constant_data`.
         """
         self._check_built()
 

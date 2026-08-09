@@ -673,10 +673,10 @@ class TestPoisson(FitPredictParent):
         assert pps.observed_data["count"].shape == (120,)
 
         pps = model1.prior_predictive(draws=200, var_names=["count"], random_seed=1234)
-        assert pps.groups() == ["prior_predictive", "observed_data"]
+        assert pps.groups() == ["prior_predictive", "observed_data", "constant_data"]
 
         pps = model1.prior_predictive(draws=200, var_names=["Intercept"], random_seed=1234)
-        assert pps.groups() == ["prior", "observed_data"]
+        assert pps.groups() == ["prior", "observed_data", "constant_data"]
 
         # Now test posterior predictive
         # Fit again to make sure we fix the number of chains
@@ -715,7 +715,7 @@ class TestLaplace(FitPredictParent):
     def test_laplace_regression(self, data_n100):
         model = bmb.Model("y1 ~ y2", data_n100, family="laplace")
         idata = self.fit(model)
-        assert set(idata.posterior.data_vars) == {"Intercept", "y2", "b"}
+        assert set(idata.posterior.data_vars) == {"Intercept", "Intercept_centered", "y2", "b"}
         assert (idata.posterior["b"] > 0).all().item()
 
         idata = self.predict_oos(model, idata)
@@ -729,7 +729,15 @@ class TestGamma(FitPredictParent):
         data_n100["o"] = np.exp(data_n100["y1"])
         model = bmb.Model("o ~ y2 + y3 + n1 + cat4", data_n100, family="gamma", link="log")
         idata = self.fit(model)
-        assert set(idata.posterior.data_vars) == {"Intercept", "y2", "y3", "n1", "cat4", "alpha"}
+        assert set(idata.posterior.data_vars) == {
+            "Intercept",
+            "Intercept_centered",
+            "y2",
+            "y3",
+            "n1",
+            "cat4",
+            "alpha",
+        }
         idata = self.predict_oos(model, idata)
         assert (idata.predictions["o"] >= 0).all().item()
 
@@ -776,7 +784,13 @@ class TestStudentT(FitPredictParent):
     def test_t_regression(self, data_n100):
         model = bmb.Model("y1 ~ y2", data_n100, family="t")
         idata = self.fit(model)
-        assert set(idata.posterior.data_vars) == {"Intercept", "y2", "nu", "sigma"}
+        assert set(idata.posterior.data_vars) == {
+            "Intercept",
+            "Intercept_centered",
+            "y2",
+            "nu",
+            "sigma",
+        }
         self.predict_oos(model, idata)
 
 
@@ -787,7 +801,7 @@ class TestVonMises(FitPredictParent):
         data = pd.DataFrame({"y": rng.vonmises(0, 1, size=100), "x": rng.normal(size=100)})
         model = bmb.Model("y ~ x", data, family="vonmises")
         idata = self.fit(model)
-        assert set(idata.posterior.data_vars) == {"Intercept", "x", "kappa"}
+        assert set(idata.posterior.data_vars) == {"Intercept", "Intercept_centered", "x", "kappa"}
         idata = self.predict_oos(model, idata)
         assert (idata.predictions["y"].min() >= -np.pi).item() and (
             idata.predictions["y"].max() <= np.pi
