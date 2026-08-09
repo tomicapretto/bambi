@@ -752,12 +752,11 @@ def test_2d_response_no_shape(mock_pymc_sample):
     Updated https://github.com/bambinos/bambi/pull/632
     """
 
-    def fn(name, p, observed, **kwargs):
-        y = observed[:, 0].flatten()
-        n = observed[:, 1].flatten()
-        # It's the users' responsibility to take only the first dim
+    def fn(name, p, observed, n, **kwargs):
+        # Binomial responses expose successes and trials as separate inputs.
+        # It's the users' responsibility to take only the observation dimension.
         kwargs["dims"] = kwargs.get("dims")[0]
-        return pm.Binomial(name, p=p, n=n, observed=y, **kwargs)
+        return pm.Binomial(name, p=p, n=n, observed=observed, **kwargs)
 
     likelihood = bmb.Likelihood("CustomBinomial", params=["p"], parent="p", dist=fn)
     link = bmb.Link("logit")
