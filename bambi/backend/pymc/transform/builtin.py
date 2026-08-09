@@ -1,10 +1,11 @@
+import numpy as np
 import pytensor.tensor as pt
 
 from bambi.backend.pymc.transform.register import transforms_registry
 from bambi.families.builtin import (
     Beta,
     BetaBinomial,
-    Binomial,
+    Bernoulli,
     Categorical,
     Cumulative,
     Exponential,
@@ -13,8 +14,14 @@ from bambi.families.builtin import (
     Multinomial,
     StoppingRatio,
     Weibull,
-    ZeroInflatedBinomial,
 )
+
+
+@transforms_registry.transform_data(Bernoulli)
+def _(data):
+    if not np.all(np.isin(data, (0, 1))):
+        raise ValueError("Numeric response must be all 0 and 1 for 'bernoulli' family")
+    return {"observed": data}
 
 
 @transforms_registry.transform_parameters(Beta)
