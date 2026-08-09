@@ -8,7 +8,7 @@ from bambi.utils import listify
 from bambi.backend.pymc.links import cloglog, probit
 from bambi.backend.pymc.terms.common import shape_data
 from bambi.backend.pymc.utils import make_weighted_distribution
-from bambi.transformations import censored, constrained, truncated, weighted
+from bambi.transformations import censored, constrained, counts, truncated, weighted
 
 
 def test_listify():
@@ -75,6 +75,26 @@ def test_censored():
     # Interval censoring is not supported
     with pytest.raises(AssertionError, match="Statuses must be in"):
         censored(df["x"], ["none", "right", "interval", "left", "none"])
+
+
+def test_counts():
+    y1 = np.array([1, 2, 3])
+    y2 = np.array([3, 4, 3])
+    totals = np.array([4, 6, 6])
+
+    result = counts(y1, y2)
+    assert np.array_equal(result, np.column_stack([y1, y2]))
+
+    assert np.array_equal(counts(y1, y2, n=totals), result)
+    assert np.array_equal(
+        counts(np.array([1, 2]), np.array([3, 2]), n=4), np.array([[1, 3], [2, 2]])
+    )
+
+    with pytest.raises(ValueError, match="must sum to 'n'"):
+        counts(y1, y2, n=5)
+
+    with pytest.raises(ValueError, match="length of 'n'"):
+        counts(y1, y2, n=np.array([4, 6]))
 
 
 def test_truncated():
