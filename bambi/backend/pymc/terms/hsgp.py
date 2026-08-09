@@ -2,7 +2,9 @@ import numpy as np
 import pymc as pm
 import pytensor.tensor as pt
 
+from bambi.backend.pymc.coords import coords_from_hsgp
 from bambi.backend.pymc.utils import get_distribution_from_prior
+from bambi.families.types import ParamSpec
 from bambi.priors import Prior  # TODO: remove?
 
 
@@ -25,39 +27,50 @@ GP_KERNELS = {
 }
 
 
-def build_hsgp_term(term, model):
-    """_summary_
+def build_hsgp_term(term, param_spec: ParamSpec, model):
+    """Build and return the contribution of an HSGP term.
 
     Parameters
     ----------
-    term : bambi.terms.HSGPTerm
-        write me
+    term : HSGPTerm
+        The HSGP term to build.
+    param_spec : ParamSpec
+        Dimensionality metadata for the conditional parameter.
     model : pymc.Model
-        write me
+        The model that owns the term's variables and coordinates.
     """
+    model.add_coords(coords_from_hsgp(term))
     covariance_functions = build_covariance_function(term, model)
 
     # Prepare dims
     coeff_dims = (f"{term.label}_weights_dim",)
     contribution_dims = ("__obs__",)
 
-    # Data may be scaled so the maximum Euclidean distance between two points is 1
+    # training_hsgp_data initializes fixed HSGP quantities from the training data.
     if term.scale_predictors:
-        data = term.data_centered / term.maximum_distance
+        training_hsgp_data = term.data_centered / term.maximum_distance
     else:
-        data = term.data_centered
+        training_hsgp_data = term.data_centered
 
-    # Build HSGP and store it in the term.
+    # input_data holds raw inputs. hsgp_data is centered and scaled in the model graph
+    # with quantities estimated from the training data.
+    input_data = pm.Data(f"{term.label}_data", term.data, model=model)
+
+    # Build HSGP object(s) and retain them on the term.
     if term.by_levels is not None:
         coeff_dims = coeff_dims + (f"{term.label}_by",)
         phi_list, sqrt_psd_list = [], []
         term.hsgp = {}
 
-        # Because of the filter in the loop, it will be as if the observations were sorted
-        # using the values of the 'by' variable.
-        # This approach helps especially when there are many groups, which causes many zeros
-        # with other approaches (until PyMC and us have better support for sparse matrices)
-        indexes_to_unsort = term.by.argsort(kind="mergesort").argsort(kind="mergesort")
+        by_data = pm.Data(f"{term.label}_by_idx", term.by, dims="__obs__", model=model)
+        hsgp_data = input_data - pt.as_tensor_variable(term.mean)[by_data]
+    else:
+        hsgp_data = input_data - term.mean
+
+    if term.scale_predictors:
+        hsgp_data = hsgp_data / term.maximum_distance
+
+    if term.by_levels is not None:
         for i, level in enumerate(term.by_levels):
             cov_func = covariance_functions[i]
             # Notes:
@@ -69,11 +82,12 @@ def build_hsgp_term(term, model):
                 drop_first=term.drop_first,
                 cov_func=cov_func,
             )
-            # Notice we pass all the values, for all the groups.
-            # Then we only keep the ones for the corresponding group.
-            phi, sqrt_psd = hsgp.prior_linearized(data[term.by == i])
+            # training_hsgp_data fixes the HSGP centering constants for this group; hsgp_data
+            # keeps the basis dependent on the mutable input_data.
+            _, sqrt_psd = hsgp.prior_linearized(training_hsgp_data[term.by == i])
+            phi, _ = hsgp.prior_linearized(hsgp_data)
             sqrt_psd_list.append(sqrt_psd)
-            phi_list.append(phi.eval())
+            phi_list.append(phi)
 
             # Store it for later usage
             term.hsgp[level] = hsgp
@@ -86,13 +100,12 @@ def build_hsgp_term(term, model):
             drop_first=term.drop_first,
             cov_func=cov_func,
         )
-        # Get prior components
-        phi, sqrt_psd = term.hsgp.prior_linearized(data)
-        phi = phi.eval()
+        # Get the basis and basis-weight scale for the mutable hsgp_data.
+        phi, sqrt_psd = term.hsgp.prior_linearized(hsgp_data)
 
     # Build weights coefficient
     # Handle the case where the outcome is multivariate
-    if model.__bambi_attrs__["parameter_ndim"] == 2:
+    if param_spec.ndim == 1:
         # Append the dims of the response variables to the coefficient and contribution dims
         # In general:
         # coeff_dims: ('weights_dim', ) -> ('weights_dim', f'{response}_dim')
@@ -107,25 +120,29 @@ def build_hsgp_term(term, model):
         # Append a dimension to sqrt_psd: ('weights_dim', ) -> ('weights_dim', 1)
         sqrt_psd = sqrt_psd[:, np.newaxis]
 
-    if term.centered:
-        coeffs = pm.Normal(f"{term.label}_weights", sigma=sqrt_psd, dims=coeff_dims)
-    else:
-        coeffs_raw = pm.Normal(f"{term.label}_weights_raw", dims=coeff_dims)
-        coeffs = pm.Deterministic(f"{term.label}_weights", coeffs_raw * sqrt_psd, dims=coeff_dims)
+    with model:
+        if term.centered:
+            coeffs = pm.Normal(f"{term.label}_weights", sigma=sqrt_psd, dims=coeff_dims)
+        else:
+            coeffs_raw = pm.Normal(f"{term.label}_weights_raw", dims=coeff_dims)
+            coeffs = pm.Deterministic(
+                f"{term.label}_weights", coeffs_raw * sqrt_psd, dims=coeff_dims
+            )
 
     # Build deterministic for the HSGP contribution
     # If there are groups, we do as many dot products as groups
     if term.by_levels is not None:
         contribution_list = []
         for i in range(len(term.by_levels)):
-            contribution_list.append(phi_list[i] @ coeffs[:, i])
-        # We need to unsort the contributions so they match the original data
-        contribution = pt.concatenate(contribution_list)[indexes_to_unsort]
+            contribution_list.append(pt.dot(phi_list[i], coeffs[:, i]))
+        contribution_by_group = pt.stack(contribution_list, axis=1)
+        contribution = contribution_by_group[pt.arange(hsgp_data.shape[0]), by_data]
     # If there are no groups, it's a single dot product
     else:
         contribution = pt.dot(phi, coeffs)  # "@" operator is not working as expected
 
-    return pm.Deterministic(term.label, contribution, dims=contribution_dims, model=model)
+    with model:
+        return pm.Deterministic(term.label, contribution, dims=contribution_dims)
 
 
 def build_covariance_function(term, model):
@@ -151,7 +168,8 @@ def build_covariance_function(term, model):
             # varying lengthscale parameter
             if param_name == "ell" and not term.iso and term.shape[1] > 1:
                 param_dims = (f"{term.label}_var",) + param_dims
-            value = dist(f"{term.label}_{param_name}", **prior.args, dims=param_dims, model=model)
+            with model:
+                value = dist(f"{term.label}_{param_name}", **prior.args, dims=param_dims)
         else:
             # The value is constant
             if recycle:
