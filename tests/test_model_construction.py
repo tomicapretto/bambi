@@ -40,23 +40,23 @@ def test_distribute_group_specific_effect_over(data_diabetes):
     # Treatment encoding because of the intercept
     levels = sorted(list(data_diabetes["age_grp"].unique()))[1:]
     levels = [str(level) for level in levels]
-    parent_component = model.components[model.family.likelihood.parent]
-    assert "C(age_grp)|BMI" in parent_component.terms
-    assert "1|BMI" in parent_component.terms
-    assert parent_component.terms["C(age_grp)|BMI"].coords["C(age_grp)__expr_dim"] == levels
+    parent_parameter = model.parameters[model.family.likelihood.parent]
+    assert "C(age_grp)|BMI" in parent_parameter.terms
+    assert "1|BMI" in parent_parameter.terms
+    assert parent_parameter.terms["C(age_grp)|BMI"].expr.levels == levels
 
     # This is equal to the sub-matrix of Z that corresponds to this term.
     # 442 is the number of observations. 163 the number of groups.
     # 2 is the number of levels of the categorical variable 'C(age_grp)' after removing
     # the reference level. Then the number of columns is 326 = 163 * 2.
-    assert parent_component.terms["C(age_grp)|BMI"].data.shape == (442, 326)
+    assert parent_parameter.terms["C(age_grp)|BMI"].data.shape == (442, 326)
 
     # Without intercept. Reference level is not removed.
     model = bmb.Model("BP ~ (0 + C(age_grp)|BMI)", data_diabetes)
-    parent_component = model.components[model.family.likelihood.parent]
-    assert "C(age_grp)|BMI" in parent_component.terms
-    assert not "1|BMI" in parent_component.terms
-    assert parent_component.terms["C(age_grp)|BMI"].data.shape == (442, 489)
+    parent_parameter = model.parameters[model.family.likelihood.parent]
+    assert "C(age_grp)|BMI" in parent_parameter.terms
+    assert not "1|BMI" in parent_parameter.terms
+    assert parent_parameter.terms["C(age_grp)|BMI"].data.shape == (442, 489)
 
 
 def test_model_init_bad_data():
@@ -80,13 +80,13 @@ def test_model_categorical_argument():
         }
     )
     model = bmb.Model("y ~ 0 + x", data, categorical="x")
-    assert model.components[model.family.likelihood.parent].terms["x"].categorical
+    assert model.parameters[model.family.likelihood.parent].terms["x"].categorical
 
     model = bmb.Model("y ~ 0 + x*z", data, categorical=["x", "z"])
-    parent_component = model.components[model.family.likelihood.parent]
-    assert parent_component.terms["x"].categorical
-    assert parent_component.terms["z"].categorical
-    assert parent_component.terms["x:z"].categorical
+    parent_parameter = model.parameters[model.family.likelihood.parent]
+    assert parent_parameter.terms["x"].categorical
+    assert parent_parameter.terms["z"].categorical
+    assert parent_parameter.terms["x:z"].categorical
 
 
 def test_model_no_response():
@@ -96,17 +96,17 @@ def test_model_no_response():
 
 def test_model_term_names_property(data_diabetes):
     model = bmb.Model("BMI ~ age_grp + BP + S1", data_diabetes)
-    parent_component = model.components[model.family.likelihood.parent]
-    assert parent_component.intercept_term.name == "Intercept"
-    assert set(parent_component.common_terms) == {"age_grp", "BP", "S1"}
+    parent_parameter = model.parameters[model.family.likelihood.parent]
+    assert parent_parameter.intercept_term.name == "Intercept"
+    assert set(parent_parameter.common_terms) == {"age_grp", "BP", "S1"}
 
 
 def test_model_term_names_property_interaction(data_crossed):
     data_crossed["fourcats"] = sum([[x] * 10 for x in ["a", "b", "c", "d"]], list()) * 3
     model = bmb.Model("Y ~ threecats*fourcats", data_crossed)
-    parent_component = model.components[model.family.likelihood.parent]
-    assert parent_component.intercept_term.name == "Intercept"
-    assert set(parent_component.common_terms) == {
+    parent_parameter = model.parameters[model.family.likelihood.parent]
+    assert parent_parameter.intercept_term.name == "Intercept"
+    assert set(parent_parameter.common_terms) == {
         "threecats",
         "fourcats",
         "threecats:fourcats",
@@ -117,7 +117,7 @@ def test_model_terms_levels_interaction(data_crossed):
     data_crossed["fourcats"] = sum([[x] * 10 for x in ["a", "b", "c", "d"]], list()) * 3
     model = bmb.Model("Y ~ threecats*fourcats", data_crossed)
 
-    assert model.components[model.family.likelihood.parent].terms["threecats:fourcats"].levels == [
+    assert model.parameters[model.family.likelihood.parent].terms["threecats:fourcats"].levels == [
         "b, b",
         "b, c",
         "b, d",
@@ -139,10 +139,10 @@ def test_model_terms_levels():
         }
     )
     model = bmb.Model("y ~ x + z + time + (time|subject)", data)
-    parent_component = model.components[model.family.likelihood.parent]
-    assert parent_component.terms["z"].levels == ["Group 2", "Group 3"]
-    assert parent_component.terms["1|subject"].groups == [f"Subject {x}" for x in range(1, 6)]
-    assert parent_component.terms["time|subject"].groups == [f"Subject {x}" for x in range(1, 6)]
+    parent_parameter = model.parameters[model.family.likelihood.parent]
+    assert parent_parameter.terms["z"].levels == ["Group 2", "Group 3"]
+    assert parent_parameter.terms["1|subject"].groups == [f"Subject {x}" for x in range(1, 6)]
+    assert parent_parameter.terms["time|subject"].groups == [f"Subject {x}" for x in range(1, 6)]
 
 
 def test_model_term_classes():
@@ -158,15 +158,15 @@ def test_model_term_classes():
 
     model = bmb.Model("y ~ x*g + (x|s)", data)
 
-    parent_component = model.components[model.family.likelihood.parent]
-    assert isinstance(parent_component.terms["x"], CommonTerm)
-    assert isinstance(parent_component.terms["g"], CommonTerm)
-    assert isinstance(parent_component.terms["x:g"], CommonTerm)
-    assert isinstance(parent_component.terms["1|s"], GroupSpecificTerm)
-    assert isinstance(parent_component.terms["x|s"], GroupSpecificTerm)
+    parent_parameter = model.parameters[model.family.likelihood.parent]
+    assert isinstance(parent_parameter.terms["x"], CommonTerm)
+    assert isinstance(parent_parameter.terms["g"], CommonTerm)
+    assert isinstance(parent_parameter.terms["x:g"], CommonTerm)
+    assert isinstance(parent_parameter.terms["1|s"], GroupSpecificTerm)
+    assert isinstance(parent_parameter.terms["x|s"], GroupSpecificTerm)
 
     # Also check 'categorical' attribute is right
-    assert parent_component.terms["g"].categorical
+    assert parent_parameter.terms["g"].categorical
 
 
 def test_one_shot_formula_fit(data_diabetes, mock_pymc_sample):
@@ -197,6 +197,7 @@ def test_categorical_term(mock_pymc_sample):
     df = az.summary(fitted)
     names = {
         "Intercept",
+        "Intercept_centered",
         "x1",
         "x2",
         "g1[b]",
@@ -207,9 +208,9 @@ def test_categorical_term(mock_pymc_sample):
         "1|g2[x]",
         "1|g2[y]",
         "1|g2[z]",
-        "g1|g2[b, x]",
-        "g1|g2[b, y]",
-        "g1|g2[b, z]",
+        "g1|g2[x, b]",
+        "g1|g2[y, b]",
+        "g1|g2[z, b]",
         "x2|g2[x]",
         "x2|g2[y]",
         "x2|g2[z]",
@@ -338,7 +339,7 @@ def test_1d_group_specific(data_random_n100):
     # The difference is that we do .squeeze() on it after creation.
     model = bmb.Model("continuous1 ~ (binary_cat|categorical1)", data_random_n100)
     model.build()
-    assert model.backend.components["mu"].output.shape.eval() == (100,)
+    assert model.backend.model["mu"].shape.eval() == (100,)
 
 
 def test_data_is_copied():
@@ -359,17 +360,17 @@ def test_response_is_censored():
     df = pd.DataFrame(
         {
             "x": [1, 2, 3, 4, 5],
-            "status": ["none", "right", "interval", "left", "none"],
+            "status": ["none", "right", "none", "left", "none"],
         }
     )
     dm = bmb.Model("censored(x, status) ~ 1", df)
-    assert dm.response_component.term.is_censored is True
+    assert dm.response_term.is_censored is True
 
 
 def test_response_is_truncated():
     df = pd.DataFrame({"x": [1, 2, 3, 4, 5]})
     dm = bmb.Model("truncated(x, 5.5) ~ 1", df)
-    assert dm.response_component.term.is_truncated is True
+    assert dm.response_term.is_truncated is True
 
 
 def test_counts_response_data():
@@ -429,7 +430,7 @@ def test_extra_namespace():
     extra_namespace = {"levels": data["veh_body"].unique()}
     formula = "numclaims ~ 0 + C(veh_body, levels=levels)"
     model = bmb.Model(formula, data, family="poisson", link="log", extra_namespace=extra_namespace)
-    term = model.components[model.family.likelihood.parent].terms["C(veh_body, levels=levels)"]
+    term = model.parameters[model.family.likelihood.parent].terms["C(veh_body, levels=levels)"]
     assert set(np.asarray(term.levels)) == set(data["veh_body"].unique())
 
 
@@ -548,7 +549,7 @@ def test_compute_log_likelihood(data_random_n100, mock_pymc_sample):
     data = data_random_n100.iloc[:10].copy()
     model = bmb.Model("continuous1 ~ continuous2", data)
     idata = model.fit(draws=4, chains=2)
-    assert model.backend.model.__bambi_attrs__["response_data_name"] == "continuous1_data"
+    assert "continuous1_data" in model.backend.model.named_vars
 
     result = model.compute_log_likelihood(idata, inplace=False)
 
@@ -572,7 +573,7 @@ def test_compute_log_likelihood(data_random_n100, mock_pymc_sample):
 def test_compute_log_likelihood_transformed_response(data_beetle, mock_pymc_sample):
     model = bmb.Model("prop(y, n) ~ x", data_beetle, family="binomial")
     idata = model.fit(draws=4, chains=2)
-    assert model.backend.model.__bambi_attrs__["response_data_name"] == "prop(y, n)_data"
+    assert {"y_data", "n_data"}.issubset(model.backend.model.named_vars)
 
     model.compute_log_likelihood(idata)
     assert idata.log_likelihood["prop(y, n)"].shape == (2, 4, len(data_beetle))
@@ -590,8 +591,7 @@ def test_predict_transformed_response_side_data(data_beetle, mock_pymc_sample):
     model = bmb.Model("prop(y, n) ~ x", data_beetle, family="binomial")
     idata = model.fit(draws=4, chains=2)
 
-    response_data = model.backend.model.__bambi_attrs__["response_data"]
-    assert {item["role"] for item in response_data} == {"observed", "n"}
+    assert {"y_data", "n_data"}.issubset(model.backend.model.named_vars)
 
     result = model.predict(idata, kind="response", data=data_beetle.head(3), inplace=False)
     samples = result.posterior_predictive["prop(y, n)"]
@@ -600,8 +600,7 @@ def test_predict_transformed_response_side_data(data_beetle, mock_pymc_sample):
 
     model = bmb.Model("p(y, 62) ~ x", data_beetle, family="binomial")
     idata = model.fit(draws=4, chains=2)
-    response_data = model.backend.model.__bambi_attrs__["response_data"]
-    assert {item["role"] for item in response_data} == {"observed"}
+    assert "y_data" in model.backend.model.named_vars
 
     result = model.predict(idata, kind="response", data=data_beetle.head(3), inplace=False)
     samples = result.posterior_predictive["p(y, 62)"]
@@ -619,11 +618,10 @@ def test_predict_truncated_response_scalar_bounds(mock_pymc_sample):
     model = bmb.Model("truncated(y, -5, 5) ~ x", data, priors=priors)
     idata = model.fit(draws=4, chains=2)
 
-    response_data = model.backend.model.__bambi_attrs__["response_data"]
-    assert {item["role"] for item in response_data} == {"observed"}
+    assert "y_data" in model.backend.model.named_vars
 
     result = model.predict(idata, kind="response", data=data.head(3), inplace=False)
-    samples = result.posterior_predictive["truncated(y, -5, 5)"]
+    samples = result.predictions["truncated(y, -5, 5)"]
     assert samples.shape == (2, 4, 3)
     assert (samples > -5).all()
     assert (samples < 5).all()
