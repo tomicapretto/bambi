@@ -1,5 +1,5 @@
 from bambi.families.link import LINKS, Link
-from bambi.families.types import ResponseType
+from bambi.families.types import ParamSpec, ResponseType
 
 
 class Family:
@@ -87,11 +87,7 @@ class Family:
         return set(self.likelihood.params) - {self.likelihood.parent}
 
     def check_string_link(self, link_name, param_name):
-        # When you instantiate Family directly
-        if self.PARAMETERS is None:
-            supported_links = LINKS
-        else:
-            supported_links = self.PARAMETERS[param_name].links
+        supported_links = self.get_param_spec(param_name).links
 
         if link_name not in supported_links:
             raise ValueError(
@@ -99,6 +95,16 @@ class Family:
                 f"'{self.name}'"
             )
         return Link(link_name)
+
+    def get_param_spec(self, param_name):
+        """Return metadata for a likelihood parameter.
+
+        Declared metadata is returned unchanged. When no metadata is declared, parameters are
+        scalar, have no coefficient dimension, and accept all registered string links.
+        """
+        if self.PARAMETERS is None:
+            return ParamSpec(links=list(LINKS))
+        return self.PARAMETERS[param_name]
 
     def set_default_priors(self, priors):
         """Set default priors for non-parent parameters

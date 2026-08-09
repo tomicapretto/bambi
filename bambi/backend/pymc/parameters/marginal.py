@@ -10,7 +10,7 @@ def build_marginal_parameter(parameter, family, model: pm.Model):
         return pm.Deterministic(parameter.label, parameter.prior, model=model)
 
     dims = tuple()
-    param_spec = family.PARAMETERS[parameter.name]
+    param_spec = family.get_param_spec(parameter.name)
     if param_spec.ndim > 0:
         if param_spec.coefs_dim == "response":
             dims = tuple(model.__bambi_attrs__["response_coords"])

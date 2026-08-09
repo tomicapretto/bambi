@@ -110,10 +110,10 @@ def _build_group_specific_idx(terms, param_spec: ParamSpec, model: pm.Model):
 
 
 def build_conditional_parameter(parameter, family: Family, model: pm.Model):
-    # NOTE: `param_spec` does not work with families that have None in PARAMETERS.
     value = 0
-    param_spec = family.PARAMETERS[parameter.name]
-    inverse_link = INVERSE_LINKS.get(family.link[parameter.name].name, lambda x: x)
+    param_spec = family.get_param_spec(parameter.name)
+    link = family.link[parameter.name]
+    inverse_link = INVERSE_LINKS.get(link.name, link.inverse_link)
     center_predictors = parameter.intercept_term and parameter.center_predictors
 
     if parameter.common_terms or parameter.intercept_term:
