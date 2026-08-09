@@ -594,7 +594,7 @@ def test_predict_transformed_response_side_data(data_beetle, mock_pymc_sample):
     assert {"y_data", "n_data"}.issubset(model.backend.model.named_vars)
 
     result = model.predict(idata, kind="response", data=data_beetle.head(3), inplace=False)
-    samples = result.posterior_predictive["prop(y, n)"]
+    samples = result.predictions["prop(y, n)"]
     assert samples.shape == (2, 4, 3)
     assert (samples <= data_beetle["n"].to_numpy()[:3][None, None, :]).all()
 
@@ -603,7 +603,7 @@ def test_predict_transformed_response_side_data(data_beetle, mock_pymc_sample):
     assert "y_data" in model.backend.model.named_vars
 
     result = model.predict(idata, kind="response", data=data_beetle.head(3), inplace=False)
-    samples = result.posterior_predictive["p(y, 62)"]
+    samples = result.predictions["p(y, 62)"]
     assert samples.shape == (2, 4, 3)
     assert (samples <= 62).all()
 

@@ -182,6 +182,16 @@ class PyMCModel:
         if not inplace:
             idata = deepcopy(idata)
 
+        output_groups = ()
+        if data is not None:
+            output_groups = ("predictions", "predictions_constant_data")
+        elif kind == "response":
+            output_groups = ("posterior_predictive",)
+
+        for group in output_groups:
+            if group in idata:
+                delattr(idata, group)
+
         parameters_names = [param.label for param in self.spec.conditional_parameters.values()]
         responses_names = [self.spec.response_term.label]
 

@@ -117,7 +117,7 @@ def filter_draws(
     idata : InferenceData
         The InferenceData object containing the draws.
     group : str
-        The name of the group to filter from (e.g., 'posterior', 'posterior_predictive').
+        The name of the group to filter from (e.g., 'posterior', 'predictions').
     target : str
         The target variable name within the group.
     variable : pd.Series
@@ -161,7 +161,7 @@ def compare(
     target : str
         The target variable name to compare within the group.
     group : str
-        The name of the group to compare (e.g., 'posterior', 'posterior_predictive').
+        The name of the group to compare (e.g., 'posterior', 'predictions').
     comparison_fn : Callable
         The comparison function to apply to pairs of draws (e.g., difference, ratio).
 
@@ -373,7 +373,7 @@ def _build_predictions(
         "inplace": False,
     }
     preds_idata = model.predict(**pred_kwargs, **({} if not pps else {"kind": "response"}))
-    group = "posterior_predictive" if pps else "posterior"
+    group = "predictions"
     var = response_name if pps or target is None else target
 
     compare_idata = create_inference_data(preds_idata, preds_data)
@@ -455,7 +455,7 @@ def predictions(
         "inplace": False,
     }
     idata = model.predict(**pred_kwargs, **({} if not pps else {"kind": "response"}))
-    group = "posterior_predictive" if pps else "posterior"
+    group = "predictions"
     var = response_name if pps or target is None else target
     y_hat = idata[group][var]
 
