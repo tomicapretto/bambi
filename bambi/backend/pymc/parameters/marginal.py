@@ -1,4 +1,5 @@
 import pymc as pm
+import pytensor.tensor as pt
 
 from bambi.backend.pymc.utils import get_distribution_from_prior
 
@@ -7,7 +8,9 @@ TRANSFORMS = {"ordered": pm.distributions.transforms.ordered}
 
 def build_marginal_parameter(parameter, family, model: pm.Model):
     if isinstance(parameter.prior, (int, float)):
-        return pm.Deterministic(parameter.label, parameter.prior, model=model)
+        return pm.Deterministic(
+            parameter.label, pt.as_tensor_variable(parameter.prior), model=model
+        )
 
     dims = tuple()
     param_spec = family.get_param_spec(parameter.name)
