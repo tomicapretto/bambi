@@ -119,7 +119,7 @@ class TestGaussian(FitPredictParent):
     def test_cell_means_parameterization(self, data_crossed):
         model = bmb.Model("Y ~ 0 + threecats", data_crossed)
         idata = self.fit(model)
-        assert list(idata.posterior["threecats_dim"]) == ["a", "b", "c"]
+        assert list(idata.posterior.coords["threecats_levels"]) == ["a", "b", "c"]
         self.predict_oos(model, idata)
 
     def test_2_factors_saturated(self, data_crossed):
@@ -127,21 +127,20 @@ class TestGaussian(FitPredictParent):
         idata = self.fit(model)
         assert set(idata.posterior.data_vars) == {
             "Intercept",
+            "Intercept_centered",
             "threecats",
             "fourcats",
             "threecats:fourcats",
             "sigma",
         }
-        assert list(idata.posterior["threecats_dim"].values) == ["b", "c"]
-        assert list(idata.posterior["fourcats_dim"].values) == ["b", "c", "d"]
-        assert list(idata.posterior["threecats:fourcats_dim"].values) == [
-            "b, b",
-            "b, c",
-            "b, d",
-            "c, b",
-            "c, c",
-            "c, d",
-        ]
+        assert list(idata.posterior.coords["threecats_levels_reduced"]) == ["b", "c"]
+        assert list(idata.posterior.coords["fourcats_levels_reduced"]) == ["b", "c", "d"]
+        assert idata.posterior["threecats:fourcats"].dims == (
+            "chain",
+            "draw",
+            "threecats_levels_reduced",
+            "fourcats_levels_reduced",
+        )
         self.predict_oos(model, idata)
 
     def test_2_factors_no_intercept(self, data_crossed):
@@ -153,43 +152,35 @@ class TestGaussian(FitPredictParent):
             "threecats:fourcats",
             "sigma",
         }
-        assert list(idata.posterior["threecats_dim"].values) == ["a", "b", "c"]
-        assert list(idata.posterior["fourcats_dim"].values) == ["b", "c", "d"]
-        assert list(idata.posterior["threecats:fourcats_dim"].values) == [
-            "b, b",
-            "b, c",
-            "b, d",
-            "c, b",
-            "c, c",
-            "c, d",
-        ]
+        assert list(idata.posterior.coords["threecats_levels"]) == ["a", "b", "c"]
+        assert list(idata.posterior.coords["fourcats_levels_reduced"]) == ["b", "c", "d"]
+        assert idata.posterior["threecats:fourcats"].dims == (
+            "chain",
+            "draw",
+            "threecats_levels_reduced",
+            "fourcats_levels_reduced",
+        )
         self.predict_oos(model, idata)
 
     def test_2_factors_cell_means(self, data_crossed):
         model = bmb.Model("Y ~ 0 + threecats:fourcats", data_crossed)
         idata = self.fit(model)
         assert set(idata.posterior.data_vars) == {"threecats:fourcats", "sigma"}
-        assert list(idata.posterior["threecats:fourcats_dim"].values) == [
-            "a, a",
-            "a, b",
-            "a, c",
-            "a, d",
-            "b, a",
-            "b, b",
-            "b, c",
-            "b, d",
-            "c, a",
-            "c, b",
-            "c, c",
-            "c, d",
-        ]
+        assert idata.posterior["threecats:fourcats"].dims == (
+            "chain",
+            "draw",
+            "threecats_levels",
+            "fourcats_levels",
+        )
+        assert list(idata.posterior.coords["threecats_levels"]) == ["a", "b", "c"]
+        assert list(idata.posterior.coords["fourcats_levels"]) == ["a", "b", "c", "d"]
         self.predict_oos(model, idata)
 
     def test_cell_means_with_covariate(self, data_crossed):
         model = bmb.Model("Y ~ 0 + threecats + continuous", data_crossed)
         idata = self.fit(model)
         assert set(idata.posterior.data_vars) == {"threecats", "continuous", "sigma"}
-        assert list(idata.posterior["threecats_dim"].values) == ["a", "b", "c"]
+        assert list(idata.posterior.coords["threecats_levels"]) == ["a", "b", "c"]
         self.predict_oos(model, idata)
 
     def test_many_common_many_group_specific(self, data_crossed):
@@ -226,14 +217,14 @@ class TestGaussian(FitPredictParent):
         X0 = pd.concat(
             [
                 pd.DataFrame(term.data.toarray())
-                for term in model0.components["mu"].group_specific_terms.values()
+                for term in model0.parameters["mu"].group_specific_terms.values()
             ],
             axis=1,
         )
         X1 = pd.concat(
             [
                 pd.DataFrame(term.data.toarray())
-                for term in model1.components["mu"].group_specific_terms.values()
+                for term in model1.parameters["mu"].group_specific_terms.values()
             ],
             axis=1,
         )
@@ -249,14 +240,14 @@ class TestGaussian(FitPredictParent):
         # even if term names / level names / order of columns is different
         X0_list = []
         X1_list = []
-        for term in model0.components["mu"].common_terms.values():
+        for term in model0.parameters["mu"].common_terms.values():
             if term.levels is not None:
                 for level_idx in range(len(term.levels)):
                     X0_list.append(tuple(term.data[:, level_idx]))
             else:
                 X0_list.append(tuple(term.data))
 
-        for term in model1.components["mu"].common_terms.values():
+        for term in model1.parameters["mu"].common_terms.values():
             if term.levels is not None:
                 for level_idx in range(len(term.levels)):
                     X1_list.append(tuple(term.data[:, level_idx]))
@@ -268,12 +259,12 @@ class TestGaussian(FitPredictParent):
         # check that models have same priors for common effects
         priors0 = {
             x.name: x.prior.args
-            for x in model0.components["mu"].terms.values()
+            for x in model0.parameters["mu"].terms.values()
             if not isinstance(x, GroupSpecificTerm)
         }
         priors1 = {
             x.name: x.prior.args
-            for x in model1.components["mu"].terms.values()
+            for x in model1.parameters["mu"].terms.values()
             if not isinstance(x, GroupSpecificTerm)
         }
 
@@ -292,11 +283,11 @@ class TestGaussian(FitPredictParent):
         # check that fit and add models have same priors for group specific effects
         priors0 = {
             x.name: x.prior.args["sigma"].args
-            for x in model0.components["mu"].group_specific_terms.values()
+            for x in model0.parameters["mu"].group_specific_terms.values()
         }
         priors1 = {
             x.name: x.prior.args["sigma"].args
-            for x in model1.components["mu"].group_specific_terms.values()
+            for x in model1.parameters["mu"].group_specific_terms.values()
         }
 
         # check dictionary keys
@@ -344,14 +335,14 @@ class TestGaussian(FitPredictParent):
         X0 = pd.concat(
             [
                 pd.DataFrame(term.data.toarray())
-                for term in model0.components["mu"].group_specific_terms.values()
+                for term in model0.parameters["mu"].group_specific_terms.values()
             ],
             axis=1,
         )
         X1 = pd.concat(
             [
                 pd.DataFrame(term.data.toarray())
-                for term in model0.components["mu"].group_specific_terms.values()
+                for term in model0.parameters["mu"].group_specific_terms.values()
             ],
             axis=1,
         )
@@ -368,14 +359,14 @@ class TestGaussian(FitPredictParent):
         X0 = set(
             [
                 tuple(t.data[:, lev])
-                for t in model0.components["mu"].common_terms.values()
+                for t in model0.parameters["mu"].common_terms.values()
                 for lev in range(len(t.levels))
             ]
         )
         X1 = set(
             [
                 tuple(t.data[:, lev])
-                for t in model1.components["mu"].common_terms.values()
+                for t in model1.parameters["mu"].common_terms.values()
                 for lev in range(len(t.levels))
             ]
         )
@@ -384,12 +375,12 @@ class TestGaussian(FitPredictParent):
         # check that fit and add models have same priors for common effects
         priors0 = {
             x.name: x.prior.args
-            for x in model0.components["mu"].terms.values()
+            for x in model0.parameters["mu"].terms.values()
             if not isinstance(x, GroupSpecificTerm)
         }
         priors1 = {
             x.name: x.prior.args
-            for x in model1.components["mu"].terms.values()
+            for x in model1.parameters["mu"].terms.values()
             if not isinstance(x, GroupSpecificTerm)
         }
         assert set(priors0) == set(priors1)
@@ -397,12 +388,12 @@ class TestGaussian(FitPredictParent):
         # check that fit and add models have same priors for group specific effects
         priors0 = {
             x.name: x.prior.args["sigma"].args
-            for x in model0.components["mu"].terms.values()
+            for x in model0.parameters["mu"].terms.values()
             if isinstance(x, GroupSpecificTerm)
         }
         priors1 = {
             x.name: x.prior.args["sigma"].args
-            for x in model1.components["mu"].terms.values()
+            for x in model1.parameters["mu"].terms.values()
             if isinstance(x, GroupSpecificTerm)
         }
         assert set(priors0) == set(priors1)
@@ -414,6 +405,7 @@ class TestGaussian(FitPredictParent):
 
         assert set(idata.posterior.data_vars) == {
             "Intercept",
+            "Intercept_centered",
             "continuous",
             "sigma",
             "1|site_sigma",
@@ -424,26 +416,22 @@ class TestGaussian(FitPredictParent):
         assert set(idata.posterior["threecats:fourcats|site"].coords) == {
             "chain",
             "draw",
-            "site__factor_dim",
-            "threecats:fourcats__expr_dim",
+            "site_levels",
+            "threecats_levels_reduced",
+            "fourcats_levels_reduced",
         }
-        assert set(idata.posterior["1|site"].coords) == {"chain", "draw", "site__factor_dim"}
+        assert set(idata.posterior["1|site"].coords) == {"chain", "draw", "site_levels"}
         assert set(idata.posterior["1|site_sigma"].coords) == {"chain", "draw"}
         assert set(idata.posterior["threecats:fourcats|site_sigma"].coords) == {
             "chain",
             "draw",
-            "threecats:fourcats__expr_dim",
+            "threecats_levels_reduced",
+            "fourcats_levels_reduced",
         }
 
-        assert set(idata.posterior["threecats:fourcats__expr_dim"].values) == {
-            "b, b",
-            "b, c",
-            "b, d",
-            "c, b",
-            "c, c",
-            "c, d",
-        }
-        assert set(idata.posterior["site__factor_dim"].values) == {"0", "1", "2", "3", "4"}
+        assert set(idata.posterior["threecats_levels_reduced"].values) == {"b", "c"}
+        assert set(idata.posterior["fourcats_levels_reduced"].values) == {"b", "c", "d"}
+        assert set(idata.posterior["site_levels"].values) == {"0", "1", "2", "3", "4"}
 
     def test_fit_include_mean(self, data_crossed):
         draws = 100
@@ -507,7 +495,7 @@ class TestGaussian(FitPredictParent):
 @pytest.mark.usefixtures("mock_pymc_sample")
 class TestBernoulli(FitPredictParent):
     def assert_posterior_predictive_range(self, model, idata):
-        y_name = model.response_component.term.name
+        y_name = model.response_term.label
         y_posterior_predictive = idata.posterior_predictive[y_name].to_numpy()
         assert set(np.unique(y_posterior_predictive)) == {0, 1}
 
@@ -625,21 +613,21 @@ class TestPoisson(FitPredictParent):
         self.assert_mean_range(idata1)
 
         # check that term names agree
-        assert set(model0.components["mu"].terms) == set(model1.components["mu"].terms)
+        assert set(model0.parameters["mu"].terms) == set(model1.parameters["mu"].terms)
 
         # check that common effect design matrices are the same,
         # even if term names / level names / order of columns is different
 
         X0_list = []
         X1_list = []
-        for term in model0.components["mu"].common_terms.values():
+        for term in model0.parameters["mu"].common_terms.values():
             if term.levels is not None:
                 for level_idx in range(len(term.levels)):
                     X0_list.append(tuple(term.data[:, level_idx]))
             else:
                 X0_list.append(tuple(term.data))
 
-        for term in model1.components["mu"].common_terms.values():
+        for term in model1.parameters["mu"].common_terms.values():
             if term.levels is not None:
                 for level_idx in range(len(term.levels)):
                     X1_list.append(tuple(term.data[:, level_idx]))
@@ -651,12 +639,12 @@ class TestPoisson(FitPredictParent):
         # check that models have same priors for common effects
         priors0 = {
             x.name: x.prior.args
-            for x in model0.components["mu"].terms.values()
+            for x in model0.parameters["mu"].terms.values()
             if not isinstance(x, GroupSpecificTerm)
         }
         priors1 = {
             x.name: x.prior.args
-            for x in model1.components["mu"].terms.values()
+            for x in model1.parameters["mu"].terms.values()
             if not isinstance(x, GroupSpecificTerm)
         }
         # check dictionary keys
@@ -834,9 +822,8 @@ class TestCategorical(FitPredictParent):
     # assert pps.shape[-1] == inhaler.shape[0]
     def assert_mean_sum(self, model, idata):
         y_mean_name = "p"
-        y_dim = model.response_component.term.name + "_dim"
         y_mean_posterior = idata.posterior[y_mean_name]
-        assert np.allclose(y_mean_posterior.sum(y_dim).to_numpy(), 1)
+        assert np.allclose(y_mean_posterior.sum(y_mean_posterior.dims[-1]).to_numpy(), 1)
 
     def assert_mean_range(self, model, idata):
         y_mean_name = "p"
@@ -844,7 +831,7 @@ class TestCategorical(FitPredictParent):
         assert ((0 < y_mean_posterior) & (y_mean_posterior < 1)).all()
 
     def assert_posterior_predictive_range(self, model, idata, n):
-        y_name = model.response_component.term.name
+        y_name = model.response_term.label
         y_posterior_predictive = idata.posterior_predictive[y_name].to_numpy()
         assert set(np.unique(y_posterior_predictive)).issubset(set(range(n)))
 
@@ -853,18 +840,22 @@ class TestCategorical(FitPredictParent):
         idata = self.fit(model)
 
         for name in ["Intercept", "period", "carry", "treat"]:
-            assert list(idata.posterior[name].coords) == ["chain", "draw", "rating_reduced_dim"]
+            assert list(idata.posterior[name].coords) == [
+                "chain",
+                "draw",
+                "rating_levels_reduced",
+            ]
 
-        assert list(idata.posterior.coords["rating_reduced_dim"].values) == ["2", "3", "4"]
+        assert list(idata.posterior.coords["rating_levels_reduced"].values) == ["2", "3", "4"]
 
         idata = self.predict_oos(model, idata)
         assert list(idata.posterior["p"].coords) == [
             "chain",
             "draw",
             "__obs__",
-            "rating_dim",
+            "rating_levels",
         ]
-        assert list(idata.posterior.coords["rating_dim"].values) == ["1", "2", "3", "4"]
+        assert list(idata.posterior.coords["rating_levels"].values) == ["1", "2", "3", "4"]
         self.assert_mean_range(model, idata)
         self.assert_mean_sum(model, idata)
         self.assert_posterior_predictive_range(model, idata, len(np.unique(data_inhaler["rating"])))
@@ -875,30 +866,34 @@ class TestCategorical(FitPredictParent):
         idata = self.fit(model)
 
         for name in ["Intercept", "period", "carry", "treat"]:
-            assert set(idata.posterior[name].coords) == {"chain", "draw", "rating_reduced_dim"}
+            assert set(idata.posterior[name].coords) == {
+                "chain",
+                "draw",
+                "rating_levels_reduced",
+            }
 
         assert set(idata.posterior["1|subject"].coords) == {
             "chain",
             "draw",
-            "rating_reduced_dim",
-            "subject__factor_dim",
+            "rating_levels_reduced",
+            "subject_levels",
         }
 
         assert (
-            idata.posterior["subject__factor_dim"].values
+            idata.posterior["subject_levels"].values
             == np.unique(data_inhaler["subject"]).astype(str)
         ).all()
 
-        assert list(idata.posterior.coords["rating_reduced_dim"].values) == ["2", "3", "4"]
+        assert list(idata.posterior.coords["rating_levels_reduced"].values) == ["2", "3", "4"]
 
         idata = self.predict_oos(model, idata)
         assert set(idata.posterior["p"].coords) == {
             "chain",
             "draw",
             "__obs__",
-            "rating_dim",
+            "rating_levels",
         }
-        assert list(idata.posterior.coords["rating_dim"].values) == ["1", "2", "3", "4"]
+        assert list(idata.posterior.coords["rating_levels"].values) == ["1", "2", "3", "4"]
         self.assert_mean_range(model, idata)
         self.assert_mean_sum(model, idata)
         self.assert_posterior_predictive_range(model, idata, len(np.unique(data_inhaler["rating"])))
@@ -911,21 +906,21 @@ class TestCategorical(FitPredictParent):
         assert set(idata.posterior["group"].coords) == {
             "chain",
             "draw",
-            "response_reduced_dim",
-            "group_dim",
+            "response_levels_reduced",
+            "group_levels_reduced",
         }
         assert set(idata.posterior["city"].coords) == {
             "chain",
             "draw",
-            "response_reduced_dim",
-            "city_dim",
+            "response_levels_reduced",
+            "city_levels_reduced",
         }
-        assert list(idata.posterior["group_dim"].values) == ["group 2", "group 3"]
-        assert list(idata.posterior["city_dim"].values) == ["Rosario", "San Luis"]
-        assert list(idata.posterior["response_reduced_dim"].values) == ["B", "C", "D"]
+        assert list(idata.posterior["group_levels_reduced"].values) == ["group 2", "group 3"]
+        assert list(idata.posterior["city_levels_reduced"].values) == ["Rosario", "San Luis"]
+        assert list(idata.posterior["response_levels_reduced"].values) == ["B", "C", "D"]
 
         idata = self.predict_oos(model, idata)
-        assert list(idata.posterior["response_dim"].values) == ["A", "B", "C", "D"]
+        assert list(idata.posterior["response_levels"].values) == ["A", "B", "C", "D"]
         self.assert_mean_range(model, idata)
         self.assert_mean_sum(model, idata)
         self.assert_posterior_predictive_range(model, idata, 4)
@@ -1007,7 +1002,7 @@ class TestOrdinal(FitPredictParent):
         idata = self.fit(model, random_seed=1234)
         idata = self.predict_oos(model, idata)
 
-        assert np.allclose(idata.posterior["p"].sum("rating_dim").to_numpy(), 1)
+        assert np.allclose(idata.posterior["p"].sum("rating_levels").to_numpy(), 1)
         assert set(np.unique(idata.posterior_predictive["rating"])).issubset({0, 1, 2, 3})
 
     def test_cumulative_family_priors(self, data_inhaler):
@@ -1131,7 +1126,7 @@ class TestConstrainedResponse(FitPredictParent):
 @pytest.mark.usefixtures("mock_pymc_sample")
 class TestMultinomial(FitPredictParent):
     def assert_posterior_predictive(self, model, idata):
-        y_name = model.response_component.term.name
+        y_name = model.response_term.label
         y_posterior_predictive = idata.posterior_predictive[y_name].to_numpy()
         assert (y_posterior_predictive.sum(-1).var((0, 1)) == 0).all()
 
@@ -1199,7 +1194,7 @@ class TestMultinomial(FitPredictParent):
 @pytest.mark.usefixtures("mock_pymc_sample")
 class TestDirichletMultinomial(FitPredictParent):
     def assert_posterior_predictive(self, model, idata):
-        y_name = model.response_component.term.name
+        y_name = model.response_term.label
         y_posterior_predictive = idata.posterior_predictive[y_name].to_numpy()
         assert (y_posterior_predictive.sum(-1).var((0, 1)) == 0).all()
 
@@ -1406,9 +1401,9 @@ def test_predict_new_groups_deterministic(data, formula, family, df_new, request
         idata, data=df_new, sample_new_groups=True, random_seed=123, inplace=False
     )
 
-    param_name = list(model.distributional_components.keys())[0]
-    if model.distributional_components[param_name].alias:
-        param_name = model.distributional_components[param_name].alias
+    param_name, parameter = next(iter(model.conditional_parameters.items()))
+    if parameter.alias:
+        param_name = parameter.alias
 
     # Extract the parameter values
     param1 = pred1.posterior[param_name].values
