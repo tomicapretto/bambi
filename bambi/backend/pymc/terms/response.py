@@ -187,6 +187,9 @@ Purpose = Literal["prediction", "log_likelihood"]
 def build_new_response_data(
     term: ResponseTerm, data: pd.DataFrame, family: Family, purpose: Purpose
 ):
+    if purpose not in ("prediction", "log_likelihood"):
+        raise ValueError(f"Unsupported purpose: {purpose}")
+
     if term.is_censored:
         return _build_new_censored_data(term, data, purpose)
 
@@ -209,40 +212,43 @@ def _build_new_censored_data(term: ResponseTerm, data: pd.DataFrame, purpose: Pu
     call_args = _get_call_bound_arguments(term)
     value_name = call_args["x"]
     status_name = call_args["status"]
+    n = data.shape[0]
+    data_dict = {}
+
+    # Prediction is conditional only when both response columns are provided.
+    # Otherwise, it targets the latent variable.
+    # Log-likelihood defaults status to "none".
     if purpose == "prediction":
         # If response term variables are available, compute conditional predictions when possible,
         # such as p(Y | Y > t) when the observation is right-censored.
         # For non-censored observations, it generates predictions for the latent variable.
         # If response term variables are not available, generate predictions for the latent variable
         # in all cases.
-        if value_name not in data.columns or status_name not in data.columns:
-            # Latent variable predictions
-            # NOTE: Use values compatible with the model
-            return {
-                value_name + "_data": np.zeros(data.shape[0]),
-                status_name + "_data": np.zeros(data.shape[0], dtype=int),
-            }
-
-        # Conditional predictions
-        response_data = term.eval_new_data(data)
-        value, status = response_data[:, 0], response_data[:, 1]
-        return {value_name + "_data": value, status_name + "_data": status}
-
-    if purpose == "log_likelihood":
-        # If there is no status, we assume the user wants prediction the latent variable.
+        should_evaluate = value_name in data.columns and status_name in data.columns
+        if should_evaluate:
+            data_dict[value_name] = data[value_name].to_numpy()
+            data_dict[status_name] = data[status_name].to_numpy()
+    else:
         # If there is a status, the status controls if it's conditional or latent.
+        # If there is no status, we assume the user wants prediction the latent variable.
         if value_name not in data.columns:
             raise ValueError(f"Response term variable '{value_name}' must be present in the data.")
 
-        if status_name not in data.columns:
-            data = data[[value_name]].copy()
-            data[status_name] = "none"
+        should_evaluate = True
+        data_dict[value_name] = data[value_name].to_numpy()
+        if status_name in data.columns:
+            data_dict[status_name] = data[status_name].to_numpy()
+        else:
+            data_dict[status_name] = np.full(n, "none")
 
-        response_data = term.eval_new_data(data)
+    if should_evaluate:
+        response_data = term.eval_new_data(pd.DataFrame(data_dict))
         value, status = response_data[:, 0], response_data[:, 1]
-        return {value_name + "_data": value, status_name + "_data": status}
+    else:
+        value = np.full(n, term.data[0, 0])
+        status = np.zeros(n, dtype=int)
 
-    raise ValueError(f"Unsupported purpose: {purpose}")
+    return {value_name + "_data": value, status_name + "_data": status}
 
 
 def _build_new_truncated_data(term: ResponseTerm, data: pd.DataFrame, purpose: Purpose):
@@ -250,68 +256,47 @@ def _build_new_truncated_data(term: ResponseTerm, data: pd.DataFrame, purpose: P
     value_name = call_args["x"]
     lower_name = call_args.get("lb", "")
     upper_name = call_args.get("ub", "")
+    n = data.shape[0]
+
+    # Re-evaluate the response call so transformed values and bounds stay consistent.
+    # NOTE: The first note is more adequate for building interventions.
+    # Predictions and log-likelihood are generated with a truncated distribution
+    # when lb or ub are either literals or when they are variable names available in 'data'.
+
+    # Defaults come from the original response data.
+    # These values already worked when building the model,
+    # so they are safer than arbitrary constants for re-evaluation.
+    data_dict = {}
+    if lower_name:
+        if lower_name in data.columns:
+            data_dict[lower_name] = data[lower_name].to_numpy()
+        else:
+            data_dict[lower_name] = np.full(n, term.data[0, 1])
+
+    if upper_name:
+        if upper_name in data.columns:
+            data_dict[upper_name] = data[upper_name].to_numpy()
+        else:
+            data_dict[upper_name] = np.full(n, term.data[0, 2])
 
     if purpose == "prediction":
-        # Predictions are truncated when lb or ub are either literals or
-        # when they are variable names available in 'data'.
-        include_lower = lower_name and lower_name in data.columns
-        include_upper = upper_name and upper_name in data.columns
-
-        output = {value_name: np.zeros(data.shape[0])}
-        if include_lower or include_upper:
-            if include_lower:
-                output[lower_name] = data[lower_name]
-            else:
-                output[lower_name] = np.zeros(data.shape[0])
-
-            if include_upper:
-                output[upper_name] = data[upper_name]
-            else:
-                output[upper_name] = np.zeros(data.shape[0])
-
-            df_dummy = pd.DataFrame(output)
-            response_data = term.eval_new_data(df_dummy)
-            value, lower, upper = response_data[:, 0], response_data[:, 1], response_data[:, 2]
-            output = {value_name + "_data": value}
-
-            if include_lower:
-                output[lower_name + "_data"] = lower
-            if include_upper:
-                output[upper_name + "_data"] = upper
-
-            return output
-        return output
-
-    if purpose == "log_likelihood":
+        value_data = np.full(n, term.data[0, 0])
+    else:
         if value_name not in data.columns:
             raise ValueError(f"Response term variable '{value_name}' must be present in the data.")
+        value_data = data[value_name].to_numpy()
 
-        include_lower = lower_name and lower_name in data.columns
-        include_upper = upper_name and upper_name in data.columns
+    data_dict = {value_name: value_data, **data_dict}
+    response_data = term.eval_new_data(pd.DataFrame(data_dict))
+    value, lower, upper = response_data[:, 0], response_data[:, 1], response_data[:, 2]
 
-        df_dummy = data[[value_name]].copy()
-        if include_lower:
-            df_dummy[lower_name] = data[lower_name]
-        if lower_name and not include_lower:
-            df_dummy[lower_name] = np.zeros(data.shape[0])
+    output = {value_name + "_data": value}
+    if lower_name:
+        output[lower_name + "_data"] = lower
+    if upper_name:
+        output[upper_name + "_data"] = upper
 
-        if include_upper:
-            df_dummy[upper_name] = data[upper_name]
-        if upper_name and not include_upper:
-            df_dummy[upper_name] = np.zeros(data.shape[0])
-
-        response_data = term.eval_new_data(df_dummy)
-        value, lower, upper = response_data[:, 0], response_data[:, 1], response_data[:, 2]
-        output = {value_name + "_data": value}
-
-        if include_lower:
-            output[lower_name + "_data"] = lower
-        if include_upper:
-            output[upper_name + "_data"] = upper
-
-        return output
-
-    raise ValueError(f"Unsupported purpose: {purpose}")
+    return output
 
 
 def _build_new_constrained_data(term: ResponseTerm, data: pd.DataFrame, purpose: Purpose):
@@ -319,195 +304,165 @@ def _build_new_constrained_data(term: ResponseTerm, data: pd.DataFrame, purpose:
     value_name = call_args["x"]
     lower_name = call_args.get("lb", "")
     upper_name = call_args.get("ub", "")
+    n = data.shape[0]
+
     bound_names = [name for name in (lower_name, upper_name) if name]
+    data_dict = {}
 
+    # Unlike truncation, named bounds must be present in new data.
+    # Only the response value gets a default from the original data when predicting.
     if purpose == "prediction":
-        missing_var_names = [name for name in bound_names if name not in data.columns]
-        if missing_var_names:
-            raise ValueError(
-                f"Response term variable '{missing_var_names[0]}' must be present in the data."
-            )
-
-        df_dummy = pd.DataFrame({value_name: np.zeros(data.shape[0])})
-        for name in bound_names:
-            df_dummy[name] = data[name]
-
-        response_data = term.eval_new_data(df_dummy)
-        value, lower, upper = response_data[:, 0], response_data[:, 1], response_data[:, 2]
-        output = {value_name + "_data": value}
-
-        if lower_name:
-            output[lower_name + "_data"] = lower
-        if upper_name:
-            output[upper_name + "_data"] = upper
-
-        return output
-
-    if purpose == "log_likelihood":
+        var_names = bound_names
+        data_dict[value_name] = np.full(n, term.data[0, 0])
+    else:
         var_names = [value_name] + bound_names
-        missing_var_names = [name for name in var_names if name not in data.columns]
-        if missing_var_names:
-            raise ValueError(
-                f"Response term variable '{missing_var_names[0]}' must be present in the data."
-            )
+        if value_name in data.columns:
+            data_dict[value_name] = data[value_name].to_numpy()
 
-        df_dummy = data[[value_name]].copy()
-        for name in bound_names:
-            df_dummy[name] = data[name]
+    missing_var_names = [name for name in var_names if name not in data.columns]
+    if missing_var_names:
+        present_var_names = [name for name in var_names if name in data.columns]
+        raise ValueError(
+            "Response term variables must be present in the data.\n"
+            f"Required variables: {var_names}.\n"
+            f"Present variables: {present_var_names}."
+        )
 
-        response_data = term.eval_new_data(df_dummy)
-        value, lower, upper = response_data[:, 0], response_data[:, 1], response_data[:, 2]
-        output = {value_name + "_data": value}
+    for name in bound_names:
+        data_dict[name] = data[name].to_numpy()
 
-        if lower_name:
-            output[lower_name + "_data"] = lower
-        if upper_name:
-            output[upper_name + "_data"] = upper
+    response_data = term.eval_new_data(pd.DataFrame(data_dict))
+    value, lower, upper = response_data[:, 0], response_data[:, 1], response_data[:, 2]
+    output = {value_name + "_data": value}
 
-        return output
+    if lower_name:
+        output[lower_name + "_data"] = lower
+    if upper_name:
+        output[upper_name + "_data"] = upper
 
-    raise ValueError(f"Unsupported purpose: {purpose}")
+    return output
 
 
 def _build_new_weighted_data(term: ResponseTerm, data: pd.DataFrame, purpose: Purpose):
     call_args = _get_call_bound_arguments(term)
     value_name = call_args["x"]
     weights_name = call_args.get("weights", "")
+    n = data.shape[0]
 
+    # The response value is required for log-likelihood.
+    # Missing weights default to one.
     if purpose == "prediction":
-        output = {value_name + "_data": np.zeros(data.shape[0])}
-
-        if weights_name:
-            output[weights_name + "_data"] = np.ones(data.shape[0])
-
-        return output
-
-    if purpose == "log_likelihood":
+        value_data = np.full(n, term.data[0, 0])
+    else:
         if value_name not in data.columns:
             raise ValueError(f"Response term variable '{value_name}' must be present in the data.")
+        value_data = data[value_name].to_numpy()
 
-        df_dummy = data[[value_name]].copy()
-        if weights_name:
-            if weights_name in data.columns:
-                df_dummy[weights_name] = data[weights_name]
-            else:
-                df_dummy[weights_name] = np.ones(data.shape[0])
+    data_dict = {value_name: value_data}
+    if weights_name:
+        if weights_name in data.columns:
+            data_dict[weights_name] = data[weights_name].to_numpy()
+        else:
+            data_dict[weights_name] = np.ones(n)
 
-        response_data = term.eval_new_data(df_dummy)
-        value, weights = response_data[:, 0], response_data[:, 1]
-        output = {value_name + "_data": value}
+    response_data = term.eval_new_data(pd.DataFrame(data_dict))
+    value, weights = response_data[:, 0], response_data[:, 1]
+    output = {value_name + "_data": value}
 
-        if weights_name:
-            output[weights_name + "_data"] = weights
+    if weights_name:
+        output[weights_name + "_data"] = weights
 
-        return output
-
-    raise ValueError(f"Unsupported purpose: {purpose}")
+    return output
 
 
 def _build_new_binomial_data(term: ResponseTerm, data: pd.DataFrame, purpose: Purpose):
     call_args = _get_call_bound_arguments(term)
     successes_name = call_args["successes"]
     trials_name = call_args.get("trials", "")
-    include_trials = trials_name and trials_name in data.columns
+    n = data.shape[0]
+    var_names = [trials_name] if trials_name else []
+
+    # Successes are required only for log-likelihood.
+    # Trials must be provided if they were not provided as literals.
+    if purpose == "log_likelihood":
+        var_names = [successes_name] + var_names
+
+    missing_var_names = [name for name in var_names if name not in data.columns]
+    if missing_var_names:
+        present_var_names = [name for name in var_names if name in data.columns]
+        raise ValueError(
+            "Response term variables must be present in the data.\n"
+            f"Required variables: {var_names}.\n"
+            f"Present variables: {present_var_names}."
+        )
 
     if purpose == "prediction":
-        output = {successes_name + "_data": np.zeros(data.shape[0])}
+        data_dict = {successes_name: np.zeros(n)}
+    else:
+        data_dict = {successes_name: data[successes_name].to_numpy()}
 
-        if include_trials:
-            df_dummy = pd.DataFrame(
-                {
-                    successes_name: np.zeros(data.shape[0]),
-                    trials_name: data[trials_name],
-                }
-            )
-            response_data = term.eval_new_data(df_dummy)
-            output[trials_name + "_data"] = response_data[:, 1]
+    if trials_name:
+        data_dict[trials_name] = data[trials_name].to_numpy()
 
-        return output
+    response_data = term.eval_new_data(pd.DataFrame(data_dict))
+    successes, trials = response_data[:, 0], response_data[:, 1]
+    output = {successes_name + "_data": successes}
 
-    if purpose == "log_likelihood":
-        if successes_name not in data.columns:
-            raise ValueError(
-                f"Response term variable '{successes_name}' must be present in the data."
-            )
+    if trials_name:
+        output[trials_name + "_data"] = trials
 
-        df_dummy = data[[successes_name]].copy()
-        if include_trials:
-            df_dummy[trials_name] = data[trials_name]
-
-        response_data = term.eval_new_data(df_dummy)
-        successes, trials = response_data[:, 0], response_data[:, 1]
-        output = {successes_name + "_data": successes}
-
-        if include_trials:
-            output[trials_name + "_data"] = trials
-
-        return output
-
-    raise ValueError(f"Unsupported purpose: {purpose}")
+    return output
 
 
 def _build_new_generic_data(
     term: ResponseTerm, data: pd.DataFrame, family: Family, purpose: Purpose
 ):
     var_names = list(term.term.var_names)
+    n = data.shape[0]
 
     if purpose == "prediction":
-        df_dummy = pd.DataFrame(index=data.index)
-        for name in var_names:
-            if name in data.columns:
-                df_dummy[name] = data[name]
-            else:
-                df_dummy[name] = np.zeros(data.shape[0])
-
-        response_data = term.eval_new_data(df_dummy)
-        data_mapping = _build_response_data_mapping(term, response_data, family)
-        output = {}
-
-        for name, value in data_mapping.items():
-            if name == "observed":
-                output[term.label + "_data"] = np.zeros_like(value)
-            elif name in data.columns:
-                output[name + "_data"] = data[name]
-            else:
-                output[name + "_data"] = value
-
-        return output
-
-    if purpose == "log_likelihood":
+        data_dict = {
+            name: data[name].to_numpy() if name in data.columns else np.zeros(n)
+            for name in var_names
+        }
+    else:
         missing_var_names = [name for name in var_names if name not in data.columns]
         if missing_var_names:
+            present_var_names = [name for name in var_names if name in data.columns]
             raise ValueError(
-                f"Response term variable '{missing_var_names[0]}' must be present in the data."
+                "Response term variables must be present in the data.\n"
+                f"Required variables: {var_names}.\n"
+                f"Present variables: {present_var_names}."
             )
+        data_dict = {name: data[name].to_numpy() for name in var_names}
 
-        response_data = term.eval_new_data(data[var_names])
-        data_mapping = _build_response_data_mapping(term, response_data, family)
-        output = {}
+    response_data = term.eval_new_data(pd.DataFrame(data_dict))
 
-        for name, value in data_mapping.items():
-            if name == "observed":
-                output[term.label + "_data"] = value
-            else:
-                output[name + "_data"] = value
-
-        return output
-
-    raise ValueError(f"Unsupported purpose: {purpose}")
-
-
-def _build_response_data_mapping(term: ResponseTerm, data: np.ndarray, family: Family):
-    if family.DATA_TYPE == ResponseType.BINARY and data.ndim > 1:
+    if family.DATA_TYPE == ResponseType.BINARY and response_data.ndim > 1:
         index = term.levels.index(term.reference)
-        data = data[:, index]
+        response_data = response_data[:, index]
     elif family.DATA_TYPE in (ResponseType.CATEGORICAL, ResponseType.ORDINAL):
-        data = np.nonzero(data)[1]
+        response_data = np.nonzero(response_data)[1]
 
     transform_data = transforms_registry.get_data_transform(family)
     if transform_data is not None:
-        return transform_data(data)
-    return {"observed": data}
+        data_mapping = transform_data(response_data)
+    else:
+        data_mapping = {"observed": response_data}
+
+    output = {}
+
+    for name, value in data_mapping.items():
+        if name == "observed":
+            output[term.label + "_data"] = (
+                np.zeros_like(value) if purpose == "prediction" else value
+            )
+        elif name in data.columns and purpose == "prediction":
+            output[name + "_data"] = data[name]
+        else:
+            output[name + "_data"] = value
+
+    return output
 
 
 def _get_call_bound_arguments(term: ResponseTerm) -> dict:
