@@ -24,6 +24,9 @@ def _data_name_available(data_name: str, dims: tuple[str, ...], model) -> bool:
 
 
 def shape_common_data(data: np.ndarray, coords: Coords) -> np.ndarray:
+    # PyMC fixes mutable-data dtypes at construction; prediction grids may be fractional.
+    data = np.asarray(data, dtype=float)
+
     if not coords:
         # Since we don't have coords, this must be a single numeric column.
         # Data only has the "__obs__" dim.
