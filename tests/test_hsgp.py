@@ -300,24 +300,18 @@ def test_minimal_1d_predicts(data_1d_single_group, mock_pymc_sample):
 
     # Mean: Out-of-sample
     new_idata = model.predict(idata, data=new_data, inplace=False)
-    assert new_idata.posterior["mu"].dims == ("chain", "draw", "__obs__")
-    assert new_idata.posterior["mu"].to_numpy().shape == (2, 500, 10)
-    assert new_idata.posterior["hsgp(x, c=1.5, m=10)"].dims == (
-        "chain",
-        "draw",
-        "__obs__",
-    )
-    assert new_idata.posterior["hsgp(x, c=1.5, m=10)"].to_numpy().shape == (2, 500, 10)
+    assert new_idata.predictions["mu"].dims == ("chain", "draw", "__obs__")
+    assert new_idata.predictions["mu"].to_numpy().shape == (2, 500, 10)
 
     # Posterior predictive: In-sample
     new_idata = model.predict(idata, kind="response", inplace=False)
     assert new_idata.posterior_predictive["y"].dims == ("chain", "draw", "__obs__")
     assert new_idata.posterior_predictive["y"].to_numpy().shape == (2, 500, 100)
 
-    # Posterior predictive: Out-of-sample
+    # Predictions: Out-of-sample
     new_idata = model.predict(idata, data=new_data, kind="response", inplace=False)
-    assert new_idata.posterior_predictive["y"].dims == ("chain", "draw", "__obs__")
-    assert new_idata.posterior_predictive["y"].to_numpy().shape == (2, 500, 10)
+    assert new_idata.predictions["y"].dims == ("chain", "draw", "__obs__")
+    assert new_idata.predictions["y"].to_numpy().shape == (2, 500, 10)
 
 
 def test_multiple_hsgp_and_by(data_1d_multiple_groups, mock_pymc_sample):

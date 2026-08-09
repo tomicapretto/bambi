@@ -495,34 +495,34 @@ class TestGaussian(FitPredictParent):
 
 @pytest.mark.usefixtures("mock_pymc_sample")
 class TestBernoulli(FitPredictParent):
-    def assert_posterior_predictive_range(self, model, idata):
+    def assert_response_range(self, model, idata, group):
         y_name = model.response_term.label
-        y_posterior_predictive = idata.posterior_predictive[y_name].to_numpy()
-        assert set(np.unique(y_posterior_predictive)) == {0, 1}
+        response = idata[group][y_name].to_numpy()
+        assert set(np.unique(response)) == {0, 1}
 
-    def assert_mean_range(self, idata):
+    def assert_mean_range(self, idata, group):
         y_mean_name = "p"
-        y_mean_posterior = idata.posterior[y_mean_name].to_numpy()
-        assert ((0 < y_mean_posterior) & (y_mean_posterior < 1)).all()
+        y_mean = idata[group][y_mean_name].to_numpy()
+        assert ((0 < y_mean) & (y_mean < 1)).all()
 
     def test_bernoulli_empty_index(self, data_n100):
         model = bmb.Model("b1 ~ 1 + y1", data_n100, family="bernoulli")
         idata = self.fit(model)
         model.predict(idata, kind="response")
-        self.assert_mean_range(idata)
-        self.assert_posterior_predictive_range(model, idata)
+        self.assert_mean_range(idata, "posterior")
+        self.assert_response_range(model, idata, "posterior_predictive")
 
         # out of sample prediction
         idata = self.predict_oos(model, idata)
-        self.assert_mean_range(idata)
-        self.assert_posterior_predictive_range(model, idata)
+        self.assert_mean_range(idata, "predictions")
+        self.assert_response_range(model, idata, "predictions")
 
     def test_bernoulli_good_numeric(self, data_n100):
         model = bmb.Model("b1 ~ y1", data_n100, family="bernoulli")
         idata = self.fit(model)
         model.predict(idata, kind="response")
-        self.assert_mean_range(idata)
-        self.assert_posterior_predictive_range(model, idata)
+        self.assert_mean_range(idata, "posterior")
+        self.assert_response_range(model, idata, "posterior_predictive")
 
     def test_bernoulli_bad_numeric(self, data_n100):
         error_msg = "Numeric response must be all 0 and 1 for 'bernoulli' family"
@@ -538,22 +538,22 @@ class TestBernoulli(FitPredictParent):
         idata = self.fit(model)
         idata = self.predict_oos(model, idata)
 
-        self.assert_mean_range(idata)
-        self.assert_posterior_predictive_range(model, idata)
+        self.assert_mean_range(idata, "predictions")
+        self.assert_response_range(model, idata, "predictions")
 
 
 @pytest.mark.usefixtures("mock_pymc_sample")
 class TestBinomial(FitPredictParent):
-    def assert_mean_range(self, idata):
+    def assert_mean_range(self, idata, group):
         y_mean_name = "p"
-        y_mean_posterior = idata.posterior[y_mean_name].to_numpy()
-        assert ((0 < y_mean_posterior) & (y_mean_posterior < 1)).all()
+        y_mean = idata[group][y_mean_name].to_numpy()
+        assert ((0 < y_mean) & (y_mean < 1)).all()
 
     def test_binomial_regression(self, data_beetle):
         model = bmb.Model("prop(y, n) ~ x", data_beetle, family="binomial")
         idata = self.fit(model)
         model.predict(idata, kind="response")
-        self.assert_mean_range(idata)
+        self.assert_mean_range(idata, "posterior")
         y_reshaped = data_beetle["n"].to_numpy()[None, None, :]
 
         assert (idata.posterior_predictive["prop(y, n)"].to_numpy() <= y_reshaped).all()
@@ -561,8 +561,8 @@ class TestBinomial(FitPredictParent):
 
         y_reshaped = data_beetle["n"].to_numpy()[None, None, :3]
         idata = self.predict_oos(model, idata, data=model.data.head(3))
-        self.assert_mean_range(idata)
-        assert (idata.posterior_predictive["prop(y, n)"].to_numpy() <= y_reshaped).all()
+        self.assert_mean_range(idata, "predictions")
+        assert (idata.predictions["prop(y, n)"].to_numpy() <= y_reshaped).all()
 
         # Test log-likelihood computation
         model.compute_log_likelihood(idata)
@@ -578,14 +578,14 @@ class TestBinomial(FitPredictParent):
         model = bmb.Model("p(y, 62) ~ x", data_beetle, family="binomial")
         idata = self.fit(model)
         model.predict(idata, kind="response")
-        self.assert_mean_range(idata)
+        self.assert_mean_range(idata, "posterior")
         assert (idata.posterior_predictive["p(y, 62)"].to_numpy() <= 62).all()
         assert (0 <= idata.posterior_predictive["p(y, 62)"].to_numpy()).all()
 
         # Out of sample prediction
         idata = self.predict_oos(model, idata)
-        self.assert_mean_range(idata)
-        assert (idata.posterior_predictive["p(y, 62)"].to_numpy() <= 62).all()
+        self.assert_mean_range(idata, "predictions")
+        assert (idata.predictions["p(y, 62)"].to_numpy() <= 62).all()
 
         # Test log-likelihood computation
         model.compute_log_likelihood(idata)
@@ -595,23 +595,23 @@ class TestBinomial(FitPredictParent):
 
 @pytest.mark.usefixtures("mock_pymc_sample")
 class TestPoisson(FitPredictParent):
-    def assert_mean_range(self, idata):
+    def assert_mean_range(self, idata, group):
         y_mean_name = "mu"
-        y_mean_posterior = idata.posterior[y_mean_name].to_numpy()
-        assert (y_mean_posterior > 0).all()
+        y_mean = idata[group][y_mean_name].to_numpy()
+        assert (y_mean > 0).all()
 
     def test_poisson_regression(self, data_crossed):
         data_crossed["count"] = (data_crossed["Y"] - data_crossed["Y"].min()).round()
         model0 = bmb.Model("count ~ dummy + continuous + threecats", data_crossed, family="poisson")
         idata0 = self.fit(model0)
         idata0 = self.predict_oos(model0, idata0)
-        self.assert_mean_range(idata0)
+        self.assert_mean_range(idata0, "predictions")
 
         # build model using add
         model1 = bmb.Model("count ~ threecats + continuous + dummy", data_crossed, family="poisson")
         idata1 = self.fit(model1)
         idata1 = self.predict_oos(model1, idata1)
-        self.assert_mean_range(idata1)
+        self.assert_mean_range(idata1, "predictions")
 
         # check that term names agree
         assert set(model0.parameters["mu"].terms) == set(model1.parameters["mu"].terms)
@@ -704,10 +704,10 @@ class TestNegativeBinomial(FitPredictParent):
         assert (np.equal(np.mod(idata.posterior_predictive["n1"].values, 1), 0)).all()
 
         model.predict(idata, kind="response_params", data=data_n100.iloc[:20, :])
-        assert (0 < idata.posterior["mu"]).all()
+        assert (0 < idata.predictions["mu"]).all()
 
         model.predict(idata, kind="response", data=data_n100.iloc[:20, :])
-        assert (np.equal(np.mod(idata.posterior_predictive["n1"].values, 1), 0)).all()
+        assert (np.equal(np.mod(idata.predictions["n1"].values, 1), 0)).all()
 
 
 @pytest.mark.usefixtures("mock_pymc_sample")
@@ -719,7 +719,7 @@ class TestLaplace(FitPredictParent):
         assert (idata.posterior["b"] > 0).all().item()
 
         idata = self.predict_oos(model, idata)
-        assert "mu" in idata.posterior
+        assert "mu" in idata.predictions
 
 
 @pytest.mark.usefixtures("mock_pymc_sample")
@@ -731,7 +731,7 @@ class TestGamma(FitPredictParent):
         idata = self.fit(model)
         assert set(idata.posterior.data_vars) == {"Intercept", "y2", "y3", "n1", "cat4", "alpha"}
         idata = self.predict_oos(model, idata)
-        assert (idata.posterior_predictive["o"] >= 0).all().item()
+        assert (idata.predictions["o"] >= 0).all().item()
 
         # Compute log likelihood
         model.compute_log_likelihood(idata)
@@ -744,7 +744,7 @@ class TestGamma(FitPredictParent):
         idata = self.fit(model)
         assert set(idata.posterior.data_vars) == {"cat2:cat4", "alpha"}
         idata = self.predict_oos(model, idata)
-        assert (idata.posterior_predictive["o"] >= 0).all().item()
+        assert (idata.predictions["o"] >= 0).all().item()
 
 
 @pytest.mark.usefixtures("mock_pymc_sample")
@@ -767,10 +767,8 @@ class TestBeta(FitPredictParent):
         model.predict(idata, kind="response_params", data=data_gasoline.iloc[:20, :])
         model.predict(idata, kind="response", data=data_gasoline.iloc[:20, :])
 
-        assert (0 < idata.posterior["mu"]).all() & (idata.posterior["mu"] < 1).all()
-        assert (0 <= idata.posterior_predictive["yield"]).all() & (
-            idata.posterior_predictive["yield"] <= 1
-        ).all()
+        assert (0 < idata.predictions["mu"]).all() & (idata.predictions["mu"] < 1).all()
+        assert (0 <= idata.predictions["yield"]).all() & (idata.predictions["yield"] <= 1).all()
 
 
 @pytest.mark.usefixtures("mock_pymc_sample")
@@ -791,8 +789,8 @@ class TestVonMises(FitPredictParent):
         idata = self.fit(model)
         assert set(idata.posterior.data_vars) == {"Intercept", "x", "kappa"}
         idata = self.predict_oos(model, idata)
-        assert (idata.posterior_predictive["y"].min() >= -np.pi).item() and (
-            idata.posterior_predictive["y"].max() <= np.pi
+        assert (idata.predictions["y"].min() >= -np.pi).item() and (
+            idata.predictions["y"].max() <= np.pi
         ).item()
 
 
@@ -823,18 +821,18 @@ class TestCategorical(FitPredictParent):
     # assert pps.shape[-1] == inhaler.shape[0]
     def assert_mean_sum(self, model, idata):
         y_mean_name = "p"
-        y_mean_posterior = idata.posterior[y_mean_name]
-        assert np.allclose(y_mean_posterior.sum(y_mean_posterior.dims[-1]).to_numpy(), 1)
+        y_mean_predictions = idata.predictions[y_mean_name]
+        assert np.allclose(y_mean_predictions.sum(y_mean_predictions.dims[-1]).to_numpy(), 1)
 
     def assert_mean_range(self, model, idata):
         y_mean_name = "p"
-        y_mean_posterior = idata.posterior[y_mean_name].to_numpy()
-        assert ((0 < y_mean_posterior) & (y_mean_posterior < 1)).all()
+        y_mean_predictions = idata.predictions[y_mean_name].to_numpy()
+        assert ((0 < y_mean_predictions) & (y_mean_predictions < 1)).all()
 
-    def assert_posterior_predictive_range(self, model, idata, n):
+    def assert_predictions_range(self, model, idata, n):
         y_name = model.response_term.label
-        y_posterior_predictive = idata.posterior_predictive[y_name].to_numpy()
-        assert set(np.unique(y_posterior_predictive)).issubset(set(range(n)))
+        response = idata.predictions[y_name].to_numpy()
+        assert set(np.unique(response)).issubset(set(range(n)))
 
     def test_basic(self, data_inhaler):
         model = bmb.Model("rating ~ period + carry + treat", data_inhaler, family="categorical")
@@ -850,16 +848,16 @@ class TestCategorical(FitPredictParent):
         assert list(idata.posterior.coords["rating_levels_reduced"].values) == ["2", "3", "4"]
 
         idata = self.predict_oos(model, idata)
-        assert list(idata.posterior["p"].coords) == [
+        assert list(idata.predictions["p"].coords) == [
             "chain",
             "draw",
             "__obs__",
             "rating_levels",
         ]
-        assert list(idata.posterior.coords["rating_levels"].values) == ["1", "2", "3", "4"]
+        assert list(idata.predictions.coords["rating_levels"].values) == ["1", "2", "3", "4"]
         self.assert_mean_range(model, idata)
         self.assert_mean_sum(model, idata)
-        self.assert_posterior_predictive_range(model, idata, len(np.unique(data_inhaler["rating"])))
+        self.assert_predictions_range(model, idata, len(np.unique(data_inhaler["rating"])))
 
     def test_varying_intercept(self, data_inhaler):
         formula = "rating ~ period + carry + treat + (1|subject)"
@@ -888,16 +886,16 @@ class TestCategorical(FitPredictParent):
         assert list(idata.posterior.coords["rating_levels_reduced"].values) == ["2", "3", "4"]
 
         idata = self.predict_oos(model, idata)
-        assert set(idata.posterior["p"].coords) == {
+        assert set(idata.predictions["p"].coords) == {
             "chain",
             "draw",
             "__obs__",
             "rating_levels",
         }
-        assert list(idata.posterior.coords["rating_levels"].values) == ["1", "2", "3", "4"]
+        assert list(idata.predictions.coords["rating_levels"].values) == ["1", "2", "3", "4"]
         self.assert_mean_range(model, idata)
         self.assert_mean_sum(model, idata)
-        self.assert_posterior_predictive_range(model, idata, len(np.unique(data_inhaler["rating"])))
+        self.assert_predictions_range(model, idata, len(np.unique(data_inhaler["rating"])))
 
     def test_categorical_predictors(self, cat_response_cat_preds_data):
         formula = "response ~ group + city"
@@ -921,10 +919,10 @@ class TestCategorical(FitPredictParent):
         assert list(idata.posterior["response_levels_reduced"].values) == ["B", "C", "D"]
 
         idata = self.predict_oos(model, idata)
-        assert list(idata.posterior["response_levels"].values) == ["A", "B", "C", "D"]
+        assert list(idata.predictions["response_levels"].values) == ["A", "B", "C", "D"]
         self.assert_mean_range(model, idata)
         self.assert_mean_sum(model, idata)
-        self.assert_posterior_predictive_range(model, idata, 4)
+        self.assert_predictions_range(model, idata, 4)
 
 
 @pytest.mark.usefixtures("mock_pymc_sample")
@@ -1003,8 +1001,8 @@ class TestOrdinal(FitPredictParent):
         idata = self.fit(model, random_seed=1234)
         idata = self.predict_oos(model, idata)
 
-        assert np.allclose(idata.posterior["p"].sum("rating_levels").to_numpy(), 1)
-        assert set(np.unique(idata.posterior_predictive["rating"])).issubset({0, 1, 2, 3})
+        assert np.allclose(idata.predictions["p"].sum("rating_levels").to_numpy(), 1)
+        assert set(np.unique(idata.predictions["rating"])).issubset({0, 1, 2, 3})
 
     def test_cumulative_family_priors(self, data_inhaler):
         priors = {
@@ -1110,36 +1108,36 @@ class TestConstrainedResponse(FitPredictParent):
         model = bmb.Model("constrained(y, -5) ~ x", truncated_data, priors=priors)
         idata = self.fit(model, random_seed=121195)
         idata = self.predict_oos(model, idata)
-        assert idata.posterior_predictive["constrained(y, -5)"].to_numpy().min() > -5
+        assert idata.predictions["constrained(y, -5)"].to_numpy().min() > -5
 
         model = bmb.Model("constrained(y, ub=5) ~ x", truncated_data, priors=priors)
         idata = self.fit(model, random_seed=121195)
         idata = self.predict_oos(model, idata)
-        assert idata.posterior_predictive["constrained(y, ub=5)"].to_numpy().max() < 5
+        assert idata.predictions["constrained(y, ub=5)"].to_numpy().max() < 5
 
         model = bmb.Model("constrained(y, -5, 5) ~ x", truncated_data, priors=priors)
         idata = self.fit(model, random_seed=121195)
         idata = self.predict_oos(model, idata)
-        assert idata.posterior_predictive["constrained(y, -5, 5)"].to_numpy().min() > -5
-        assert idata.posterior_predictive["constrained(y, -5, 5)"].to_numpy().max() < 5
+        assert idata.predictions["constrained(y, -5, 5)"].to_numpy().min() > -5
+        assert idata.predictions["constrained(y, -5, 5)"].to_numpy().max() < 5
 
 
 @pytest.mark.usefixtures("mock_pymc_sample")
 class TestMultinomial(FitPredictParent):
-    def assert_posterior_predictive(self, model, idata):
+    def assert_predictions(self, model, idata):
         y_name = model.response_term.label
-        y_posterior_predictive = idata.posterior_predictive[y_name].to_numpy()
-        assert (y_posterior_predictive.sum(-1).var((0, 1)) == 0).all()
+        response = idata.predictions[y_name].to_numpy()
+        assert (response.sum(-1).var((0, 1)) == 0).all()
 
     def test_intercept_only(self, data_multinomial):
         model = bmb.Model("counts(y1, y2, y3, y4) ~ 1", data_multinomial, family="multinomial")
         idata = self.fit(model, random_seed=121195)
         idata = self.predict_oos(model, idata, data=model.data)
-        self.assert_posterior_predictive(model, idata)
+        self.assert_predictions(model, idata)
 
         # Out of sample with different number of rows, see issue #845
         idata = self.predict_oos(model, idata, data=model.data.sample(frac=0.8, random_state=1211))
-        self.assert_posterior_predictive(model, idata)
+        self.assert_predictions(model, idata)
 
     def test_numerical_predictors(self, data_multinomial):
         model = bmb.Model(
@@ -1149,7 +1147,7 @@ class TestMultinomial(FitPredictParent):
         )
         idata = self.fit(model, random_seed=121195)
         idata = self.predict_oos(model, idata, data=model.data)
-        self.assert_posterior_predictive(model, idata)
+        self.assert_predictions(model, idata)
 
         # Log likelihood computation
         model.compute_log_likelihood(idata)
@@ -1168,7 +1166,7 @@ class TestMultinomial(FitPredictParent):
         )
         idata = self.fit(model, random_seed=121195)
         idata = self.predict_oos(model, idata, data=model.data)
-        self.assert_posterior_predictive(model, idata)
+        self.assert_predictions(model, idata)
 
     def test_group_specific_effects(self):
         data = pd.DataFrame(
@@ -1189,15 +1187,15 @@ class TestMultinomial(FitPredictParent):
         )
         idata = self.fit(model, random_seed=121195)
         idata = self.predict_oos(model, idata, data=model.data)
-        self.assert_posterior_predictive(model, idata)
+        self.assert_predictions(model, idata)
 
 
 @pytest.mark.usefixtures("mock_pymc_sample")
 class TestDirichletMultinomial(FitPredictParent):
-    def assert_posterior_predictive(self, model, idata):
+    def assert_predictions(self, model, idata):
         y_name = model.response_term.label
-        y_posterior_predictive = idata.posterior_predictive[y_name].to_numpy()
-        assert (y_posterior_predictive.sum(-1).var((0, 1)) == 0).all()
+        response = idata.predictions[y_name].to_numpy()
+        assert (response.sum(-1).var((0, 1)) == 0).all()
 
     def test_intercept_only(self, data_multinomial):
         model = bmb.Model(
@@ -1205,11 +1203,11 @@ class TestDirichletMultinomial(FitPredictParent):
         )
         idata = self.fit(model)
         idata = self.predict_oos(model, idata, model.data)
-        self.assert_posterior_predictive(model, idata)
+        self.assert_predictions(model, idata)
 
         # Out of sample with different number of rows, see issue #845
         idata = self.predict_oos(model, idata, data=model.data.sample(frac=0.8, random_state=1211))
-        self.assert_posterior_predictive(model, idata)
+        self.assert_predictions(model, idata)
 
     def test_predictor(self, data_multinomial):
         model = bmb.Model(
@@ -1219,7 +1217,7 @@ class TestDirichletMultinomial(FitPredictParent):
         )
         idata = self.fit(model)
         idata = self.predict_oos(model, idata, model.data)
-        self.assert_posterior_predictive(model, idata)
+        self.assert_predictions(model, idata)
 
 
 @pytest.mark.usefixtures("mock_pymc_sample")
@@ -1229,9 +1227,7 @@ class TestBetaBinomial(FitPredictParent):
         idata = self.fit(model)
         idata = self.predict_oos(model, idata, model.data)
         n = data_beetle["n"].to_numpy()
-        assert np.all(
-            idata.posterior_predictive["prop(y, n)"].values <= n[np.newaxis, np.newaxis, :]
-        )
+        assert np.all(idata.predictions["prop(y, n)"].values <= n[np.newaxis, np.newaxis, :])
 
 
 def test_wald_family(data_n100, mock_pymc_sample):
@@ -1251,8 +1247,8 @@ def test_wald_family(data_n100, mock_pymc_sample):
     model.predict(idata, kind="response_params", data=data_n100.iloc[:20, :])
     model.predict(idata, kind="response", data=data_n100.iloc[:20, :])
 
-    assert (0 < idata.posterior["mu"]).all()
-    assert (0 < idata.posterior_predictive["y"]).all()
+    assert (0 < idata.predictions["mu"]).all()
+    assert (0 < idata.predictions["y"]).all()
 
 
 def test_predict_include_group_specific(data_random_n100):
@@ -1267,14 +1263,14 @@ def test_predict_include_group_specific(data_random_n100):
         idata, data=data_random_n100, inplace=False, include_group_specific=False
     )
 
-    assert not np.isclose(idata_1.posterior["p"].values, idata_2.posterior["p"].values).all()
+    assert not np.isclose(idata_1.predictions["p"].values, idata_2.predictions["p"].values).all()
 
     # Since it's an intercept-only model, predictions are the same for all observations if
     # we drop group-specific terms.
-    assert (idata_2.posterior["p"] == idata_2.posterior["p"][:, :, 0]).all()
+    assert (idata_2.predictions["p"] == idata_2.predictions["p"][:, :, 0]).all()
 
     # When we include group-specific terms, these predictions are different
-    assert not (idata_1.posterior["p"] == idata_1.posterior["p"][:, :, 0]).all()
+    assert not (idata_1.predictions["p"] == idata_1.predictions["p"][:, :, 0]).all()
 
 
 def test_predict_offset(mock_pymc_sample):
@@ -1407,9 +1403,9 @@ def test_predict_new_groups_deterministic(data, formula, family, df_new, request
         param_name = parameter.alias
 
     # Extract the parameter values
-    param1 = pred1.posterior[param_name].values
-    param2 = pred2.posterior[param_name].values
-    param3 = pred3.posterior[param_name].values
+    param1 = pred1.predictions[param_name].values
+    param2 = pred2.predictions[param_name].values
+    param3 = pred3.predictions[param_name].values
 
     assert np.allclose(param1, param2), "Predictions with same random_seed should be identical"
     assert not np.allclose(

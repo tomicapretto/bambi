@@ -888,9 +888,10 @@ class Model:
             If `True` it will modify `idata` in-place. Otherwise, it will return a copy of
             `idata` with the predictions added. If `kind="response_params"`, a new variable
             with the name of the parent parameter, e.g. `"mu"` and `"sigma"` for a Gaussian
-            likelihood, or `"p"` for a Bernoulli likelihood, is added to the `posterior` group.
-            If `kind="response"`, it appends a `posterior_predictive` group to `idata`. If
-            any of these already exist, it will be overwritten.
+            likelihood, or `"p"` for a Bernoulli likelihood, is added to the `posterior` group
+            for in-sample predictions or to `predictions` for out-of-sample data. With
+            `kind="response"`, the draws are added to `posterior_predictive` in sample or to
+            `predictions` out of sample. Existing output groups are overwritten.
         include_group_specific : bool, optional
             Determines if predictions incorporate group-specific effects. If `False`, predictions
             are made with common effects only (i.e. group specific are set to zero). Defaults to
