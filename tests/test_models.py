@@ -1315,6 +1315,33 @@ def test_predict_offset(mock_pymc_sample):
     model.predict(idata, kind="response")
 
 
+def test_out_of_sample_prediction_accepts_fractional_integer_predictor(mock_pymc_sample):
+    data = pd.DataFrame({"y": [1.2, 1.8, 3.1, 3.9], "x": [1, 2, 3, 4]})
+    model = bmb.Model("y ~ x", data)
+    idata = model.fit(draws=4, chains=2)
+
+    prediction_data = pd.DataFrame({"x": [1.5, 2.5]})
+    result = model.predict(idata, data=prediction_data, inplace=False)
+
+    assert result.predictions["mu"].shape == (2, 4, 2)
+    assert model.backend.model["x_data"].dtype == "float64"
+
+
+def test_categorical_prediction_without_response_column(mock_pymc_sample):
+    data = pd.DataFrame(
+        {
+            "choice": ["fish", "other", "invertebrate", "fish"],
+            "length": [10, 12, 9, 11],
+        }
+    )
+    model = bmb.Model("choice ~ length", data, family="categorical")
+    idata = model.fit(draws=4, chains=2)
+
+    result = model.predict(idata, data=pd.DataFrame({"length": [10.5, 11.5]}), inplace=False)
+
+    assert result.predictions["p"].shape == (2, 4, 2, 3)
+
+
 def test_predict_new_groups_fail(data_sleepstudy, mock_pymc_sample):
     model = bmb.Model("Reaction ~ 1 + Days + (1 + Days | Subject)", data_sleepstudy)
     idata = model.fit(chains=2)

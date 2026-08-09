@@ -24,6 +24,7 @@ def test_shape_common_data_no_coords_single_column():
 
     assert result.shape == (5,)
     assert np.array_equal(result, np.arange(5))
+    assert result.dtype == float
 
 
 def test_shape_common_data_no_coords_multi_column():
