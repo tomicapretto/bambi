@@ -1,4 +1,5 @@
 import inspect
+import warnings
 from typing import Literal
 
 import numpy as np
@@ -53,6 +54,12 @@ def build_response_term(
         weighted_dist = make_weighted_distribution(distribution)
         with model:
             weighted_dist(term.label, **data_mapping, **parameters, dims=dims)
+        return None
+
+    if term.is_counts:
+        data_mapping = _build_counts_data(term, model, dims)
+        with model:
+            distribution(term.label, **parameters, **data_mapping, dims=dims)
         return None
 
     if term.is_binomial:
@@ -168,6 +175,22 @@ def _build_weighted_data(term: ResponseTerm, model: pm.Model, dims: tuple[str]) 
     return {"weights": weights_data, "observed": observed_data}
 
 
+def _build_counts_data(term: ResponseTerm, model: pm.Model, dims: tuple[str]) -> dict:
+    observed_data = pm.Data(term.label + "_data", term.data, dims=dims, model=model)
+    n_argument = term.components[0].call.kwargs.get("n")
+    n_name = getattr(n_argument, "name", None)
+
+    if n_argument is None:
+        n_data = observed_data.sum(axis=1)
+    elif n_name is None:
+        n_data = term.data.sum(axis=1)[0].item()
+    else:
+        obs_dims = tuple(model.__bambi_attrs__["response_coords_data"])
+        n_data = pm.Data(n_name + "_data", term.data.sum(axis=1), dims=obs_dims, model=model)
+
+    return {"observed": observed_data, "n": n_data}
+
+
 def _build_binomial_data(term: ResponseTerm, model: pm.Model, dims: tuple[str]) -> dict:
     successes, trials = term.data[:, 0], term.data[:, 1]
     call_args = _get_call_bound_arguments(term)
@@ -203,6 +226,9 @@ def build_new_response_data(
 
     if term.is_weighted:
         return _build_new_weighted_data(term, data, purpose)
+
+    if term.is_counts:
+        return _build_new_counts_data(term, data, purpose)
 
     if term.is_binomial:
         return _build_new_binomial_data(term, data, purpose)
@@ -374,6 +400,48 @@ def _build_new_weighted_data(term: ResponseTerm, data: pd.DataFrame, purpose: Pu
     if weights_name:
         output[weights_name + "_data"] = weights
 
+    return output
+
+
+def _build_new_counts_data(term: ResponseTerm, data: pd.DataFrame, purpose: Purpose):
+    component = term.components[0]
+    count_names = [argument.name for argument in component.call.args]
+    n_argument = component.call.kwargs.get("n")
+    n_name = getattr(n_argument, "name", None)
+    n = data.shape[0]
+
+    if purpose == "prediction":
+        observed = np.zeros((n, term.data.shape[1]), dtype=term.data.dtype)
+        if n_argument is None:
+            fixed_n = term.data[0].sum()
+            observed[:, 0] = fixed_n
+            warnings.warn(
+                "Using the first training total for predictions from 'counts' without 'n'. "
+                "Pass 'n' as a variable to update it with new data.",
+                UserWarning,
+            )
+
+        output = {term.label + "_data": observed}
+        if n_name is not None:
+            if n_name not in data.columns:
+                raise ValueError(f"Response term variable '{n_name}' must be present in the data.")
+            output[n_name + "_data"] = data[n_name].to_numpy()
+        return output
+
+    var_names = count_names + ([n_name] if n_name is not None else [])
+    missing_var_names = [name for name in var_names if name not in data.columns]
+    if missing_var_names:
+        present_var_names = [name for name in var_names if name in data.columns]
+        raise ValueError(
+            "Response term variables must be present in the data.\n"
+            f"Required variables: {var_names}.\n"
+            f"Present variables: {present_var_names}."
+        )
+
+    response_data = term.eval_new_data(data[var_names])
+    output = {term.label + "_data": response_data}
+    if n_name is not None:
+        output[n_name + "_data"] = response_data.sum(axis=1)
     return output
 
 

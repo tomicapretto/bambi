@@ -7,7 +7,6 @@ from bambi.families.builtin import (
     Binomial,
     Categorical,
     Cumulative,
-    DirichletMultinomial,
     Exponential,
     Gamma,
     HurdleGamma,
@@ -70,12 +69,6 @@ def _(parameters):
     return {"p": parameters["p"]}
 
 
-@transforms_registry.transform_data(DirichletMultinomial)
-def _(data):
-    # NOTE: Do we want to register 'n' as a shared variable?
-    return {"observed": data, "n": data.sum(axis=1).astype(int)}
-
-
 @transforms_registry.transform_parameters(Exponential)
 def _(parameters):
     return {"lam": 1 / parameters["mu"]}
@@ -105,12 +98,6 @@ def _(predictor, parameters, inverse_link):
     else:
         zeros = pt.zeros(shape=(predictor.shape[0], 1))
     return inverse_link(pt.concatenate((zeros, predictor), axis=-1))
-
-
-@transforms_registry.transform_data(Multinomial)
-def _(data):
-    # NOTE: Do we want to register 'n' as a shared variable?
-    return {"observed": data, "n": data.sum(axis=1).astype(int)}
 
 
 @transforms_registry.transform_predictor(StoppingRatio, "p")

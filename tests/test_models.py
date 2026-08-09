@@ -1136,7 +1136,7 @@ class TestMultinomial(FitPredictParent):
         assert (y_posterior_predictive.sum(-1).var((0, 1)) == 0).all()
 
     def test_intercept_only(self, data_multinomial):
-        model = bmb.Model("c(y1, y2, y3, y4) ~ 1", data_multinomial, family="multinomial")
+        model = bmb.Model("counts(y1, y2, y3, y4) ~ 1", data_multinomial, family="multinomial")
         idata = self.fit(model, random_seed=121195)
         idata = self.predict_oos(model, idata, data=model.data)
         self.assert_posterior_predictive(model, idata)
@@ -1147,7 +1147,9 @@ class TestMultinomial(FitPredictParent):
 
     def test_numerical_predictors(self, data_multinomial):
         model = bmb.Model(
-            "c(y1, y2, y3, y4) ~ treat + carry", data_multinomial, family="multinomial"
+            "counts(y1, y2, y3, y4) ~ treat + carry",
+            data_multinomial,
+            family="multinomial",
         )
         idata = self.fit(model, random_seed=121195)
         idata = self.predict_oos(model, idata, data=model.data)
@@ -1156,7 +1158,7 @@ class TestMultinomial(FitPredictParent):
         # Log likelihood computation
         model.compute_log_likelihood(idata)
         idata_2 = model.compute_log_likelihood(idata, data=data_multinomial, inplace=False)
-        name = "c(y1, y2, y3, y4)"
+        name = "counts(y1, y2, y3, y4)"
         assert (idata.log_likelihood[name] == idata_2.log_likelihood[name]).all().item()
 
     def test_categorical_predictors(self, data_multinomial):
@@ -1164,7 +1166,9 @@ class TestMultinomial(FitPredictParent):
         data_multinomial["carry"] = data_multinomial["carry"].replace({-1: "a", 0: "b", 1: "c"})
 
         model = bmb.Model(
-            "c(y1, y2, y3, y4) ~ treat + carry", data_multinomial, family="multinomial"
+            "counts(y1, y2, y3, y4) ~ treat + carry",
+            data_multinomial,
+            family="multinomial",
         )
         idata = self.fit(model, random_seed=121195)
         idata = self.predict_oos(model, idata, data=model.data)
@@ -1182,7 +1186,10 @@ class TestMultinomial(FitPredictParent):
         )
 
         model = bmb.Model(
-            "c(y1, y2, y3, y4) ~ 1 + (1 | state)", data, family="multinomial", noncentered=False
+            "counts(y1, y2, y3, y4) ~ 1 + (1 | state)",
+            data,
+            family="multinomial",
+            noncentered=False,
         )
         idata = self.fit(model, random_seed=121195)
         idata = self.predict_oos(model, idata, data=model.data)
@@ -1197,7 +1204,9 @@ class TestDirichletMultinomial(FitPredictParent):
         assert (y_posterior_predictive.sum(-1).var((0, 1)) == 0).all()
 
     def test_intercept_only(self, data_multinomial):
-        model = bmb.Model("c(y1, y2, y3, y4) ~ 1", data_multinomial, family="dirichlet_multinomial")
+        model = bmb.Model(
+            "counts(y1, y2, y3, y4) ~ 1", data_multinomial, family="dirichlet_multinomial"
+        )
         idata = self.fit(model)
         idata = self.predict_oos(model, idata, model.data)
         self.assert_posterior_predictive(model, idata)
@@ -1208,7 +1217,9 @@ class TestDirichletMultinomial(FitPredictParent):
 
     def test_predictor(self, data_multinomial):
         model = bmb.Model(
-            "c(y1, y2, y3, y4) ~ 0 + treat", data_multinomial, family="dirichlet_multinomial"
+            "counts(y1, y2, y3, y4) ~ 0 + treat",
+            data_multinomial,
+            family="dirichlet_multinomial",
         )
         idata = self.fit(model)
         idata = self.predict_oos(model, idata, model.data)

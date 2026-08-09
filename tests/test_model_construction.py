@@ -371,6 +371,39 @@ def test_response_is_truncated():
     assert dm.response_component.term.is_truncated is True
 
 
+def test_counts_response_data():
+    data = pd.DataFrame(
+        {
+            "y1": [1, 2, 3],
+            "y2": [3, 4, 3],
+            "n": [4, 6, 6],
+            "x": [0.0, 1.0, 2.0],
+        }
+    )
+
+    fixed_model = bmb.Model("counts(y1, y2) ~ x", data, family="multinomial")
+    assert fixed_model.response_term.is_counts is True
+    fixed_model.build()
+    assert "n_data" not in fixed_model.backend.model.named_vars
+
+    with pytest.warns(UserWarning, match="first training total"):
+        prediction_data, _ = fixed_model.backend._build_new_data(data[["x"]], "prediction")
+    assert np.array_equal(prediction_data["counts(y1, y2)_data"].sum(axis=1), np.full(len(data), 4))
+
+    log_likelihood_data, _ = fixed_model.backend._build_new_data(data, "log_likelihood")
+    assert np.array_equal(log_likelihood_data["counts(y1, y2)_data"], data[["y1", "y2"]])
+
+    variable_model = bmb.Model("counts(y1, y2, n=n) ~ x", data, family="multinomial")
+    variable_model.build()
+    assert "n_data" in variable_model.backend.model.named_vars
+
+    prediction_data, _ = variable_model.backend._build_new_data(data[["x", "n"]], "prediction")
+    assert np.array_equal(prediction_data["n_data"], data["n"])
+
+    log_likelihood_data, _ = variable_model.backend._build_new_data(data, "log_likelihood")
+    assert np.array_equal(log_likelihood_data["n_data"], data["n"])
+
+
 def test_custom_likelihood_function(mock_pymc_sample):
     df = pd.DataFrame({"y": [1, 2, 3, 4, 5], "x": [1, 1, 2, 2, 3]})
 
