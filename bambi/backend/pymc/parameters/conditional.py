@@ -153,7 +153,7 @@ def build_conditional_parameter(parameter, family: Family, model: pm.Model):
         and not parameter.hsgp_terms
     )
     if value.ndim < len(dims) or only_intercept:
-        value = pt.broadcast_to(value, tuple(len(coord) for coord in coords.values()))
+        value = pt.broadcast_to(value, tuple(model.dim_lengths[dim] for dim in dims))
     return pm.Deterministic(parameter.label, value, dims=dims, model=model)
 
 
