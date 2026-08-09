@@ -9,6 +9,7 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 import pymc as pm
+from pytensor.sparse.sharedvar import SparseTensorSharedVariable
 
 from bambi.backend.pymc.coords import coords_from_response
 from bambi.backend.pymc.parameters import build_conditional_parameter, build_marginal_parameter
@@ -34,6 +35,30 @@ _DEPRECATION_MAP = {
     "nuts_blackjax": "blackjax",
     "blackjax_nuts": "blackjax",
 }
+
+
+def _clone_model_preserving_sparse_data(model: pm.Model) -> pm.Model:
+    """Clone a model while retaining mutable sparse data containers.
+
+    `clone_model` currently represents sparse shared variables as dense views in
+    the cloned model's named variables. The shared sparse variable is still in the
+    cloned graph, but `pm.set_data` cannot find it through the name. Restore that
+    mapping so out-of-sample operations can update the clone without changing the
+    fitted model.
+    """
+    cloned_model = pm.model.fgraph.clone_model(model)
+
+    for data_var in list(cloned_model.data_vars):
+        if data_var.owner is None:
+            continue
+
+        sparse_data = data_var.owner.inputs[0]
+        if isinstance(sparse_data, SparseTensorSharedVariable):
+            cloned_model.data_vars.remove(data_var)
+            cloned_model.data_vars.append(sparse_data)
+            cloned_model.named_vars[data_var.name] = sparse_data
+
+    return cloned_model
 
 
 class PyMCModel:
@@ -218,7 +243,7 @@ class PyMCModel:
             if kind == "response":
                 var_names += responses_names
 
-            model = pm.model.fgraph.clone_model(self.model)
+            model = _clone_model_preserving_sparse_data(self.model)
             pm.set_data(new_data=new_data, coords=new_coords, model=model)
             model = replace_response_variables(self.spec.response_term, model)
             interventions = build_response_interventions(self.spec.response_term, model)
@@ -259,7 +284,7 @@ class PyMCModel:
                 )
         else:
             new_data, new_coords = self._build_new_data(data, purpose="log_likelihood")
-            model = pm.model.fgraph.clone_model(self.model)
+            model = _clone_model_preserving_sparse_data(self.model)
             pm.set_data(new_data, coords=new_coords, model=model)
             model = replace_response_variables(self.spec.response_term, model)
             with model:
