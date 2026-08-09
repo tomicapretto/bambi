@@ -35,115 +35,30 @@ def build_response_term(
         parameters = transform_parameters(parameters)
 
     if term.is_censored:
-        # NOTE: Graph intervention for predictions
-        # NOTE: Still need to handle interval censoring.
-        # NOTE: Statuses could be more efficient (in some cases) if we allowed for scalars.
-        #       For now, statuses are vectors of the same length as observed data.
-        var_names = list(_get_call_bound_arguments(term))
-        observed, status = term.data[:, 0], term.data[:, 1]
-        observed_data = pm.Data(var_names[0] + "_data", observed, dims=dims, model=model)
-        status_data = pm.Data(var_names[1] + "_data", status, dims=dims, model=model)
-
-        # Avoid PyTensor constructs when there's no such a censoring type.
-        # Left censoring
-        if not any(status == -1):
-            lower = -np.inf
-        else:
-            is_left_censored = pt.eq(status_data, -1)
-            lower = pt.switch(is_left_censored, observed_data, -np.inf)
-
-        # Right censoring
-        if not any(status == 1):
-            upper = np.inf
-        else:
-            is_right_censored = pt.eq(status_data, 1)
-            upper = pt.switch(is_right_censored, observed_data, np.inf)
-
+        data_mapping = _build_censored_data(term, model, dims)
         dist = distribution.dist(**parameters)
         with model:
-            pm.Censored(
-                term.label, dist, lower=lower, upper=upper, observed=observed_data, dims=dims
-            )
+            pm.Censored(term.label, dist, **data_mapping, dims=dims)
         return None
 
     if term.is_truncated or term.is_constrained:
-        observed, lower, upper = term.data[:, 0], term.data[:, 1], term.data[:, 2]
-        call_args = _get_call_bound_arguments(term)
-        value_name = call_args["x"]
-        observed_data = pm.Data(value_name + "_data", observed, dims=dims, model=model)
-
-        if "lb" in call_args:
-            if call_args["lb"] == "":
-                # A literal, all observations share the same lower bound.
-                lower_data = lower[0].item()
-            else:
-                # A variable name, lower bound is a vector of the same length as observed data.
-                lower_name = call_args["lb"]
-                lower_data = pm.Data(lower_name + "_data", lower, dims=dims, model=model)
-        else:
-            lower_data = None
-
-        if "ub" in call_args:
-            if call_args["ub"] == "":
-                # A literal, all observations share the same upper bound.
-                upper_data = upper[0].item()
-            else:
-                # A variable name, upper bound is a vector of the same length as observed data.
-                upper_name = call_args["ub"]
-                upper_data = pm.Data(upper_name + "_data", upper, dims=dims, model=model)
-        else:
-            upper_data = None
-
+        data_mapping = _build_truncated_data(term, model, dims)
         dist = distribution.dist(**parameters)
         with model:
-            pm.Truncated(
-                term.label,
-                dist,
-                lower=lower_data,
-                upper=upper_data,
-                observed=observed_data,
-                dims=dims,
-            )
+            pm.Truncated(term.label, dist, **data_mapping, dims=dims)
         return None
 
     if term.is_weighted:
-        observed, weights = term.data[:, 0], term.data[:, 1]
-        call_args = _get_call_bound_arguments(term)
-
-        value_name = call_args["x"]
-        observed_data = pm.Data(value_name + "_data", observed, dims=dims, model=model)
-
-        if call_args["weights"] == "":
-            # A literal, all observations share the same weight.
-            weights_data = weights[0].item()
-        else:
-            weights_name = call_args["weights"]
-            weights_data = pm.Data(weights_name + "_data", weights, dims=dims, model=model)
-
+        data_mapping = _build_weighted_data(term, model, dims)
         weighted_dist = make_weighted_distribution(distribution)
-
         with model:
-            weighted_dist(term.label, weights_data, **parameters, observed=observed_data, dims=dims)
+            weighted_dist(term.label, **data_mapping, **parameters, dims=dims)
         return None
 
     if term.is_binomial:
-        successes, trials = term.data[:, 0], term.data[:, 1]
-        call_args = _get_call_bound_arguments(term)
-
-        successes_name = call_args["successes"]
-        successes_data = pm.Data(successes_name + "_data", successes, dims=dims, model=model)
-
-        if call_args["trials"] == "":
-            # A literal, all observations share the same number of trials.
-            trials_data = trials[0].item()
-        else:
-            trials_name = call_args["trials"]
-            trials_data = pm.Data(trials_name + "_data", trials, dims=dims, model=model)
-
+        data_mapping = _build_binomial_data(term, model, dims)
         with model:
-            distribution(
-                term.label, **parameters, observed=successes_data, n=trials_data, dims=dims
-            )
+            distribution(term.label, **parameters, **data_mapping, dims=dims)
 
         return None
 
@@ -182,6 +97,93 @@ def build_response_term(
 
 
 Purpose = Literal["prediction", "log_likelihood"]
+
+
+def _build_censored_data(
+    term: ResponseTerm, model: pm.Model, dims: tuple[str]
+) -> dict[str, pt.TensorVariable]:
+    # NOTE: Statuses could be more efficient (in some cases) if we allowed for scalars.
+    #       For now, statuses are vectors of the same length as observed data.
+    var_names = list(_get_call_bound_arguments(term))
+    observed, status = term.data[:, 0], term.data[:, 1]
+    observed_data = pm.Data(var_names[0] + "_data", observed, dims=dims, model=model)
+    status_data = pm.Data(var_names[1] + "_data", status, dims=dims, model=model)
+
+    lower, upper = -np.inf, np.inf
+    if any(status == -1):
+        is_left_censored = pt.eq(status_data, -1)
+        lower = pt.switch(is_left_censored, observed_data, -np.inf)
+
+    if any(status == 1):
+        is_right_censored = pt.eq(status_data, 1)
+        upper = pt.switch(is_right_censored, observed_data, np.inf)
+
+    return {"lower": lower, "upper": upper, "observed": observed_data}
+
+
+def _build_truncated_data(term: ResponseTerm, model: pm.Model, dims: tuple[str]) -> dict:
+    observed, lower, upper = term.data[:, 0], term.data[:, 1], term.data[:, 2]
+    call_args = _get_call_bound_arguments(term)
+    value_name = call_args["x"]
+    observed_data = pm.Data(value_name + "_data", observed, dims=dims, model=model)
+
+    if "lb" not in call_args:
+        lower_data = None
+    elif call_args["lb"] == "":
+        # A literal, all observations share the same lower bound.
+        lower_data = lower[0].item()
+    else:
+        # A variable name, lower bound is a vector of the same length as observed data.
+        lower_name = call_args["lb"]
+        lower_data = pm.Data(lower_name + "_data", lower, dims=dims, model=model)
+
+    if "ub" not in call_args:
+        upper_data = None
+    elif call_args["ub"] == "":
+        # A literal, all observations share the same upper bound.
+        upper_data = upper[0].item()
+    else:
+        # A variable name, upper bound is a vector of the same length as observed data.
+        upper_name = call_args["ub"]
+        upper_data = pm.Data(upper_name + "_data", upper, dims=dims, model=model)
+
+    return {"lower": lower_data, "upper": upper_data, "observed": observed_data}
+
+
+def _build_weighted_data(term: ResponseTerm, model: pm.Model, dims: tuple[str]) -> dict:
+    observed, weights = term.data[:, 0], term.data[:, 1]
+    call_args = _get_call_bound_arguments(term)
+
+    value_name = call_args["x"]
+    observed_data = pm.Data(value_name + "_data", observed, dims=dims, model=model)
+
+    if call_args["weights"] == "":
+        # A literal, all observations share the same weight.
+        weights_data = weights[0].item()
+    else:
+        # A variable name, weights are a vector of the same length as observed data.
+        weights_name = call_args["weights"]
+        weights_data = pm.Data(weights_name + "_data", weights, dims=dims, model=model)
+
+    return {"weights": weights_data, "observed": observed_data}
+
+
+def _build_binomial_data(term: ResponseTerm, model: pm.Model, dims: tuple[str]) -> dict:
+    successes, trials = term.data[:, 0], term.data[:, 1]
+    call_args = _get_call_bound_arguments(term)
+
+    successes_name = call_args["successes"]
+    successes_data = pm.Data(successes_name + "_data", successes, dims=dims, model=model)
+
+    if call_args["trials"] == "":
+        # A literal, all observations share the same number of trials.
+        trials_data = trials[0].item()
+    else:
+        # A variable name, trials are a vector of the same length as observed data.
+        trials_name = call_args["trials"]
+        trials_data = pm.Data(trials_name + "_data", trials, dims=dims, model=model)
+
+    return {"observed": successes_data, "n": trials_data}
 
 
 def build_new_response_data(
