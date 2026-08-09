@@ -263,7 +263,7 @@ CASES = [
     ),
     Case(
         "dirichlet_multinomial_inhaler",
-        "c(y1, y2, y3, y4) ~ 0 + treat",
+        "counts(y1, y2, y3, y4) ~ 0 + treat",
         multinomial_inhaler_data,
         family="dirichlet_multinomial",
     ),
