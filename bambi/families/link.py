@@ -120,14 +120,15 @@ class Link:
     ----------
     name : str
         The name of the link function. If it is a known name, it's not necessary to pass any
-        other arguments because functions are already defined internally. If not known, all of
-        `link`, `linkinv` and `linkinv_backend` must be specified.
+        other arguments because functions are already defined internally. If not known,
+        `inverse_link` must be specified.
     link : function or None, optional
         A function that maps the response to the linear predictor. Known as the :math:`g` function
-        in GLM jargon. Does not need to be specified when `name` is a known name.
+        in GLM jargon. It is optional for custom links because Bambi does not currently use it.
     inverse_link : function or None, optional
         A function that maps the linear predictor to the response. Known as the :math:`g^{-1}`
-        function in GLM jargon. Does not need to be specified when `name` is a known name.
+        function in GLM jargon. For custom links, it must be compatible with the active backend,
+        which is currently PyMC.
     """
 
     def __init__(self, name, link=None, inverse_link=None):
@@ -139,14 +140,17 @@ class Link:
             self.link = LINKS[name].link
             self.inverse_link = LINKS[name].inverse_link
         else:
-            if not link or not inverse_link:
+            if inverse_link is None:
                 raise ValueError(
-                    f"Link name '{name}' is not supported and at least one of 'link' or "
-                    "'inverse_link' are unspecified."
+                    f"Link name '{name}' is not supported and 'inverse_link' is unspecified."
                 )
 
     def __str__(self):
-        args = [f"name: {self.name}", f"link: {self.link}", f"linkinv: {self.linkinv}"]
+        args = [
+            f"name: {self.name}",
+            f"link: {self.link}",
+            f"inverse_link: {self.inverse_link}",
+        ]
         return f"{self.__class__.__name__}({indentify(multilinify(args))}\n)"
 
     def __repr__(self):

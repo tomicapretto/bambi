@@ -4,7 +4,7 @@ import bambi as bmb
 import numpy as np
 import pymc as pm
 import pandas as pd
-from scipy import special
+import pytensor.tensor as pt
 
 
 def test_prior_class():
@@ -139,10 +139,14 @@ def test_family_link_unsupported():
 
 def test_custom_link(data_random_n100):
     likelihood = bmb.Likelihood("Bernoulli", parent="p")
-    link = bmb.Link("my_logit", link=special.logit, inverse_link=special.expit)
+    link = bmb.Link(
+        "my_logit",
+        inverse_link=lambda x: pt.zeros_like(x) + 0.25,
+    )
     family = bmb.Family("bernoulli", likelihood, link)
     model = bmb.Model("binary_num ~ continuous1 + continuous2", data_random_n100, family=family)
     model.build()
+    assert np.allclose(model.backend.model["p"].eval(), 0.25)
 
 
 def test_family_bad_type():
