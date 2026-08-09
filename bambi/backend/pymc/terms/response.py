@@ -559,7 +559,7 @@ def _build_new_binomial_data(term: ResponseTerm, data: pd.DataFrame, purpose: Pu
         )
 
     if purpose == "prediction":
-        data_dict = {successes_name: np.zeros(n)}
+        data_dict = {successes_name: np.zeros(n, dtype=term.data.dtype)}
     else:
         data_dict = {successes_name: data[successes_name].to_numpy()}
 
@@ -584,7 +584,11 @@ def _build_new_generic_data(
 
     if purpose == "prediction":
         data_dict = {
-            name: data[name].to_numpy() if name in data.columns else np.zeros(n)
+            name: (
+                data[name].to_numpy()
+                if name in data.columns
+                else np.zeros(n, dtype=term.data.dtype)
+            )
             for name in var_names
         }
     else:
