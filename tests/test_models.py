@@ -109,7 +109,8 @@ class TestGaussian(FitPredictParent):
     def test_intercept_only_model(self, data_crossed):
         model = bmb.Model("Y ~ 1", data_crossed)
         idata = self.fit(model)
-        self.predict_oos(model, idata)
+        result = self.predict_oos(model, idata)
+        assert result.predictions["Y"].shape[-1] == 5
 
     def test_slope_only_model(self, data_crossed):
         model = bmb.Model("Y ~ 0 + continuous", data_crossed)
