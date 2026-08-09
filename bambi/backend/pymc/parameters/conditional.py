@@ -8,6 +8,7 @@ from bambi.backend.pymc.terms import (
     build_common_term,
     build_group_specific_term_dot,
     build_group_specific_term_idx,
+    build_hsgp_term,
     build_intercept_term,
 )
 from bambi.backend.pymc.utils import INVERSE_LINKS
@@ -130,6 +131,9 @@ def build_conditional_parameter(parameter, family: Family, model: pm.Model):
             terms=parameter.group_specific_terms, param_spec=param_spec, model=model
         )
 
+    for term in parameter.hsgp_terms.values():
+        value += build_hsgp_term(term, param_spec, model)
+
     # TODO: Make sure parameters are built in the appropriate order
     transform_predictor = transforms_registry.get_predictor_transform(family, parameter.name)
     if transform_predictor:
@@ -157,7 +161,8 @@ def build_conditional_parameter(parameter, family: Family, model: pm.Model):
     return pm.Deterministic(parameter.label, value, dims=dims, model=model)
 
 
-def get_conditional_parameter_data(parameter, data, model: pm.Model):
+def build_new_conditional_parameter_data(parameter, data, model: pm.Model):
+    """Build the data mapping needed to update a conditional parameter for new observations."""
     data_dict = {}
 
     for term in parameter.common_terms.values():
@@ -192,5 +197,13 @@ def get_conditional_parameter_data(parameter, data, model: pm.Model):
                     coords={dim: model.coords[dim] for dim in term_value_dims},
                 )
                 data_dict[term_value_name] = term_value_data
+
+    for term in parameter.hsgp_terms.values():
+        term_data = term.term.eval_new_data(data)
+        if term.by_levels is not None:
+            by_data = term_data[:, -1].astype(int)
+            term_data = term_data[:, :-1]
+            data_dict[f"{term.label}_by_idx"] = by_data
+        data_dict[f"{term.label}_data"] = term_data
 
     return data_dict

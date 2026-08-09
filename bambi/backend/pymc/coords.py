@@ -118,13 +118,13 @@ def coords_from_group_specific(term):
 
 def coords_from_hsgp(term):
     # This handles univariate and multivariate cases
-    coords = {f"{term.name}_weights_dim": range(np.prod(term.m))}
+    coords = {f"{term.label}_weights_dim": range(np.prod(term.m))}
 
     if term.by_levels is not None:
-        coords[f"{term.name}_by"] = term.by_levels
+        coords[f"{term.label}_by"] = term.by_levels
 
     if not term.iso and term.shape[1] > 1:
-        coords[f"{term.name}_var"] = range(term.shape[1])
+        coords[f"{term.label}_var"] = range(term.shape[1])
 
     return coords
 
