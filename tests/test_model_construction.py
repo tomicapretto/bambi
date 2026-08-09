@@ -823,6 +823,7 @@ def test_sparse_dot_univariate(mock_pymc_sample):
     # NOTE: names for dense are tested elsewhere
     names = {
         "Intercept",
+        "Intercept_centered",
         "x1",
         "x2",
         "g1[b]",
@@ -833,9 +834,9 @@ def test_sparse_dot_univariate(mock_pymc_sample):
         "1|g2[x]",
         "1|g2[y]",
         "1|g2[z]",
-        "g1|g2[b, x]",
-        "g1|g2[b, y]",
-        "g1|g2[b, z]",
+        "g1|g2[x, b]",
+        "g1|g2[y, b]",
+        "g1|g2[z, b]",
         "x2|g2[x]",
         "x2|g2[y]",
         "x2|g2[z]",
