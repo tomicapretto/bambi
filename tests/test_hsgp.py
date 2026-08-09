@@ -3,6 +3,7 @@ import re
 
 import numpy as np
 import pandas as pd
+import pymc as pm
 import pytest
 from helpers import assert_ip_dlogp
 
@@ -41,6 +42,20 @@ def test_minimal_1d_fits(data_1d_single_group, mock_pymc_sample):
     model.build()
     assert_ip_dlogp(model)
     model.fit(tune=500, draws=500, chains=2, random_seed=1234)
+
+
+def test_hsgp_contributes_to_conditional_parameter(data_1d_single_group):
+    model = bmb.Model("y ~ 0 + hsgp(x, c=1.5, m=10)", data_1d_single_group)
+    model.build()
+    term = model.parameters["mu"].hsgp_terms["hsgp(x, c=1.5, m=10)"]
+
+    np.testing.assert_allclose(model.backend.model[f"{term.label}_data"].get_value(), term.data)
+
+    mu, contribution = pm.draw(
+        [model.backend.model["mu"], model.backend.model["hsgp(x, c=1.5, m=10)"]]
+    )
+
+    np.testing.assert_allclose(mu, contribution)
 
 
 def test_required_params(data_1d_single_group):

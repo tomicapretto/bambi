@@ -12,7 +12,7 @@ import pymc as pm
 
 from bambi.backend.pymc.coords import coords_from_response
 from bambi.backend.pymc.parameters import build_conditional_parameter, build_marginal_parameter
-from bambi.backend.pymc.parameters.conditional import get_conditional_parameter_data
+from bambi.backend.pymc.parameters.conditional import build_new_conditional_parameter_data
 from bambi.backend.pymc.terms import build_potentials, build_response_term
 from bambi.backend.pymc.terms.response import (
     build_new_response_data,
@@ -284,7 +284,7 @@ class PyMCModel:
         new_data = build_new_response_data(self.spec.response_term, data, self.spec.family, purpose)
 
         for parameter in self.spec.conditional_parameters.values():
-            new_data.update(get_conditional_parameter_data(parameter, data, self.model))
+            new_data.update(build_new_conditional_parameter_data(parameter, data, self.model))
 
         return new_data, new_coords
 
