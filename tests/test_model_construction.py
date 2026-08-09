@@ -878,3 +878,23 @@ def test_sparse_dot_multivariate(data_inhaler, mock_pymc_sample):
     idata_dense = model_dense.fit(chains=2)
     idata_sparse = model_sparse.fit(chains=2)
     assert set(az.summary(idata_dense).index) == set(az.summary(idata_sparse).index)
+
+
+def test_sparse_dot_out_of_sample_prediction(mock_pymc_sample):
+    data = pd.DataFrame(
+        {
+            "y": [0.1, 0.3, -0.2, 0.5, 0.7, -0.4],
+            "x": [1, 2, 3, 4, 5, 6],
+            "group": ["a", "a", "b", "b", "c", "c"],
+        }
+    )
+    bmb.config.SPARSE_DOT = True
+    model = bmb.Model("y ~ x + (1 + x|group)", data)
+    idata = model.fit(draws=4, chains=2)
+
+    original_data = model.backend.model["1|group_data"].get_value().copy()
+    result = model.predict(idata, data=data.head(3), kind="response", inplace=False)
+
+    assert result.predictions["y"].shape == (2, 4, 3)
+    assert model.backend.model["1|group_data"].get_value().shape == original_data.shape
+    assert (model.backend.model["1|group_data"].get_value() != original_data).nnz == 0
