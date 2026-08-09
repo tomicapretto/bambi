@@ -14,7 +14,11 @@ from bambi.backend.pymc.coords import coords_from_response
 from bambi.backend.pymc.parameters import build_conditional_parameter, build_marginal_parameter
 from bambi.backend.pymc.parameters.conditional import get_conditional_parameter_data
 from bambi.backend.pymc.terms import build_potentials, build_response_term
-from bambi.backend.pymc.terms.response import build_new_response_data
+from bambi.backend.pymc.terms.response import (
+    build_new_response_data,
+    build_response_interventions,
+    replace_response_variables,
+)
 
 _logger = logging.getLogger("bambi")
 
@@ -182,7 +186,6 @@ class PyMCModel:
         responses_names = [self.spec.response_term.label]
 
         if data is None:
-            # NOTE: In-sample prediction can also requires the mutation of model graph.
             with self.model:
                 idata["posterior"] = pm.compute_deterministics(
                     dataset=idata["posterior"],
@@ -205,9 +208,13 @@ class PyMCModel:
             if kind == "response":
                 var_names += responses_names
 
-            # NOTE: Graph intervention for different cases
-            with pm.model.fgraph.clone_model(self.model):
-                pm.set_data(new_data=new_data, coords=new_coords)
+            model = pm.model.fgraph.clone_model(self.model)
+            pm.set_data(new_data=new_data, coords=new_coords, model=model)
+            model = replace_response_variables(self.spec.response_term, model)
+            interventions = build_response_interventions(self.spec.response_term, model)
+            if interventions:
+                model = pm.do(model, interventions)
+            with model:
                 pm.sample_posterior_predictive(
                     trace=idata,
                     var_names=var_names,
@@ -242,8 +249,10 @@ class PyMCModel:
                 )
         else:
             new_data, new_coords = self._build_new_data(data, purpose="log_likelihood")
-            with pm.model.fgraph.clone_model(self.model):
-                pm.set_data(new_data, coords=new_coords)
+            model = pm.model.fgraph.clone_model(self.model)
+            pm.set_data(new_data, coords=new_coords, model=model)
+            model = replace_response_variables(self.spec.response_term, model)
+            with model:
                 pm.compute_log_likelihood(
                     idata=idata,
                     var_names=[self.spec.response_term.label],
