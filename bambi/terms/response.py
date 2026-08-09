@@ -12,6 +12,7 @@ class ResponseTerm(BaseTerm):
         self.is_constrained = is_response_of_kind(self.term, "constrained")
         self.is_truncated = is_response_of_kind(self.term, "truncated")
         self.is_weighted = is_response_of_kind(self.term, "weighted")
+        self.is_counts = is_response_of_kind(self.term, "counts")
         self.is_binomial = self.term.kind == "proportion"  # NOTE: could update formulae pkg
 
     @property
