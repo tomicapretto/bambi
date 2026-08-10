@@ -1375,7 +1375,9 @@ def test_categorical_prediction_without_response_column(mock_pymc_sample):
     assert result.predictions["p"].shape == (2, 4, 2, 3)
 
 
-def test_predict_new_groups_fail(data_sleepstudy, mock_pymc_sample):
+@pytest.mark.parametrize("sparse_dot", [False, True])
+def test_predict_new_groups_fail(data_sleepstudy, mock_pymc_sample, monkeypatch, sparse_dot):
+    monkeypatch.setattr(bmb.config, "SPARSE_DOT", sparse_dot)
     model = bmb.Model("Reaction ~ 1 + Days + (1 + Days | Subject)", data_sleepstudy)
     idata = model.fit(chains=2)
     model.build()
@@ -1419,7 +1421,11 @@ def test_predict_new_groups_fail(data_sleepstudy, mock_pymc_sample):
         ),
     ],
 )
-def test_predict_new_groups(data, formula, family, df_new, request, mock_pymc_sample):
+@pytest.mark.parametrize("sparse_dot", [False, True])
+def test_predict_new_groups(
+    data, formula, family, df_new, request, mock_pymc_sample, monkeypatch, sparse_dot
+):
+    monkeypatch.setattr(bmb.config, "SPARSE_DOT", sparse_dot)
     data = request.getfixturevalue(data)
     model = bmb.Model(formula, data, family=family)
     model.build()
@@ -1485,6 +1491,48 @@ def test_predict_new_groups_deterministic(data, formula, family, df_new, request
     assert not np.allclose(
         param1, param3
     ), "Predictions with different random_seed should be different"
+
+
+@pytest.mark.parametrize("sparse_dot", [False, True])
+def test_predict_new_groups_mixed_known_and_unseen_levels(
+    data_sleepstudy, mock_pymc_sample, monkeypatch, sparse_dot
+):
+    monkeypatch.setattr(bmb.config, "SPARSE_DOT", sparse_dot)
+    model = bmb.Model("Reaction ~ 1 + Days + (1 + Days | Subject)", data_sleepstudy)
+    idata = model.fit(draws=4, chains=2)
+
+    known_data = data_sleepstudy.head(2).reset_index(drop=True)
+    mixed_data = pd.concat([known_data, known_data.assign(Subject="unseen")], ignore_index=True)
+
+    known_predictions = model.predict(idata, data=known_data, inplace=False)
+    mixed_predictions = model.predict(
+        idata, data=mixed_data, sample_new_groups=True, random_seed=42, inplace=False
+    )
+
+    np.testing.assert_allclose(
+        known_predictions.predictions["mu"],
+        mixed_predictions.predictions["mu"].isel(__obs__=[0, 1]),
+    )
+    assert mixed_predictions.predictions["mu"].shape == (2, 4, 4)
+
+    # Group effects are omitted entirely, so unseen levels need not be sampled or rejected.
+    no_group_predictions = model.predict(
+        idata, data=mixed_data, include_group_specific=False, inplace=False
+    )
+    assert no_group_predictions.predictions["mu"].shape == (2, 4, 4)
+
+
+def test_predict_new_group_sparse_single_term(mock_pymc_sample, monkeypatch):
+    monkeypatch.setattr(bmb.config, "SPARSE_DOT", True)
+    data = pd.DataFrame({"y": [0.0, 1.0, 2.0, 3.0], "group": ["a", "a", "b", "b"]})
+    model = bmb.Model("y ~ 1 + (1 | group)", data)
+    idata = model.fit(draws=4, chains=2)
+
+    result = model.predict(
+        idata, data=pd.DataFrame({"group": ["unseen"]}), sample_new_groups=True, inplace=False
+    )
+
+    assert result.predictions["mu"].shape == (2, 4, 1)
 
 
 def test_weighted(mock_pymc_sample):

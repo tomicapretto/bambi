@@ -14,12 +14,16 @@ from pytensor.sparse.sharedvar import SparseTensorSharedVariable
 
 from bambi.backend.pymc.coords import coords_from_response
 from bambi.backend.pymc.parameters import (
+    add_new_group_specific_contributions,
     build_conditional_parameter,
     build_marginal_parameter,
     build_omitted_group_offsets,
     remove_group_specific_contributions,
 )
-from bambi.backend.pymc.parameters.conditional import build_new_conditional_parameter_data
+from bambi.backend.pymc.parameters.conditional import (
+    build_new_conditional_parameter_data,
+    new_group_selector_name,
+)
 from bambi.backend.pymc.terms import build_potentials, build_response_term
 from bambi.backend.pymc.terms.response import (
     build_new_response_data,
@@ -258,20 +262,30 @@ class PyMCModel:
 
                 idata.add_groups({"posterior_predictive": predictions.posterior_predictive})
         else:
-            new_data, new_coords = self._build_new_data(data, purpose="prediction")
+            new_data, new_coords, new_groups = self._build_new_data(data, purpose="prediction")
+            if new_groups and not sample_new_groups and include_group_specific:
+                factors = tuple(new_groups)
+                raise ValueError(
+                    f"There are new groups for the factors {factors} and "
+                    "'sample_new_groups' is False."
+                )
             var_names = parameters_names[:]
             if kind == "response":
                 var_names += responses_names
 
-            trace = idata
-            if offset_values:
-                trace = idata.posterior.assign(offset_values)
+            trace = idata.posterior.assign(offset_values)
+            if new_groups and sample_new_groups and include_group_specific:
+                trace = self._add_new_group_selectors(trace, new_groups, random_seed)
 
             model = _clone_model_preserving_sparse_data(self.model)
             pm.set_data(new_data=new_data, coords=new_coords, model=model)
             if not include_group_specific:
                 model = remove_group_specific_contributions(
                     self.spec.conditional_parameters.values(), model
+                )
+            elif new_groups and sample_new_groups:
+                model = add_new_group_specific_contributions(
+                    self.spec.conditional_parameters.values(), model, new_groups
                 )
             model = replace_response_variables(self.spec.response_term, model)
             interventions = build_response_interventions(self.spec.response_term, model)
@@ -283,15 +297,14 @@ class PyMCModel:
                     var_names=var_names,
                     progressbar=progressbar,
                     random_seed=random_seed,
-                    extend_inferencedata=not offset_values,
+                    extend_inferencedata=False,
                     predictions=True,
                 )
-            if offset_values:
-                idata.add_groups({"predictions": predictions.predictions})
-                if "predictions_constant_data" in predictions:
-                    idata.add_groups(
-                        {"predictions_constant_data": predictions.predictions_constant_data}
-                    )
+            idata.add_groups({"predictions": predictions.predictions})
+            if "predictions_constant_data" in predictions:
+                idata.add_groups(
+                    {"predictions_constant_data": predictions.predictions_constant_data}
+                )
 
         if inplace:
             return None
@@ -331,7 +344,12 @@ class PyMCModel:
                     idata=trace, extend_inferencedata=True, progressbar=progressbar
                 )
         else:
-            new_data, new_coords = self._build_new_data(data, purpose="log_likelihood")
+            new_data, new_coords, new_groups = self._build_new_data(data, purpose="log_likelihood")
+            if new_groups:
+                factors = tuple(new_groups)
+                raise ValueError(
+                    f"Cannot compute log likelihood for new groups of the factors {factors}."
+                )
             model = _clone_model_preserving_sparse_data(self.model)
             pm.set_data(new_data, coords=new_coords, model=model)
             model = replace_response_variables(self.spec.response_term, model)
@@ -356,14 +374,32 @@ class PyMCModel:
 
         return idata
 
+    def _add_new_group_selectors(self, posterior, new_groups, random_seed):
+        """Add per-draw sampled fitted-level indices to a posterior dataset."""
+        rng = np.random.default_rng(random_seed)
+        draw_n = posterior.sizes["draw"]
+        chain_n = posterior.sizes["chain"]
+        selector_data = {}
+        for factor_name, n_levels in new_groups.items():
+            # Match the historical implementation: choices vary by draw and are shared by chains.
+            sampled_idxs = rng.choice(n_levels, size=draw_n)
+            selector_data[new_group_selector_name(factor_name)] = (
+                ("chain", "draw"),
+                np.broadcast_to(sampled_idxs, (chain_n, draw_n)),
+            )
+        return posterior.assign(selector_data)
+
     def _build_new_data(self, data, purpose):
         new_coords = {"__obs__": range(len(data))}
         new_data = build_new_response_data(self.spec.response_term, data, self.spec.family, purpose)
+        new_groups = {}
 
         for parameter in self.spec.conditional_parameters.values():
-            new_data.update(build_new_conditional_parameter_data(parameter, data, self.model))
+            new_data.update(
+                build_new_conditional_parameter_data(parameter, data, self.model, new_groups)
+            )
 
-        return new_data, new_coords
+        return new_data, new_coords, new_groups
 
     def _run_mcmc(
         self,
