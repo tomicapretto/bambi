@@ -4,6 +4,10 @@ import numpy as np
 import pymc as pm
 import pytensor.tensor as pt
 import pytensor.sparse as ps
+from pymc.model.fgraph import fgraph_from_model, model_from_fgraph
+from pymc.model.transform.basic import prune_vars_detached_from_observed
+from pymc.pytensorf import toposort_replace
+from pytensor.graph.traversal import ancestors
 
 from bambi.backend.pymc.terms import (
     build_common_term,
@@ -25,6 +29,8 @@ _ENSURE_NDIM_MAPPING = {
     0: pt.atleast_1d,
     1: pt.atleast_2d,
 }
+
+_GROUP_SPECIFIC_TAG = "group_specific_contribution"
 
 
 def _ensure_2d(x):
@@ -125,6 +131,48 @@ def build_omitted_group_offsets(parameter):
     return offsets
 
 
+def remove_group_specific_contributions(parameters, model: pm.Model) -> pm.Model:
+    """Return a model without tagged group-specific predictor contributions.
+
+    Removes the complete subgraph for the group-specific contribution
+    while leaving coefficient variables and the fitted model untouched.
+    """
+    fgraph, memo = fgraph_from_model(model)
+    replacements = []
+
+    for parameter in parameters:
+        if not parameter.group_specific_terms:
+            continue
+
+        label = parameter.label
+        contribution = next(
+            (
+                variable
+                for variable in ancestors([model[label]])
+                if getattr(variable.tag, _GROUP_SPECIFIC_TAG, None) == label
+            ),
+            None,
+        )
+        if contribution is None:
+            raise ValueError(f"Could not find group-specific contribution for parameter '{label}'.")
+
+        term = next(iter(parameter.group_specific_terms.values()))
+        coords_expr, coords_factor = coords_from_group_specific(term)
+        term_dims = model.named_vars_to_dims[term.label]
+        output_dims_start = len(coords_factor) + len(coords_expr)
+        dims = ("__obs__", *term_dims[output_dims_start:])
+
+        contribution = memo[contribution]
+        shape = tuple(memo.get(model.dim_lengths[dim], model.dim_lengths[dim]) for dim in dims)
+        replacements.append((contribution, pt.zeros(shape, dtype=contribution.dtype)))
+
+    if replacements:
+        toposort_replace(fgraph, replacements, reverse=True)
+
+    model = model_from_fgraph(fgraph, mutate_fgraph=True)
+    return prune_vars_detached_from_observed(model)
+
+
 def build_conditional_parameter(parameter, family: Family, model: pm.Model):
     value = 0
     param_spec = family.get_param_spec(parameter.name)
@@ -142,9 +190,11 @@ def build_conditional_parameter(parameter, family: Family, model: pm.Model):
         )
 
     if parameter.group_specific_terms:
-        value += _build_group_specific(
+        group_specific_contribution = _build_group_specific(
             terms=parameter.group_specific_terms, param_spec=param_spec, model=model
         )
+        setattr(group_specific_contribution.tag, _GROUP_SPECIFIC_TAG, parameter.label)
+        value += group_specific_contribution
 
     for term in parameter.hsgp_terms.values():
         value += build_hsgp_term(term, param_spec, model)

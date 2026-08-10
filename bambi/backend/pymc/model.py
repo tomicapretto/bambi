@@ -17,6 +17,7 @@ from bambi.backend.pymc.parameters import (
     build_conditional_parameter,
     build_marginal_parameter,
     build_omitted_group_offsets,
+    remove_group_specific_contributions,
 )
 from bambi.backend.pymc.parameters.conditional import build_new_conditional_parameter_data
 from bambi.backend.pymc.terms import build_potentials, build_response_term
@@ -193,9 +194,7 @@ class PyMCModel:
         inplace=True,
         progressbar=True,
     ):
-        # NOTE:
-        # - How to handle `include_group_specific`? Set parameters to 0 via graph intervention?
-        # - How to handle `sample_new_groups`? Not sure if there's a PyMC native way.
+        # NOTE: How to handle `sample_new_groups`? Not sure if there's a PyMC native way.
 
         if not inplace:
             idata = deepcopy(idata)
@@ -230,8 +229,15 @@ class PyMCModel:
             else:
                 posterior_for_prediction = idata.posterior
 
+            model = self.model
+            if not include_group_specific:
+                model = _clone_model_preserving_sparse_data(model)
+                model = remove_group_specific_contributions(
+                    self.spec.conditional_parameters.values(), model
+                )
+
             # It's assumed the user always wants the parameter 'predictions' (mu, sigma, etc.)
-            with self.model:
+            with model:
                 posterior_for_prediction = pm.compute_deterministics(
                     dataset=posterior_for_prediction,
                     var_names=parameters_names,
@@ -263,6 +269,10 @@ class PyMCModel:
 
             model = _clone_model_preserving_sparse_data(self.model)
             pm.set_data(new_data=new_data, coords=new_coords, model=model)
+            if not include_group_specific:
+                model = remove_group_specific_contributions(
+                    self.spec.conditional_parameters.values(), model
+                )
             model = replace_response_variables(self.spec.response_term, model)
             interventions = build_response_interventions(self.spec.response_term, model)
             if interventions:
