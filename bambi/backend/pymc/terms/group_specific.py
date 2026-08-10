@@ -120,6 +120,9 @@ def build_group_specific_term_idx(term, param_spec: ParamSpec, model: pm.Model) 
         param_rv = param_rv.reshape((-1, *tail_shape))
 
     selected_param = param_rv[group_idx_data]
+    # Keep enough provenance to replace this lookup in prediction-only model clones
+    # when unseen grouping levels are sampled from existing posterior levels.
+    selected_param.tag.group_specific_factor = term.factor_name
 
     if is_intercept:
         return selected_param
