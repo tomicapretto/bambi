@@ -237,9 +237,10 @@ class TestPredictions:
 
         formula = bmb.Formula("y ~ x", "alpha ~ x")
         model = bmb.Model(formula, data_gamma, family="gamma")
+        initvals = {"Intercept_centered": 1 / y.mean()}
 
         # Without alias
-        idata = model.fit(tune=100, draws=100, random_seed=1234)
+        idata = model.fit(tune=100, draws=100, random_seed=1234, initvals=initvals)
         # Test default target
         result = plot_predictions(model, idata, "x", pps=pps)
         assert isinstance(result, Plot)
@@ -250,7 +251,7 @@ class TestPredictions:
         # With alias
         alias = {"alpha": {"Intercept": "sd_intercept", "x": "sd_x", "alpha": "sd_alpha"}}
         model.set_alias(alias)
-        idata = model.fit(tune=100, draws=100, random_seed=1234)
+        idata = model.fit(tune=100, draws=100, random_seed=1234, initvals=initvals)
 
         # Test user supplied target argument
         result = plot_predictions(model, idata, "x", target="alpha", pps=False)
