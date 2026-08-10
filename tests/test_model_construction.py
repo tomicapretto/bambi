@@ -230,7 +230,8 @@ def test_omit_offsets_false(data_random_n100, mock_pymc_sample):
 def test_omit_offsets_true(data_random_n100, mock_pymc_sample):
     model = bmb.Model("continuous1 ~ continuous2 + (continuous2|binary_cat)", data_random_n100)
     idata = model.fit(chains=2, omit_offsets=True)
-    model.build()
+    model.predict(idata)
+    model.predict(idata, kind="response")
     assert_ip_dlogp(model)
     offsets = [var for var in idata.posterior.var() if var.endswith("_offset")]
     assert not offsets

@@ -1,3 +1,5 @@
+import operator
+
 import numpy as np
 import pymc as pm
 import pytensor.tensor as pt
@@ -108,6 +110,19 @@ def _build_group_specific_idx(terms, param_spec: ParamSpec, model: pm.Model):
     for term in terms.values():
         contribution += build_group_specific_term_idx(term, param_spec, model)
     return contribution
+
+
+def build_omitted_group_offsets(parameter):
+    """Build recipes for reconstructing omitted non-centered group offsets."""
+    offsets = {}
+    for term in parameter.group_specific_terms.values():
+        if term.noncentered:
+            offsets[f"{term.label}_offset"] = (
+                operator.truediv,
+                term.label,
+                f"{term.label}_sigma",
+            )
+    return offsets
 
 
 def build_conditional_parameter(parameter, family: Family, model: pm.Model):
