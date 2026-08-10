@@ -1,5 +1,6 @@
 import operator
 
+import formulae as fm
 import numpy as np
 import pymc as pm
 import pytensor.tensor as pt
@@ -31,6 +32,11 @@ _ENSURE_NDIM_MAPPING = {
 }
 
 _GROUP_SPECIFIC_TAG = "group_specific_contribution"
+
+
+def new_group_selector_name(factor_name: str) -> str:
+    """Return the internal posterior variable used to select a new group per draw."""
+    return f"__new_group_{factor_name}_selector"
 
 
 def _ensure_2d(x):
@@ -173,6 +179,132 @@ def remove_group_specific_contributions(parameters, model: pm.Model) -> pm.Model
     return prune_vars_detached_from_observed(model)
 
 
+def add_new_group_specific_contributions(parameters, model: pm.Model, new_groups) -> pm.Model:
+    """Allow a prediction clone to look up one sampled coefficient per unseen factor.
+
+    ``new_groups`` maps grouping-factor names to their number of fitted levels. Data for an
+    unseen level uses that number as a sentinel index. This function adds a one-element
+    extension to the corresponding coefficient array, whose value is selected from a fitted
+    level by a scalar variable supplied in the posterior trace for each draw.
+    """
+    selectors = {}
+    with model:
+        for factor_name in new_groups:
+            selectors[factor_name] = pm.Flat(new_group_selector_name(factor_name))
+
+    fgraph, memo = fgraph_from_model(model)
+    replacements = []
+
+    if bmb_config["SPARSE_DOT"]:
+        for parameter in parameters:
+            if not parameter.group_specific_terms:
+                continue
+
+            contribution = next(
+                (
+                    variable
+                    for variable in ancestors([model[parameter.label]])
+                    if getattr(variable.tag, _GROUP_SPECIFIC_TAG, None) == parameter.label
+                ),
+                None,
+            )
+            dot_output = next(
+                (
+                    variable
+                    for variable in ancestors([contribution])
+                    if variable.owner is not None
+                    and type(variable.owner.op).__name__ == "StructuredDot"
+                ),
+                None,
+            )
+            if dot_output is None:
+                raise ValueError(
+                    "Could not find the sparse group-specific contribution for "
+                    f"parameter '{parameter.label}'."
+                )
+
+            coefs = dot_output.owner.inputs[1]
+            # Univariate terms are expanded to satisfy ``structured_dot``.
+            while coefs.owner is not None and type(coefs.owner.op).__name__ in {
+                "ExpandDims",
+                "DimShuffle",
+            }:
+                coefs = coefs.owner.inputs[0]
+
+            if coefs.owner is not None and type(coefs.owner.op).__name__ == "Join":
+                coef_blocks = coefs.owner.inputs[1:]
+            else:
+                coef_blocks = (coefs,)
+
+            terms = tuple(parameter.group_specific_terms.values())
+            if len(coef_blocks) != len(terms):
+                raise ValueError(
+                    "Could not align sparse group-specific coefficient blocks with their terms."
+                )
+
+            extended_blocks = []
+            for term, coef_block in zip(terms, coef_blocks):
+                coef_block = memo[coef_block]
+                if term.factor_name not in new_groups:
+                    extended_blocks.append(coef_block)
+                    continue
+
+                n_levels = new_groups[term.factor_name]
+                block_size = term.data.shape[1] // n_levels
+                shape = (n_levels, block_size, *coef_block.shape[1:])
+                coefficients_by_group = coef_block.reshape(shape)
+                selector = pt.cast(memo[selectors[term.factor_name]], "int64")
+                new_group_coef = coefficients_by_group[selector]
+                extended_blocks.append(pt.concatenate([coef_block, new_group_coef], axis=0))
+
+            extended_coefs = pt.concatenate(extended_blocks, axis=0)
+            dot_output = memo[dot_output]
+            data, dot_coefs = dot_output.owner.inputs
+            if extended_coefs.ndim < dot_coefs.ndim:
+                extended_coefs = pt.shape_padright(
+                    extended_coefs, dot_coefs.ndim - extended_coefs.ndim
+                )
+            replacements.append((dot_output, ps.structured_dot(data, extended_coefs)))
+
+        if not replacements:
+            raise ValueError("Could not find group-specific contributions for unseen groups.")
+
+        toposort_replace(fgraph, replacements, reverse=True)
+        model = model_from_fgraph(fgraph, mutate_fgraph=True)
+        return prune_vars_detached_from_observed(model)
+
+    for parameter in parameters:
+        if not parameter.group_specific_terms:
+            continue
+
+        for variable in ancestors([model[parameter.label]]):
+            factor_name = getattr(variable.tag, "group_specific_factor", None)
+            if factor_name not in new_groups:
+                continue
+
+            selector = pt.cast(memo[selectors[factor_name]], "int64")
+            if variable.owner is None or len(variable.owner.inputs) != 2:
+                raise ValueError(
+                    "Could not replace the group-specific coefficient lookup for "
+                    f"factor '{factor_name}'."
+                )
+
+            selected_param = memo[variable]
+            coefficients, group_idx = selected_param.owner.inputs
+            new_group_coef = coefficients[selector]
+            extended_coefficients = pt.concatenate(
+                [coefficients, pt.shape_padleft(new_group_coef)], axis=0
+            )
+            replacements.append((selected_param, extended_coefficients[group_idx]))
+
+    if not replacements:
+        raise ValueError("Could not find group-specific contributions for unseen groups.")
+
+    toposort_replace(fgraph, replacements, reverse=True)
+    model = model_from_fgraph(fgraph, mutate_fgraph=True)
+    return prune_vars_detached_from_observed(model)
+
+
 def build_conditional_parameter(parameter, family: Family, model: pm.Model):
     value = 0
     param_spec = family.get_param_spec(parameter.name)
@@ -226,8 +358,13 @@ def build_conditional_parameter(parameter, family: Family, model: pm.Model):
     return pm.Deterministic(parameter.label, value, dims=dims, model=model)
 
 
-def build_new_conditional_parameter_data(parameter, data, model: pm.Model):
-    """Build the data mapping needed to update a conditional parameter for new observations."""
+def build_new_conditional_parameter_data(parameter, data, model: pm.Model, new_groups):
+    """Build new-observation data and record unseen grouping factors.
+
+    Formulae represents unseen categories as all-zero dummy rows in ``silent`` mode. Those rows
+    receive a sentinel group index; the prediction model later replaces the sentinel lookup with
+    coefficients sampled from the posterior.
+    """
     data_dict = {}
 
     for term in parameter.common_terms.values():
@@ -240,15 +377,33 @@ def build_new_conditional_parameter_data(parameter, data, model: pm.Model):
         )
         data_dict.update({term_data_name: term_data})
 
-    # NOTE: How to handle new groups?
     for term in parameter.group_specific_terms.values():
+        original_unseen_config = fm.config["EVAL_UNSEEN_CATEGORIES"]
+        fm.config["EVAL_UNSEEN_CATEGORIES"] = "silent"
+        try:
+            factor_data = term.factor.eval_new_data(data)
+            term_data = term.term.eval_new_data(data) if bmb_config["SPARSE_DOT"] else None
+        finally:
+            fm.config["EVAL_UNSEEN_CATEGORIES"] = original_unseen_config
+
+        unseen_rows = ~factor_data.any(axis=1)
+        n_levels = int(term.group_index.max()) + 1
+        if unseen_rows.any():
+            known_n_levels = new_groups.setdefault(term.factor_name, n_levels)
+            if known_n_levels != n_levels:
+                raise ValueError(
+                    f"Inconsistent group-level counts for factor '{term.factor_name}'."
+                )
+
         if bmb_config["SPARSE_DOT"]:
             term_data_name = f"{term.label}_data"
-            term_data = term.term.eval_new_data(data)
-            data_dict.update({term_data_name: term_data})
+            data_dict[term_data_name] = term_data
         else:
             term_idx_name = f"{term.factor_name}__idx"
-            term_idx_data = term.invert_dummies(term.factor.eval_new_data(data))
+            term_idx_data = term.invert_dummies(factor_data)
+            if unseen_rows.any():
+                term_idx_data = term_idx_data.copy()
+                term_idx_data[unseen_rows] = n_levels
             data_dict[term_idx_name] = term_idx_data
 
             if not term.is_intercept:
