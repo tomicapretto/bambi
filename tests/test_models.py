@@ -1312,7 +1312,40 @@ def test_predict_offset(mock_pymc_sample):
     assert_ip_dlogp(model)
     idata = model.fit(chains=2)
     model.predict(idata)
+    assert "1|group_offset" not in idata.posterior
     model.predict(idata, kind="response")
+    assert "1|group_offset" not in idata.posterior
+
+
+def test_group_specific_offsets_predictions_and_log_likelihood(mock_pymc_sample):
+    rng = np.random.default_rng(121195)
+    data = pd.DataFrame(
+        {
+            "y": rng.poisson(20, size=100),
+            "x": rng.normal(size=100),
+            "group": np.tile(np.arange(10), 10),
+        }
+    )
+    data["time"] = data["y"] - rng.normal(loc=1, size=100)
+
+    model = bmb.Model("y ~ offset(np.log(time)) + x + (1 | group)", data, family="poisson")
+    idata = model.fit(chains=2)
+
+    # In-sample prediction
+    model.predict(idata)
+    assert "mu" in idata.posterior
+
+    # Out-of-sample prediction with the same group levels must use the fitted group effects.
+    idata_oos = model.predict(idata, data=data, inplace=False)
+    np.testing.assert_allclose(idata.posterior["mu"], idata_oos.predictions["mu"])
+
+    # In-sample and out-of-sample log-likelihood
+    model.compute_log_likelihood(idata)
+    assert idata.log_likelihood["y"].shape == (2, 1000, len(data))
+
+    idata_oos = model.compute_log_likelihood(idata, data=data, inplace=False)
+    assert idata_oos.log_likelihood["y"].shape == (2, 1000, len(data))
+    assert (idata.log_likelihood["y"] == idata_oos.log_likelihood["y"]).all()
 
 
 def test_out_of_sample_prediction_accepts_fractional_integer_predictor(mock_pymc_sample):
