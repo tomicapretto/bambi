@@ -74,18 +74,6 @@ class PyMCModel:
         self.spec = model
 
     def build(self):
-        ## Global process:
-        # 1. Build dims and coordinates
-        # 2. Instantiate model
-        # 3. Create data containers
-
-        ## ConditionalParameter process
-        # 1. Build RVs
-        # 2. Manipulate data containers and RVs (grab stuff from PyMC model)
-        # 3. Create deterministics (grab stuff from PyMC model)
-        # 1. Build dims, coordinates, and term
-        # 3. Build random variables
-        # 4. Build response, again grabbing stuff from the PyMC model.
         response_coords_data, response_coords, response_coords_reduced = coords_from_response(
             self.spec.response_term, self.spec.family
         )
