@@ -9,10 +9,15 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 import pymc as pm
+import arviz as az
 from pytensor.sparse.sharedvar import SparseTensorSharedVariable
 
 from bambi.backend.pymc.coords import coords_from_response
-from bambi.backend.pymc.parameters import build_conditional_parameter, build_marginal_parameter
+from bambi.backend.pymc.parameters import (
+    build_conditional_parameter,
+    build_marginal_parameter,
+    build_omitted_group_offsets,
+)
 from bambi.backend.pymc.parameters.conditional import build_new_conditional_parameter_data
 from bambi.backend.pymc.terms import build_potentials, build_response_term
 from bambi.backend.pymc.terms.response import (
@@ -208,28 +213,53 @@ class PyMCModel:
         parameters_names = [param.label for param in self.spec.conditional_parameters.values()]
         responses_names = [self.spec.response_term.label]
 
+        # If group-specific offsets are discarded, we add them back.
+        # They are needed for the computation of deterministics (model parameters).
+        omitted_group_offsets = {}
+        for parameter in self.spec.conditional_parameters.values():
+            omitted_group_offsets.update(build_omitted_group_offsets(parameter))
+        offset_values = {}
+        for offset_name, (operation, *names) in omitted_group_offsets.items():
+            if offset_name not in idata.posterior:
+                values = [idata.posterior[name] for name in names]
+                offset_values[offset_name] = operation(*values)
+
         if data is None:
+            if offset_values:
+                posterior_for_prediction = idata.posterior.assign(offset_values)
+            else:
+                posterior_for_prediction = idata.posterior
+
+            # It's assumed the user always wants the parameter 'predictions' (mu, sigma, etc.)
             with self.model:
-                idata["posterior"] = pm.compute_deterministics(
-                    dataset=idata["posterior"],
+                posterior_for_prediction = pm.compute_deterministics(
+                    dataset=posterior_for_prediction,
                     var_names=parameters_names,
-                    merge_dataset=True,
                     progressbar=progressbar,
+                    merge_dataset=True,
                 )
-                if kind == "response":
-                    pm.sample_posterior_predictive(
-                        trace=idata,
+            idata["posterior"] = idata.posterior.merge(
+                posterior_for_prediction[parameters_names], compat="override"
+            )
+
+            if kind == "response":
+                with self.model:
+                    predictions = pm.sample_posterior_predictive(
+                        trace=posterior_for_prediction,
                         var_names=responses_names,
                         random_seed=random_seed,
-                        extend_inferencedata=True,
                     )
+
+                idata.add_groups({"posterior_predictive": predictions.posterior_predictive})
         else:
-            # Out of sample prediction
-            # Would deterministics computation raise an error due to inconsistent coordinates?
             new_data, new_coords = self._build_new_data(data, purpose="prediction")
-            var_names = parameters_names
+            var_names = parameters_names[:]
             if kind == "response":
                 var_names += responses_names
+
+            trace = idata
+            if offset_values:
+                trace = idata.posterior.assign(offset_values)
 
             model = _clone_model_preserving_sparse_data(self.model)
             pm.set_data(new_data=new_data, coords=new_coords, model=model)
@@ -238,14 +268,20 @@ class PyMCModel:
             if interventions:
                 model = pm.do(model, interventions)
             with model:
-                pm.sample_posterior_predictive(
-                    trace=idata,
+                predictions = pm.sample_posterior_predictive(
+                    trace=trace,
                     var_names=var_names,
                     progressbar=progressbar,
                     random_seed=random_seed,
-                    extend_inferencedata=True,
+                    extend_inferencedata=not offset_values,
                     predictions=True,
                 )
+            if offset_values:
+                idata.add_groups({"predictions": predictions.predictions})
+                if "predictions_constant_data" in predictions:
+                    idata.add_groups(
+                        {"predictions_constant_data": predictions.predictions_constant_data}
+                    )
 
         if inplace:
             return None
@@ -265,23 +301,41 @@ class PyMCModel:
         if "log_likelihood" in idata:
             del idata.log_likelihood
 
+        omitted_group_offsets = {}
+        for parameter in self.spec.conditional_parameters.values():
+            omitted_group_offsets.update(build_omitted_group_offsets(parameter))
+
+        offset_values = {}
+        for offset_name, (operation, *names) in omitted_group_offsets.items():
+            if offset_name not in idata.posterior:
+                values = [idata.posterior[name] for name in names]
+                offset_values[offset_name] = operation(*values)
+
+        trace = idata
+        if offset_values:
+            trace = az.InferenceData(posterior=idata.posterior.assign(offset_values))
+
         if data is None:
             with self.model:
                 pm.compute_log_likelihood(
-                    idata=idata, extend_inferencedata=True, progressbar=progressbar
+                    idata=trace, extend_inferencedata=True, progressbar=progressbar
                 )
         else:
             new_data, new_coords = self._build_new_data(data, purpose="log_likelihood")
             model = _clone_model_preserving_sparse_data(self.model)
             pm.set_data(new_data, coords=new_coords, model=model)
             model = replace_response_variables(self.spec.response_term, model)
+
             with model:
                 pm.compute_log_likelihood(
-                    idata=idata,
+                    idata=trace,
                     var_names=[self.spec.response_term.label],
                     extend_inferencedata=True,
                     progressbar=progressbar,
                 )
+
+        if offset_values:
+            idata.add_groups({"log_likelihood": trace.log_likelihood})
 
         idata.log_likelihood.attrs.update(
             modeling_interface="bambi", modeling_interface_version=__version__
