@@ -863,7 +863,6 @@ class Model:
         data=None,
         inplace=True,
         include_group_specific=True,
-        sample_new_groups=False,
         random_seed=None,
     ):
         """Predict method for Bambi models
@@ -896,12 +895,6 @@ class Model:
             Determines if predictions incorporate group-specific effects. If `False`, predictions
             are made with common effects only (i.e. group specific are set to zero). Defaults to
             `True`.
-        sample_new_groups : bool, optional
-            Specifies if it is allowed to obtain predictions for new groups of group-specific terms.
-            When `True`, each posterior sample for the new groups is drawn from the posterior
-            draws of a randomly selected existing group. Since different groups may be selected at
-            each draw, the end result represents the variation across existing groups.
-            The method implemented is equivalent to `sample_new_levels="uncertainty"` in brms.
         random_seed : int, RandomState or Generator, optional
             Seed for the random number generator.
 
@@ -933,7 +926,6 @@ class Model:
             idata=idata,
             data=data,
             include_group_specific=include_group_specific,
-            sample_new_groups=sample_new_groups,
             random_seed=random_seed,
             kind=kind,
             inplace=inplace,
