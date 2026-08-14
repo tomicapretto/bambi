@@ -25,7 +25,7 @@ dependencies = [
     "arviz_plots>=0.8.0,<1",
     "arviz_stats>=0.8.0,<1",
     "arviz<1",
-    "formulae>=0.6.0,<0.7.0",
+    "formulae>=0.7.0,<0.8.0",
     "graphviz",
     "matplotlib>=3.9.0,<3.11.0",
     "pandas>=1.0.0",
