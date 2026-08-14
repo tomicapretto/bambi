@@ -308,7 +308,6 @@ def _build_predictions(
     target: str,
     pps: bool,
     transforms: dict | None,
-    sample_new_groups: bool,
 ) -> tuple[InferenceData, DataFrame, list[str], str, str, Callable]:
     """Shared prediction pipeline for comparisons and slopes.
 
@@ -332,9 +331,6 @@ def _build_predictions(
         Whether to use posterior predictive samples.
     transforms : dict or None
         Dictionary of transformations.
-    sample_new_groups : bool
-        Whether to sample new group levels.
-
     Returns
     -------
     tuple
@@ -369,7 +365,6 @@ def _build_predictions(
     pred_kwargs = {
         "idata": idata,
         "data": preds_data,
-        "sample_new_groups": sample_new_groups,
         "inplace": False,
     }
     preds_idata = model.predict(**pred_kwargs, **({} if not pps else {"kind": "response"}))
@@ -391,7 +386,6 @@ def predictions(
     use_hdi: bool = True,
     prob: float | list[float] = az.rcParams["stats.ci_prob"],
     transforms: dict | None = None,
-    sample_new_groups: bool = False,
 ) -> Result:
     """Compute conditional adjusted predictions.
 
@@ -416,9 +410,6 @@ def predictions(
         arviz rcParams. When a list is provided, multiple nested intervals are computed.
     transforms : dict or None
         Dictionary of transformations to apply to predictions.
-    sample_new_groups : bool
-        Whether to sample new group levels. Default is False.
-
     Returns
     -------
     DataFrame
@@ -451,7 +442,6 @@ def predictions(
     pred_kwargs = {
         "idata": idata,
         "data": preds_data,
-        "sample_new_groups": sample_new_groups,
         "inplace": False,
     }
     idata = model.predict(**pred_kwargs, **({} if not pps else {"kind": "response"}))
@@ -475,7 +465,6 @@ def plot_predictions(
     use_hdi: bool = True,
     prob: float | list[float] = az.rcParams["stats.ci_prob"],
     transforms: dict | None = None,
-    sample_new_groups: bool = False,
     fig_kwargs: Optional[dict[str, Any]] = None,
     subplot_kwargs: Optional[dict[str, str]] = None,
 ) -> Plot:
@@ -503,8 +492,6 @@ def plot_predictions(
         are drawn.
     transforms : dict or None
         Dictionary of transformations to apply to predictions.
-    sample_new_groups : bool
-        Whether to sample new group levels. Default is False.
     fig_kwargs : dict or None
         Additional keyword arguments for figure customization. Use the 'theme' key
         to pass a dictionary of matplotlib rc parameters.
@@ -535,7 +522,6 @@ def plot_predictions(
         use_hdi=use_hdi,
         prob=prob,
         transforms=transforms,
-        sample_new_groups=sample_new_groups,
     )
 
     # Add dimension columns for multi-output models (e.g., Categorical family)
@@ -559,7 +545,6 @@ def comparisons(
     use_hdi: bool = True,
     prob: float | list[float] = az.rcParams["stats.ci_prob"],
     transforms: dict | None = None,
-    sample_new_groups: bool = False,
 ) -> Result:
     """Compute conditional adjusted comparisons.
 
@@ -590,8 +575,6 @@ def comparisons(
         arviz rcParams. When a list is provided, multiple nested intervals are computed.
     transforms : dict or None
         Dictionary of transformations to apply to comparisons.
-    sample_new_groups : bool
-        Whether to sample new group levels. Default is False.
 
     Returns
     -------
@@ -618,7 +601,6 @@ def comparisons(
         target,
         pps,
         transforms,
-        sample_new_groups,
     )
 
     compared_draws = compare(
@@ -666,7 +648,6 @@ def plot_comparisons(
     use_hdi: bool = True,
     prob: float | list[float] = az.rcParams["stats.ci_prob"],
     transforms: dict | None = None,
-    sample_new_groups: bool = False,
     fig_kwargs: Optional[dict[str, Any]] = None,
     subplot_kwargs: Optional[Mapping[str, str]] = None,
 ) -> Plot:
@@ -700,8 +681,6 @@ def plot_comparisons(
         are drawn.
     transforms : dict or None
         Dictionary of transformations to apply to comparisons.
-    sample_new_groups : bool
-        Whether to sample new group levels. Default is False.
     fig_kwargs : dict or None
         Additional keyword arguments for figure customization. Use the 'theme' key
         to pass a dictionary of matplotlib rc parameters.
@@ -734,7 +713,6 @@ def plot_comparisons(
         use_hdi=use_hdi,
         prob=prob,
         transforms=transforms,
-        sample_new_groups=sample_new_groups,
     )
 
     # Add dimension columns for multi-output models (e.g., Categorical family)
@@ -759,7 +737,6 @@ def slopes(
     use_hdi: bool = True,
     prob: float | list[float] = az.rcParams["stats.ci_prob"],
     transforms: dict | None = None,
-    sample_new_groups: bool = False,
 ) -> Result:
     """Compute conditional adjusted slopes.
 
@@ -799,8 +776,6 @@ def slopes(
         arviz rcParams. When a list is provided, multiple nested intervals are computed.
     transforms : dict or None
         Dictionary of transformations to apply to predictions before differencing.
-    sample_new_groups : bool
-        Whether to sample new group levels. Default is False.
 
     Returns
     -------
@@ -827,7 +802,6 @@ def slopes(
         target,
         pps,
         transforms,
-        sample_new_groups,
     )
 
     # Compute finite-differences
@@ -881,7 +855,6 @@ def plot_slopes(
     use_hdi: bool = True,
     prob: float | list[float] = az.rcParams["stats.ci_prob"],
     transforms: dict | None = None,
-    sample_new_groups: bool = False,
     fig_kwargs: Optional[dict[str, Any]] = None,
     subplot_kwargs: Optional[Mapping[str, str]] = None,
 ) -> Plot:
@@ -915,8 +888,6 @@ def plot_slopes(
         are drawn.
     transforms : dict or None
         Dictionary of transformations to apply to predictions before differencing.
-    sample_new_groups : bool
-        Whether to sample new group levels. Default is False.
     fig_kwargs : dict or None
         Additional keyword arguments for figure customization.
     subplot_kwargs : Mapping[str, str] or None
@@ -949,7 +920,6 @@ def plot_slopes(
         use_hdi=use_hdi,
         prob=prob,
         transforms=transforms,
-        sample_new_groups=sample_new_groups,
     )
 
     # Add dimension columns for multi-output models (e.g., Categorical family)
