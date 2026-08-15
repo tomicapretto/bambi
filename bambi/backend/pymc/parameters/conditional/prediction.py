@@ -425,7 +425,8 @@ def _create_new_group_coefficients(
     for name, value in term.prior.args.items():
         if isinstance(value, Prior):
             # Reuse hyperprior RVs from the fitted model.
-            kwargs[name] = model[f"{term.label}_{name}"]
+            hyperprior_name = term.hyperprior_alias.get(name, name)
+            kwargs[name] = model[f"{term.label}_{hyperprior_name}"]
         else:
             # Match fixed prior arguments to the retained axes.
             kwargs[name] = shape_prior_arg(value, tail_shape)

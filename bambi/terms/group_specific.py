@@ -119,12 +119,6 @@ class GroupSpecificTerm(BaseTerm):  # pylint: disable=too-many-instance-attribut
 
     @property
     def hyperprior_alias(self):
-        # TODO: How do we handle aliases of hyperpriors? I think we could directly update
-        # the aliases of the underlying expressions and factors.
-        # Actually, the code for the hyperpriors is not allowing those to be changed.
-        # It uses the alias of the parameter + the name of the hyperparameter.
-        # i.e. it adds mu/sigma if the hyperparameter is called mu or sigma, without being able
-        # to change it.
         return self._hyperprior_alias
 
     @hyperprior_alias.setter

@@ -144,5 +144,60 @@ def test_set_alias(data_random_n100, mock_pymc_sample):
     }
     model.set_alias(aliases)
     model.build()
-    new_names = {"α", "β", "α_group", "α_group_sigma", "β_group", "β_group_sigma", "σ"}
+    new_names = {"α", "β", "α_group", "α_group_σ", "β_group", "β_group_σ", "σ"}
     assert new_names.issubset(set(model.backend.model.named_vars))
+
+
+@pytest.mark.parametrize("sparse_dot", [False, True])
+@pytest.mark.parametrize(
+    "formula,aliases,expected_names",
+    [
+        (
+            "continuous1 ~ (1|categorical1)",
+            {"sigma": "sd"},
+            {"1|categorical1_sd"},
+        ),
+        (
+            "continuous1 ~ continuous2 + (1 + continuous2|categorical1)",
+            {"sigma": "group_sd"},
+            {"1|categorical1_group_sd", "continuous2|categorical1_group_sd"},
+        ),
+        (
+            "continuous1 ~ (1|categorical1) + (1|categorical2)",
+            {
+                "1|categorical1": "by_categorical1",
+                "1|categorical2": "by_categorical2",
+                "sigma": "sd",
+            },
+            {"by_categorical1_sd", "by_categorical2_sd"},
+        ),
+    ],
+)
+def test_group_specific_hyperprior_aliases(
+    data_random_n100, monkeypatch, sparse_dot, formula, aliases, expected_names
+):
+    monkeypatch.setattr(bmb.config, "SPARSE_DOT", sparse_dot)
+    model = bmb.Model(formula, data_random_n100)
+    model.set_alias(aliases)
+    model.build()
+
+    assert expected_names.issubset(model.backend.model.named_vars)
+
+
+@pytest.mark.parametrize("sparse_dot", [False, True])
+@pytest.mark.usefixtures("mock_pymc_sample")
+def test_predict_new_groups_with_hyperprior_alias(data_random_n100, monkeypatch, sparse_dot):
+    monkeypatch.setattr(bmb.config, "SPARSE_DOT", sparse_dot)
+    formula = "continuous1 ~ continuous2 + (1 + continuous2|categorical1)"
+    model = bmb.Model(formula, data_random_n100)
+    model.set_alias({"sigma": "group_sd"})
+    idata = model.fit(draws=20, chains=2)
+    new_data = data_random_n100.head(10).assign(categorical1="new_group")
+
+    result = model.predict(idata, data=new_data, random_seed=42, inplace=False)
+
+    assert result.predictions["mu"].shape == (2, 20, len(new_data))
+
+    result = model.compute_log_likelihood(idata, inplace=False)
+
+    assert result.log_likelihood["continuous1"].shape == (2, 20, len(data_random_n100))
