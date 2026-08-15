@@ -902,9 +902,6 @@ class Model:
         -------
         InferenceData or None
         """
-        # NOTE: Ideas for kinds
-        # kind = {"parameters", "data"}
-        # kind = {"parameters", "response"}
         if kind not in ("mean", "pps", "response_params", "response"):
             raise ValueError("'kind' must be one of 'response_params' or 'response'")
 

@@ -5,7 +5,7 @@ import pytensor.tensor as pt
 from bambi.backend.pymc.terms.info import HSGPTermInfo
 from bambi.backend.pymc.utils import get_distribution_from_prior
 from bambi.families.types import ParamSpec
-from bambi.priors import Prior  # TODO: remove?
+from bambi.priors import Prior
 
 
 def exp_quad(sigma, ell, input_dim=1):
