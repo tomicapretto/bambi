@@ -874,12 +874,11 @@ class Model:
         idata : InferenceData
             The `InferenceData` instance returned by `.fit()`.
         kind : str, optional
-            Indicates the type of prediction required. Can be `"response_params"` or
-            `"response"`. The first returns draws from the posterior distribution of the
-            likelihood parameters, while the latter returns the draws from the posterior
-            predictive distribution (i.e. the posterior probability distribution for a new
-            observation) in addition to the posterior distribution. Defaults to
-            `"response_params"`.
+            Indicates the type of prediction required. Can be `"response_params"`,
+            `"response"`, or `"response_latent"`. The first returns draws from the posterior
+            distribution of the likelihood parameters. The latter two return draws from the
+            posterior predictive distribution; `"response_latent"` uses the latent response
+            distribution for censored and truncated responses. Defaults to `"response_params"`.
         data : pd.DataFrame or None, optional
             An optional data frame with values for the predictors that are used to obtain
             out-of-sample predictions. If omitted, the original dataset is used.
@@ -902,8 +901,10 @@ class Model:
         -------
         InferenceData or None
         """
-        if kind not in ("mean", "pps", "response_params", "response"):
-            raise ValueError("'kind' must be one of 'response_params' or 'response'")
+        if kind not in ("mean", "pps", "response_params", "response", "response_latent"):
+            raise ValueError(
+                "'kind' must be one of 'response_params', 'response', or 'response_latent'"
+            )
 
         if kind == "mean":
             kind = "response_params"
