@@ -64,7 +64,7 @@ def build_conditional_parameter(
     for term_info in parameter_info.hsgp_terms:
         value += build_hsgp_term(term_info, param_spec, model)
 
-    # TODO: Make sure parameters are built in the appropriate order
+    # NOTE: If one parameter requires the other, ake sure they're built in the right order.
     transform_predictor = transforms_registry.get_predictor_transform(family, parameter.name)
     if transform_predictor:
         parameters = {
