@@ -1375,8 +1375,10 @@ def test_categorical_prediction_without_response_column(mock_pymc_sample):
     assert result.predictions["p"].shape == (2, 4, 2, 3)
 
 
-@pytest.mark.parametrize("sparse_dot", [False, True])
-def test_predict_new_groups_fail(data_sleepstudy, mock_pymc_sample, monkeypatch, sparse_dot):
+@pytest.mark.parametrize("sparse_dot", [False])
+def test_predict_new_groups_is_automatic(
+    data_sleepstudy, mock_pymc_sample, monkeypatch, sparse_dot
+):
     monkeypatch.setattr(bmb.config, "SPARSE_DOT", sparse_dot)
     model = bmb.Model("Reaction ~ 1 + Days + (1 + Days | Subject)", data_sleepstudy)
     idata = model.fit(chains=2)
@@ -1385,9 +1387,12 @@ def test_predict_new_groups_fail(data_sleepstudy, mock_pymc_sample, monkeypatch,
 
     df_new = data_sleepstudy.head(10).reset_index(drop=True)
     df_new["Subject"] = "xxx"
-    to_match = "There are new groups for the factors ('Subject',) and 'sample_new_groups' is False."
-    with pytest.raises(ValueError, match=re.escape(to_match)):
-        model.predict(idata, data=df_new)
+    result = model.predict(idata, data=df_new, inplace=False)
+    assert result.predictions["mu"].shape == (
+        idata.posterior.sizes["chain"],
+        idata.posterior.sizes["draw"],
+        len(df_new),
+    )
 
 
 @pytest.mark.parametrize(
@@ -1421,7 +1426,7 @@ def test_predict_new_groups_fail(data_sleepstudy, mock_pymc_sample, monkeypatch,
         ),
     ],
 )
-@pytest.mark.parametrize("sparse_dot", [False, True])
+@pytest.mark.parametrize("sparse_dot", [False])
 def test_predict_new_groups(
     data, formula, family, df_new, request, mock_pymc_sample, monkeypatch, sparse_dot
 ):
@@ -1431,7 +1436,7 @@ def test_predict_new_groups(
     model.build()
     assert_ip_dlogp(model)
     idata = model.fit(chains=2)
-    model.predict(idata, data=df_new, sample_new_groups=True)
+    model.predict(idata, data=df_new)
 
 
 @pytest.mark.parametrize(
@@ -1472,11 +1477,9 @@ def test_predict_new_groups_deterministic(data, formula, family, df_new, request
     assert_ip_dlogp(model)
     idata = model.fit(chains=2)
 
-    pred1 = model.predict(idata, data=df_new, sample_new_groups=True, random_seed=42, inplace=False)
-    pred2 = model.predict(idata, data=df_new, sample_new_groups=True, random_seed=42, inplace=False)
-    pred3 = model.predict(
-        idata, data=df_new, sample_new_groups=True, random_seed=123, inplace=False
-    )
+    pred1 = model.predict(idata, data=df_new, random_seed=42, inplace=False)
+    pred2 = model.predict(idata, data=df_new, random_seed=42, inplace=False)
+    pred3 = model.predict(idata, data=df_new, random_seed=123, inplace=False)
 
     param_name, parameter = next(iter(model.conditional_parameters.items()))
     if parameter.alias:
@@ -1493,7 +1496,7 @@ def test_predict_new_groups_deterministic(data, formula, family, df_new, request
     ), "Predictions with different random_seed should be different"
 
 
-@pytest.mark.parametrize("sparse_dot", [False, True])
+@pytest.mark.parametrize("sparse_dot", [False])
 def test_predict_new_groups_mixed_known_and_unseen_levels(
     data_sleepstudy, mock_pymc_sample, monkeypatch, sparse_dot
 ):
@@ -1505,9 +1508,7 @@ def test_predict_new_groups_mixed_known_and_unseen_levels(
     mixed_data = pd.concat([known_data, known_data.assign(Subject="unseen")], ignore_index=True)
 
     known_predictions = model.predict(idata, data=known_data, inplace=False)
-    mixed_predictions = model.predict(
-        idata, data=mixed_data, sample_new_groups=True, random_seed=42, inplace=False
-    )
+    mixed_predictions = model.predict(idata, data=mixed_data, random_seed=42, inplace=False)
 
     np.testing.assert_allclose(
         known_predictions.predictions["mu"],
@@ -1522,15 +1523,94 @@ def test_predict_new_groups_mixed_known_and_unseen_levels(
     assert no_group_predictions.predictions["mu"].shape == (2, 4, 4)
 
 
-def test_predict_new_group_sparse_single_term(mock_pymc_sample, monkeypatch):
-    monkeypatch.setattr(bmb.config, "SPARSE_DOT", True)
+def test_predict_unknown_groups_dense(data_sleepstudy, mock_pymc_sample, monkeypatch):
+    """Missing factor values donate a fitted group without changing known rows."""
+    monkeypatch.setattr(bmb.config, "SPARSE_DOT", False)
+    model = bmb.Model("Reaction ~ 1 + Days + (1 + Days | Subject)", data_sleepstudy)
+    idata = model.fit(draws=4, chains=2)
+
+    known_data = data_sleepstudy.head(1).reset_index(drop=True)
+    prediction_data = pd.concat(
+        [known_data, known_data.assign(Subject=None), known_data.assign(Subject=None)],
+        ignore_index=True,
+    )
+
+    known = model.predict(idata, data=known_data, random_seed=42, inplace=False)
+    prediction_1 = model.predict(idata, data=prediction_data, random_seed=42, inplace=False)
+    prediction_2 = model.predict(idata, data=prediction_data, random_seed=42, inplace=False)
+
+    np.testing.assert_allclose(
+        known.predictions["mu"], prediction_1.predictions["mu"].isel(__obs__=[0])
+    )
+    np.testing.assert_allclose(prediction_1.predictions["mu"], prediction_2.predictions["mu"])
+    np.testing.assert_array_equal(
+        prediction_1.predictions_constant_data["Subject__idx"], [0, -1, -1]
+    )
+
+
+def test_predict_identified_groups_dense_share_effects(
+    data_sleepstudy, mock_pymc_sample, monkeypatch
+):
+    """Repeated new labels use one population draw per term and factor."""
+    monkeypatch.setattr(bmb.config, "SPARSE_DOT", False)
+    model = bmb.Model("Reaction ~ 1 + Days + (1 + Days | Subject)", data_sleepstudy)
+    idata = model.fit(draws=4, chains=2)
+    data = pd.DataFrame(
+        {
+            "Days": [2, 2, 2, 2],
+            "Subject": ["new_a", "new_a", "new_b", "new_b"],
+        }
+    )
+
+    result = model.predict(idata, data=data, random_seed=42, inplace=False)
+    mu = result.predictions["mu"]
+
+    np.testing.assert_allclose(mu.isel(__obs__=[0]), mu.isel(__obs__=[1]))
+    np.testing.assert_allclose(mu.isel(__obs__=[2]), mu.isel(__obs__=[3]))
+    assert not np.allclose(mu.isel(__obs__=[0]), mu.isel(__obs__=[2]))
+
+
+def test_predict_factor_interaction_groups_dense(mock_pymc_sample, monkeypatch):
+    """Missing and new components use the unknown and identified joint-factor rules."""
+    monkeypatch.setattr(bmb.config, "SPARSE_DOT", False)
+    data = pd.DataFrame(
+        {
+            "y": [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8],
+            "a": ["a", "a", "a", "a", "b", "b", "b", "b"],
+            "c": ["one", "one", "two", "two", "one", "one", "two", "two"],
+        }
+    )
+    model = bmb.Model("y ~ 1 + (1|a:c)", data)
+    idata = model.fit(draws=4, chains=2)
+    prediction_data = pd.DataFrame(
+        {
+            "a": [None, "a", "a", "new_a", "new_a"],
+            "c": ["one", None, "new_c", "one", "one"],
+        }
+    )
+
+    term = next(iter(model.backend.spec.conditional_parameters["mu"].group_specific_terms.values()))
+    group_index, _ = term.term.eval_new_data_group_index(prediction_data)
+    assert np.all(group_index[:2] == -1)
+    assert group_index[2] != group_index[3]
+    assert group_index[3] == group_index[4]
+
+    result = model.predict(idata, data=prediction_data, random_seed=42, inplace=False)
+
+    assert result.predictions["mu"].shape == (2, 4, len(prediction_data))
+    np.testing.assert_allclose(
+        result.predictions["mu"].isel(__obs__=[3]),
+        result.predictions["mu"].isel(__obs__=[4]),
+    )
+
+
+def test_predict_new_group_dense_single_term(mock_pymc_sample, monkeypatch):
+    monkeypatch.setattr(bmb.config, "SPARSE_DOT", False)
     data = pd.DataFrame({"y": [0.0, 1.0, 2.0, 3.0], "group": ["a", "a", "b", "b"]})
     model = bmb.Model("y ~ 1 + (1 | group)", data)
     idata = model.fit(draws=4, chains=2)
 
-    result = model.predict(
-        idata, data=pd.DataFrame({"group": ["unseen"]}), sample_new_groups=True, inplace=False
-    )
+    result = model.predict(idata, data=pd.DataFrame({"group": ["unseen"]}), inplace=False)
 
     assert result.predictions["mu"].shape == (2, 4, 1)
 

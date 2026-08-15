@@ -32,9 +32,8 @@ def build_group_specific_term_dot(
 
     # Register data (sparse matrix)
     data = term.data
-    # ArviZ cannot serialize sparse data with named dimensions. The data is still
-    # mutable (and used when predicting on new observations), but is left
-    # dimensionless because it is an internal design matrix.
+    # NOTE: Update this approach to store (data, indices, indptr)
+    #       and rebuild the CSR from there.
     pm.Data(data_name, data, model=model)
 
     # Register parameter
@@ -65,7 +64,9 @@ def build_group_specific_term_dot(
     return model[data_name], param_rv
 
 
-def build_group_specific_term_idx(term, param_spec: ParamSpec, model: pm.Model) -> pt.Variable:
+def build_group_specific_term_idx(
+    term, param_spec: ParamSpec, model: pm.Model
+) -> tuple[pt.Variable, pt.Variable]:
     is_intercept = term.is_intercept
     data_idx_name = f"{term.factor_name}__idx"
     param_name = term.label
@@ -120,12 +121,9 @@ def build_group_specific_term_idx(term, param_spec: ParamSpec, model: pm.Model) 
         param_rv = param_rv.reshape((-1, *tail_shape))
 
     selected_param = param_rv[group_idx_data]
-    # Keep enough provenance to replace this lookup in prediction-only model clones
-    # when unseen grouping levels are sampled from existing posterior levels.
-    selected_param.tag.group_specific_factor = term.factor_name
 
     if is_intercept:
-        return selected_param
+        return selected_param, selected_param
 
     if dims_output and predictor_data is not None:
         # (n, )    -> (n, 1)
@@ -141,8 +139,7 @@ def build_group_specific_term_idx(term, param_spec: ParamSpec, model: pm.Model) 
         axes = tuple(range(1, len(dims_expr) + 1))
         contribution = contribution.sum(axis=axes)
 
-    # NOTE: This returns something already in final state, the others return multiple things
-    return contribution
+    return selected_param, contribution
 
 
 def build_distribution(

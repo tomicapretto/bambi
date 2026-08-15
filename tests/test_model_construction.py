@@ -391,20 +391,20 @@ def test_counts_response_data():
     assert "n_data" not in fixed_model.backend.model.named_vars
 
     with pytest.warns(UserWarning, match="first training total"):
-        prediction_data, _ = fixed_model.backend._build_new_data(data[["x"]], "prediction")
+        prediction_data, _, _ = fixed_model.backend._build_new_data(data[["x"]], "prediction")
     assert np.array_equal(prediction_data["counts(y1, y2)_data"].sum(axis=1), np.full(len(data), 4))
 
-    log_likelihood_data, _ = fixed_model.backend._build_new_data(data, "log_likelihood")
+    log_likelihood_data, _, _ = fixed_model.backend._build_new_data(data, "log_likelihood")
     assert np.array_equal(log_likelihood_data["counts(y1, y2)_data"], data[["y1", "y2"]])
 
     variable_model = bmb.Model("counts(y1, y2, n=n) ~ x", data, family="multinomial")
     variable_model.build()
     assert "n_data" in variable_model.backend.model.named_vars
 
-    prediction_data, _ = variable_model.backend._build_new_data(data[["x", "n"]], "prediction")
+    prediction_data, _, _ = variable_model.backend._build_new_data(data[["x", "n"]], "prediction")
     assert np.array_equal(prediction_data["n_data"], data["n"])
 
-    log_likelihood_data, _ = variable_model.backend._build_new_data(data, "log_likelihood")
+    log_likelihood_data, _, _ = variable_model.backend._build_new_data(data, "log_likelihood")
     assert np.array_equal(log_likelihood_data["n_data"], data["n"])
 
 
@@ -778,7 +778,7 @@ def test_2d_response_no_shape(mock_pymc_sample):
     model.fit(chains=2)
 
 
-def test_sparse_dot_univariate(mock_pymc_sample):
+def test_sparse_dot_univariate(mock_pymc_sample, monkeypatch):
     rng = np.random.default_rng(121195)
     data = pd.DataFrame(
         {
@@ -791,11 +791,11 @@ def test_sparse_dot_univariate(mock_pymc_sample):
     )
 
     formula = "y ~ x1 + x2 + g1 + (g1|g2) + (x2|g2)"
-    bmb.config.SPARSE_DOT = False
+    monkeypatch.setattr(bmb.config, "SPARSE_DOT", False)
     model_dense = bmb.Model(formula, data)
     model_dense.build()
 
-    bmb.config.SPARSE_DOT = True
+    monkeypatch.setattr(bmb.config, "SPARSE_DOT", True)
     model_sparse = bmb.Model(formula, data)
     model_sparse.build()
 
@@ -845,14 +845,14 @@ def test_sparse_dot_univariate(mock_pymc_sample):
     assert set(az.summary(idata_sparse).index) == names
 
 
-def test_sparse_dot_multivariate(data_inhaler, mock_pymc_sample):
+def test_sparse_dot_multivariate(data_inhaler, mock_pymc_sample, monkeypatch):
     formula = "rating ~ 1 + period + treat + (1 + treat|subject)"
 
-    bmb.config.SPARSE_DOT = False
+    monkeypatch.setattr(bmb.config, "SPARSE_DOT", False)
     model_dense = bmb.Model(formula, data_inhaler, family="categorical")
     model_dense.build()
 
-    bmb.config.SPARSE_DOT = True
+    monkeypatch.setattr(bmb.config, "SPARSE_DOT", True)
     model_sparse = bmb.Model(formula, data_inhaler, family="categorical")
     model_sparse.build()
 
@@ -882,7 +882,7 @@ def test_sparse_dot_multivariate(data_inhaler, mock_pymc_sample):
     assert set(az.summary(idata_dense).index) == set(az.summary(idata_sparse).index)
 
 
-def test_sparse_dot_out_of_sample_prediction(mock_pymc_sample):
+def test_sparse_dot_out_of_sample_prediction_not_implemented(mock_pymc_sample, monkeypatch):
     data = pd.DataFrame(
         {
             "y": [0.1, 0.3, -0.2, 0.5, 0.7, -0.4],
@@ -890,16 +890,12 @@ def test_sparse_dot_out_of_sample_prediction(mock_pymc_sample):
             "group": ["a", "a", "b", "b", "c", "c"],
         }
     )
-    bmb.config.SPARSE_DOT = True
+    monkeypatch.setattr(bmb.config, "SPARSE_DOT", True)
     model = bmb.Model("y ~ x + (1 + x|group)", data)
     idata = model.fit(draws=4, chains=2)
 
-    original_data = model.backend.model["1|group_data"].get_value().copy()
-    result = model.predict(idata, data=data.head(3), kind="response", inplace=False)
-
-    assert result.predictions["y"].shape == (2, 4, 3)
-    assert model.backend.model["1|group_data"].get_value().shape == original_data.shape
-    assert (model.backend.model["1|group_data"].get_value() != original_data).nnz == 0
+    with pytest.raises(NotImplementedError, match="Out-of-sample prediction with SPARSE_DOT=True"):
+        model.predict(idata, data=data.head(3), kind="response", inplace=False)
 
 
 @pytest.mark.parametrize("noncentered", [True, False])
@@ -918,7 +914,8 @@ def test_predict_without_group_specific_effect(
     idata = model.fit(draws=4, chains=2)
     coefficients = idata.posterior["1|group"].copy(deep=True)
     reduced_model = remove_group_specific_contributions(
-        model.backend.spec.conditional_parameters.values(), model.backend.model
+        model.backend.model,
+        model.backend._group_specific_graph,
     )
 
     assert "1|group" in model.backend.model.named_vars
@@ -928,25 +925,69 @@ def test_predict_without_group_specific_effect(
     else:
         assert "group__idx" not in reduced_model.named_vars
 
-    included = model.predict(idata, data=data, inplace=False)
-    excluded = model.predict(idata, data=data, include_group_specific=False, inplace=False)
+    if sparse_dot:
+        with pytest.raises(
+            NotImplementedError, match="Out-of-sample prediction with SPARSE_DOT=True"
+        ):
+            model.predict(idata, data=data, inplace=False)
+        with pytest.raises(
+            NotImplementedError, match="Out-of-sample prediction with SPARSE_DOT=True"
+        ):
+            model.predict(idata, data=data, include_group_specific=False, inplace=False)
+    else:
+        included = model.predict(idata, data=data, inplace=False)
+        excluded = model.predict(idata, data=data, include_group_specific=False, inplace=False)
     excluded_in_sample = model.predict(idata, include_group_specific=False, inplace=False)
 
-    model.predict(idata, data=data, include_group_specific=False)
+    if not sparse_dot:
+        model.predict(idata, data=data, include_group_specific=False)
     model.predict(idata, include_group_specific=False)
 
-    assert not np.allclose(
-        included.predictions["mu"].values, included.predictions["mu"].values[..., :1]
-    )
-    np.testing.assert_allclose(
-        excluded.predictions["mu"].values - excluded.predictions["mu"].values[..., :1], 0
-    )
+    if not sparse_dot:
+        assert not np.allclose(
+            included.predictions["mu"].values, included.predictions["mu"].values[..., :1]
+        )
+        np.testing.assert_allclose(
+            excluded.predictions["mu"].values - excluded.predictions["mu"].values[..., :1], 0
+        )
     np.testing.assert_allclose(
         excluded_in_sample.posterior["mu"].values
         - excluded_in_sample.posterior["mu"].values[..., :1],
         0,
     )
     assert idata.posterior["1|group"].identical(coefficients)
+
+
+@pytest.mark.parametrize("sparse_dot", [False, True])
+def test_prune_discards_group_specific_predictors(monkeypatch, sparse_dot):
+    monkeypatch.setattr(bmb.config, "SPARSE_DOT", sparse_dot)
+    data = pd.DataFrame(
+        {
+            "y": [0.1, -0.1, 0.2, -0.2],
+            "x": [1, 2, 3, 4],
+            "group": ["a", "b", "a", "b"],
+        }
+    )
+    model = bmb.Model("y ~ 1 + (1 + x|group)", data)
+    model.build()
+
+    assert not any(name.endswith("__selected") for name in model.backend.model.named_vars)
+    assert not hasattr(model.backend.model, "__bambi_metadata__")
+    assert "mu" in model.backend._group_specific_graph.parameters
+
+    reduced_model = remove_group_specific_contributions(
+        model.backend.model,
+        model.backend._group_specific_graph,
+    )
+
+    if sparse_dot:
+        assert "1|group_data" not in reduced_model.named_vars
+        assert "x|group_data" not in reduced_model.named_vars
+    else:
+        assert "group__idx" not in reduced_model.named_vars
+        assert "x_data" not in reduced_model.named_vars
+    assert "1|group" not in reduced_model.named_vars
+    assert "x|group" not in reduced_model.named_vars
 
 
 @pytest.mark.parametrize(
@@ -1014,14 +1055,20 @@ def test_predict_without_group_specific_effect_multivariate(
     model = bmb.Model("rating ~ 1 + (1|group)", data, family="categorical")
     idata = model.fit(draws=4, chains=2)
 
-    included = model.predict(idata, data=prediction_data, inplace=False)
-    excluded = model.predict(
-        idata, data=prediction_data, include_group_specific=False, inplace=False
-    )
+    if sparse_dot:
+        with pytest.raises(
+            NotImplementedError, match="Out-of-sample prediction with SPARSE_DOT=True"
+        ):
+            model.predict(idata, data=prediction_data, inplace=False)
+    else:
+        included = model.predict(idata, data=prediction_data, inplace=False)
+        excluded = model.predict(
+            idata, data=prediction_data, include_group_specific=False, inplace=False
+        )
 
-    assert not np.allclose(
-        included.predictions["p"].values, included.predictions["p"].values[..., :1, :]
-    )
-    np.testing.assert_allclose(
-        excluded.predictions["p"].values - excluded.predictions["p"].values[..., :1, :], 0
-    )
+        assert not np.allclose(
+            included.predictions["p"].values, included.predictions["p"].values[..., :1, :]
+        )
+        np.testing.assert_allclose(
+            excluded.predictions["p"].values - excluded.predictions["p"].values[..., :1, :], 0
+        )

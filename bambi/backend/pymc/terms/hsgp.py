@@ -2,7 +2,6 @@ import numpy as np
 import pymc as pm
 import pytensor.tensor as pt
 
-from bambi.backend.pymc.coords import coords_from_hsgp
 from bambi.backend.pymc.utils import get_distribution_from_prior
 from bambi.families.types import ParamSpec
 from bambi.priors import Prior  # TODO: remove?
@@ -27,19 +26,20 @@ GP_KERNELS = {
 }
 
 
-def build_hsgp_term(term, param_spec: ParamSpec, model):
+def build_hsgp_term(term_info, param_spec: ParamSpec, model):
     """Build and return the contribution of an HSGP term.
 
     Parameters
     ----------
-    term : HSGPTerm
-        The HSGP term to build.
+    term_info : HSGPTermInfo
+        Static information for the HSGP term to build.
     param_spec : ParamSpec
         Dimensionality metadata for the conditional parameter.
     model : pymc.Model
         The model that owns the term's variables and coordinates.
     """
-    model.add_coords(coords_from_hsgp(term))
+    term = term_info.term
+    model.add_coords(term_info.coords)
     covariance_functions = build_covariance_function(term, model)
 
     # Prepare dims
