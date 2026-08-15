@@ -3,6 +3,7 @@ import functools
 
 import pymc as pm
 import pytensor.tensor as pt
+from pytensor.tensor.special import softmax
 
 from bambi.backend.pymc.links import (
     cloglog,
@@ -11,7 +12,6 @@ from bambi.backend.pymc.links import (
     logit,
     probit,
 )
-from pytensor.tensor.special import softmax
 
 
 def horseshoe(name, tau_nu=3, lam_nu=1, dims=None):

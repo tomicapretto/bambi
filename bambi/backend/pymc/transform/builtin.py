@@ -39,7 +39,7 @@ def _(parameters):
 
 
 @transforms_registry.transform_predictor(Categorical, "p")
-def _(predictor, parameters, inverse_link):
+def _(predictor, _parameters, inverse_link):
     if predictor.ndim == 1:
         zeros = pt.zeros(shape=(1,))
     else:
@@ -99,7 +99,7 @@ def _(parameters):
 
 
 @transforms_registry.transform_predictor(Multinomial, "p")
-def _(predictor, parameters, inverse_link):
+def _(predictor, _parameters, inverse_link):
     if predictor.ndim == 1:
         zeros = pt.zeros(shape=(1,))
     else:

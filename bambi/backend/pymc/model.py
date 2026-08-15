@@ -14,16 +14,18 @@ from pymc.model.fgraph import fgraph_from_model, model_from_fgraph
 
 from bambi.backend.pymc.coords import coords_from_response
 from bambi.backend.pymc.parameters import (
-    add_new_group_specific_contributions,
     build_conditional_parameter,
     build_marginal_parameter,
     remove_group_specific_contributions,
 )
 from bambi.backend.pymc.parameters.conditional import (
     ConditionalParameterInfo,
-    GroupSpecificFactorPlan,
+    DenseGroupSpecificFactorPlan,
     GroupSpecificGraphState,
-    build_new_conditional_parameter_data,
+    add_new_dense_group_specific_contributions,
+    add_new_sparse_group_specific_contributions,
+    build_new_dense_conditional_parameter_data,
+    build_new_sparse_conditional_parameter_data,
     make_conditional_parameter_info,
 )
 from bambi.backend.pymc.terms import build_potentials, build_response_term
@@ -61,8 +63,10 @@ class PyMCModel:
         """
         self.model = None
         self.spec = model
+        self.fit = False
+        self.vi_approx = None
         self._conditional_parameter_info: dict[str, ConditionalParameterInfo] = {}
-        self._group_specific_graph: GroupSpecificGraphState = GroupSpecificGraphState()
+        self._group_specific_state: GroupSpecificGraphState = GroupSpecificGraphState()
 
     def build(self) -> None:
         response_coords_data, response_coords, response_coords_reduced = coords_from_response(
@@ -80,7 +84,7 @@ class PyMCModel:
         marginal_parameters = {}
         conditional_parameters = {}
         self._conditional_parameter_info = {}
-        self._group_specific_graph = GroupSpecificGraphState()
+        self._group_specific_state = GroupSpecificGraphState()
         for name, parameter in self.spec.marginal_parameters.items():
             marginal_parameters[name] = build_marginal_parameter(parameter, self.spec.family, model)
 
@@ -88,7 +92,7 @@ class PyMCModel:
             parameter_info = make_conditional_parameter_info(parameter)
             self._conditional_parameter_info[name] = parameter_info
             conditional_parameters[name] = build_conditional_parameter(
-                parameter_info, self.spec.family, model, self._group_specific_graph
+                parameter_info, self.spec.family, self._group_specific_state, model
             )
 
         build_response_term(
@@ -147,11 +151,7 @@ class PyMCModel:
         if inference_method == "vi":
             result = self._run_vi(random_seed=random_seed, **kwargs)
         elif inference_method == "laplace":
-            result = self._run_laplace(
-                draws=draws,
-                omit_offsets=omit_offsets,
-                include_response_params=include_response_params,
-            )
+            result = self._run_laplace(draws=draws)
         else:
             result = self._run_mcmc(
                 draws=draws,
@@ -303,7 +303,7 @@ class PyMCModel:
 
         model = self.model
         if not include_group_specific:
-            model = remove_group_specific_contributions(model, self._group_specific_graph)
+            model = remove_group_specific_contributions(self._group_specific_state, model)
 
         # It's assumed the user always wants the parameter 'predictions' (mu, sigma, etc.)
         with model:
@@ -339,11 +339,6 @@ class PyMCModel:
         kind,
         progressbar,
     ) -> None:
-        if bmb_config["SPARSE_DOT"]:
-            raise NotImplementedError(
-                "Out-of-sample prediction with SPARSE_DOT=True is not yet implemented."
-            )
-
         new_data, new_coords, factor_plans = self._build_new_data(data, "prediction")
         out_of_sample_plans = [
             plan for plan in factor_plans if (plan.groups_index == -1).any() or plan.groups_new
@@ -354,17 +349,22 @@ class PyMCModel:
 
         trace = idata.posterior.assign(offset_values)
 
-        model, group_specific_graph = _clone_model_with_group_specific_graph(
-            self.model, self._group_specific_graph
+        model, group_specific_state = _clone_model_with_group_specific_state(
+            self._group_specific_state, self.model
         )
         pm.set_data(new_data=new_data, coords=new_coords, model=model)
 
         if not include_group_specific:
-            model = remove_group_specific_contributions(model, group_specific_graph)
+            model = remove_group_specific_contributions(group_specific_state, model)
         elif out_of_sample_plans:
-            model = add_new_group_specific_contributions(
-                model, out_of_sample_plans, group_specific_graph
-            )
+            if bmb_config["SPARSE_DOT"]:
+                model = add_new_sparse_group_specific_contributions(
+                    factor_plans, group_specific_state, model
+                )
+            else:
+                model = add_new_dense_group_specific_contributions(
+                    factor_plans, group_specific_state, model
+                )
 
         model = replace_response_variables(self.spec.response_term, model)
         interventions = build_response_interventions(self.spec.response_term, model)
@@ -392,11 +392,6 @@ class PyMCModel:
             )
 
     def _compute_log_likelihood_out_of_sample(self, trace, data: pd.DataFrame, progressbar) -> None:
-        if bmb_config["SPARSE_DOT"]:
-            raise NotImplementedError(
-                "Out-of-sample log likelihood with SPARSE_DOT=True is not yet implemented."
-            )
-
         new_data, new_coords, factor_plans = self._build_new_data(data, "log_likelihood")
         out_of_sample_plans = [
             plan for plan in factor_plans if (plan.groups_index == -1).any() or plan.groups_new
@@ -423,12 +418,18 @@ class PyMCModel:
     def _build_new_data(self, data: pd.DataFrame, purpose: str):
         new_coords = {"__obs__": range(len(data))}
         new_data = build_new_response_data(self.spec.response_term, data, self.spec.family, purpose)
-        factor_plans: list[GroupSpecificFactorPlan] = []
+        factor_plans: list[DenseGroupSpecificFactorPlan] = []
 
         for parameter_info in self._conditional_parameter_info.values():
-            parameter_data, parameter_factor_plans = build_new_conditional_parameter_data(
-                parameter_info, data, self.model
-            )
+            if bmb_config["SPARSE_DOT"] and parameter_info.group_specific_terms:
+                parameter_data, parameter_factor_plans, parameter_coords = (
+                    build_new_sparse_conditional_parameter_data(parameter_info, data, self.model)
+                )
+                new_coords.update(parameter_coords)
+            else:
+                parameter_data, parameter_factor_plans = build_new_dense_conditional_parameter_data(
+                    parameter_info, data, self.model
+                )
             new_data.update(parameter_data)
             factor_plans.extend(parameter_factor_plans)
 
@@ -517,7 +518,7 @@ class PyMCModel:
             self.vi_approx = pm.fit(random_seed=random_seed, **kwargs)
         return self.vi_approx
 
-    def _run_laplace(self, draws, omit_offsets, include_response_params):
+    def _run_laplace(self, draws):
         """Fit a model using a Laplace approximation.
 
         Mainly for pedagogical use, provides reasonable results for approximately Gaussian
@@ -527,11 +528,6 @@ class PyMCModel:
         ----------
         draws : int
             The number of samples to draw from the posterior distribution.
-        omit_offsets : bool
-            Omits offset terms in the `InferenceData` object returned when the model includes
-            group specific effects.
-        include_response_params : bool
-            Compute the posterior of the mean response.
 
         Returns
         -------
@@ -564,8 +560,8 @@ class PyMCModel:
 
         samples = np.random.multivariate_normal(modes, cov, size=draws)
 
+        # NOTE: Handle `omit_offsets` and `include_response_params`.
         idata = _posterior_samples_to_idata(samples, self.model)
-        idata = self._clean_results(idata, omit_offsets, include_response_params)
         return idata
 
     def _check_dependencies(self, inference_method):
@@ -590,13 +586,13 @@ class PyMCModel:
                 )
 
 
-def _clone_model_with_group_specific_graph(
-    model: pm.Model, group_specific_graph: GroupSpecificGraphState
+def _clone_model_with_group_specific_state(
+    group_specific_state: GroupSpecificGraphState, model: pm.Model
 ) -> tuple[pm.Model, GroupSpecificGraphState]:
     """Clone a model and map group-specific graph state to cloned variables."""
     fgraph, memo = fgraph_from_model(model)
     cloned_model = model_from_fgraph(fgraph, mutate_fgraph=True)
-    return cloned_model, group_specific_graph.clone(memo)
+    return cloned_model, group_specific_state.clone(memo)
 
 
 def _posterior_samples_to_idata(samples, model):

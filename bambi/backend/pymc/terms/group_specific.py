@@ -2,39 +2,29 @@ import numpy as np
 import pymc as pm
 import pytensor.tensor as pt
 
-from bambi.backend.pymc.coords import coords_from_group_specific
 from bambi.backend.pymc.data import predictor_data_name, shape_common_data
 from bambi.backend.pymc.terms.common import shape_prior_arg
+from bambi.backend.pymc.terms.info import GroupSpecificTermInfo
 from bambi.backend.pymc.types import Dims
 from bambi.backend.pymc.utils import get_distribution_from_prior
 from bambi.priors.prior import Prior
 from bambi.families.types import ParamSpec
 
 
-# NOTE: Can we assume data_name is unique?
-#       How do we manage the case where we have `x` and `sigma_x`?
-#       That woud cause `data_name` to be in conflict.
 def build_group_specific_term_dot(
-    term, param_spec: ParamSpec, model: pm.Model
-) -> tuple[pt.Variable, pt.Variable]:
-    data_name = f"{term.label}_data"
+    term_info: GroupSpecificTermInfo, param_spec: ParamSpec, model: pm.Model
+) -> pt.Variable:
+    """Build a group-specific coefficient block for a shared sparse design matrix."""
+    term = term_info.term
     param_name = term.label
 
-    coords_expr, coords_factor = coords_from_group_specific(term)
-    coords = coords_factor | coords_expr
-    dims_expr = tuple(coords_expr)
-    dims_factor = tuple(coords_factor)
+    coords = term_info.factor_coords | term_info.expression_coords
+    dims_expr = tuple(term_info.expression_coords)
+    dims_factor = tuple(term_info.factor_coords)
 
     # Register coords
-    # Data is not checked as no coords are registered for it
     if param_name not in model:
         model.add_coords(coords)
-
-    # Register data (sparse matrix)
-    data = term.data
-    # NOTE: Update this approach to store (data, indices, indptr)
-    #       and rebuild the CSR from there.
-    pm.Data(data_name, data, model=model)
 
     # Register parameter
     dims_output = tuple()
@@ -61,23 +51,22 @@ def build_group_specific_term_dot(
     else:
         param_rv = param_rv.flatten()
 
-    return model[data_name], param_rv
+    return param_rv
 
 
 def build_group_specific_term_idx(
-    term, param_spec: ParamSpec, model: pm.Model
+    term_info: GroupSpecificTermInfo, param_spec: ParamSpec, model: pm.Model
 ) -> tuple[pt.Variable, pt.Variable]:
+    term = term_info.term
     is_intercept = term.is_intercept
     data_idx_name = f"{term.factor_name}__idx"
     param_name = term.label
 
-    coords_expr, coords_factor = coords_from_group_specific(term)
-    coords = coords_factor | coords_expr
-    dims_expr = tuple(coords_expr)
-    dims_factor = tuple(coords_factor)
+    coords = term_info.factor_coords | term_info.expression_coords
+    dims_expr = tuple(term_info.expression_coords)
+    dims_factor = tuple(term_info.factor_coords)
 
     # Register coords
-    # Data is not checked as no coords are registered for it
     if param_name not in model:
         model.add_coords(coords)
 
@@ -89,7 +78,7 @@ def build_group_specific_term_idx(
         if data_value_name in model:
             predictor_data = model[data_value_name]
         else:
-            predictor = shape_common_data(term.predictor, coords_expr)
+            predictor = shape_common_data(term.predictor, term_info.expression_coords)
             predictor_data = pm.Data(data_value_name, predictor, dims=predictor_dims, model=model)
 
     # Register data: group index

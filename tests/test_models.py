@@ -1375,7 +1375,7 @@ def test_categorical_prediction_without_response_column(mock_pymc_sample):
     assert result.predictions["p"].shape == (2, 4, 2, 3)
 
 
-@pytest.mark.parametrize("sparse_dot", [False])
+@pytest.mark.parametrize("sparse_dot", [False, True])
 def test_predict_new_groups_is_automatic(
     data_sleepstudy, mock_pymc_sample, monkeypatch, sparse_dot
 ):
@@ -1426,7 +1426,7 @@ def test_predict_new_groups_is_automatic(
         ),
     ],
 )
-@pytest.mark.parametrize("sparse_dot", [False])
+@pytest.mark.parametrize("sparse_dot", [False, True])
 def test_predict_new_groups(
     data, formula, family, df_new, request, mock_pymc_sample, monkeypatch, sparse_dot
 ):
@@ -1496,7 +1496,7 @@ def test_predict_new_groups_deterministic(data, formula, family, df_new, request
     ), "Predictions with different random_seed should be different"
 
 
-@pytest.mark.parametrize("sparse_dot", [False])
+@pytest.mark.parametrize("sparse_dot", [False, True])
 def test_predict_new_groups_mixed_known_and_unseen_levels(
     data_sleepstudy, mock_pymc_sample, monkeypatch, sparse_dot
 ):
@@ -1523,9 +1523,10 @@ def test_predict_new_groups_mixed_known_and_unseen_levels(
     assert no_group_predictions.predictions["mu"].shape == (2, 4, 4)
 
 
-def test_predict_unknown_groups_dense(data_sleepstudy, mock_pymc_sample, monkeypatch):
+@pytest.mark.parametrize("sparse_dot", [False, True])
+def test_predict_unknown_groups(data_sleepstudy, mock_pymc_sample, monkeypatch, sparse_dot):
     """Missing factor values donate a fitted group without changing known rows."""
-    monkeypatch.setattr(bmb.config, "SPARSE_DOT", False)
+    monkeypatch.setattr(bmb.config, "SPARSE_DOT", sparse_dot)
     model = bmb.Model("Reaction ~ 1 + Days + (1 + Days | Subject)", data_sleepstudy)
     idata = model.fit(draws=4, chains=2)
 
@@ -1543,16 +1544,18 @@ def test_predict_unknown_groups_dense(data_sleepstudy, mock_pymc_sample, monkeyp
         known.predictions["mu"], prediction_1.predictions["mu"].isel(__obs__=[0])
     )
     np.testing.assert_allclose(prediction_1.predictions["mu"], prediction_2.predictions["mu"])
-    np.testing.assert_array_equal(
-        prediction_1.predictions_constant_data["Subject__idx"], [0, -1, -1]
-    )
+    if not sparse_dot:
+        np.testing.assert_array_equal(
+            prediction_1.predictions_constant_data["Subject__idx"], [0, -1, -1]
+        )
 
 
-def test_predict_identified_groups_dense_share_effects(
-    data_sleepstudy, mock_pymc_sample, monkeypatch
+@pytest.mark.parametrize("sparse_dot", [False, True])
+def test_predict_identified_groups_share_effects(
+    data_sleepstudy, mock_pymc_sample, monkeypatch, sparse_dot
 ):
     """Repeated new labels use one population draw per term and factor."""
-    monkeypatch.setattr(bmb.config, "SPARSE_DOT", False)
+    monkeypatch.setattr(bmb.config, "SPARSE_DOT", sparse_dot)
     model = bmb.Model("Reaction ~ 1 + Days + (1 + Days | Subject)", data_sleepstudy)
     idata = model.fit(draws=4, chains=2)
     data = pd.DataFrame(
@@ -1570,9 +1573,10 @@ def test_predict_identified_groups_dense_share_effects(
     assert not np.allclose(mu.isel(__obs__=[0]), mu.isel(__obs__=[2]))
 
 
-def test_predict_factor_interaction_groups_dense(mock_pymc_sample, monkeypatch):
+@pytest.mark.parametrize("sparse_dot", [False, True])
+def test_predict_factor_interaction_groups(mock_pymc_sample, monkeypatch, sparse_dot):
     """Missing and new components use the unknown and identified joint-factor rules."""
-    monkeypatch.setattr(bmb.config, "SPARSE_DOT", False)
+    monkeypatch.setattr(bmb.config, "SPARSE_DOT", sparse_dot)
     data = pd.DataFrame(
         {
             "y": [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8],
