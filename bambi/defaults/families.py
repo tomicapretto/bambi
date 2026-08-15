@@ -40,7 +40,10 @@ BUILTIN_FAMILIES = {
         },
         "link": {"mu": "identity", "b": "log", "kappa": "log"},
         "family": AsymmetricLaplace,
-        "default_priors": {"b": {"name": "HalfNormal", "sigma": 1}, "kappa": {"name": "HalfNormal", "sigma": 1}}
+        "default_priors": {
+            "b": {"name": "HalfNormal", "sigma": 1},
+            "kappa": {"name": "HalfNormal", "sigma": 1},
+        },
     },
     "bernoulli": {
         "likelihood": {

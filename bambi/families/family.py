@@ -44,7 +44,7 @@ class Family:
 
     DATA_TYPE = ResponseType.NUMERIC
     RESPONSE_NDIM = 0
-    PARAMETERS = None
+    PARAMETERS: dict[str, ParamSpec] | None = None
 
     def __init__(self, name, likelihood, link: str | dict[str, str | Link]):
         self.name = name
@@ -102,9 +102,14 @@ class Family:
         Declared metadata is returned unchanged. When no metadata is declared, parameters are
         scalar, have no coefficient dimension, and accept all registered string links.
         """
-        if self.PARAMETERS is None:
+        parameters = self.PARAMETERS
+        if parameters is None:
             return ParamSpec(links=list(LINKS))
-        return self.PARAMETERS[param_name]
+
+        param_spec = parameters.get(param_name)
+        if param_spec is None:
+            raise KeyError(param_name)
+        return param_spec
 
     def set_default_priors(self, priors):
         """Set default priors for non-parent parameters

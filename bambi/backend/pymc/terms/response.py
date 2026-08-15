@@ -40,34 +40,34 @@ def build_response_term(
         parameters = transform_parameters(parameters)
 
     if term.is_censored:
-        data_mapping = _build_censored_data(term, model, dims)
+        data_mapping = _build_censored_data(term, dims, model)
         dist = distribution.dist(**parameters)
         with model:
             pm.Censored(term.label, dist, **data_mapping, dims=dims)
         return None
 
     if term.is_truncated or term.is_constrained:
-        data_mapping = _build_truncated_data(term, model, dims)
+        data_mapping = _build_truncated_data(term, dims, model)
         dist = distribution.dist(**parameters)
         with model:
             pm.Truncated(term.label, dist, **data_mapping, dims=dims)
         return None
 
     if term.is_weighted:
-        data_mapping = _build_weighted_data(term, model, dims)
+        data_mapping = _build_weighted_data(term, dims, model)
         weighted_dist = make_weighted_distribution(distribution)
         with model:
             weighted_dist(term.label, **data_mapping, **parameters, dims=dims)
         return None
 
     if term.is_counts:
-        data_mapping = _build_counts_data(term, model, dims)
+        data_mapping = _build_counts_data(term, dims, model)
         with model:
             distribution(term.label, **parameters, **data_mapping, dims=dims)
         return None
 
     if term.is_binomial:
-        data_mapping = _build_binomial_data(term, model, dims)
+        data_mapping = _build_binomial_data(term, dims, model)
         with model:
             distribution(term.label, **parameters, **data_mapping, dims=dims)
 
@@ -110,7 +110,7 @@ def build_response_term(
 Purpose = Literal["prediction", "log_likelihood"]
 
 
-def untruncate_response(model: pm.Model, response_name: str) -> pm.Model:
+def untruncate_response(response_name: str, model: pm.Model) -> pm.Model:
     """Return a copy of `model` with one truncated response made latent.
 
     The transformation preserves the response as an observed RV.
@@ -148,7 +148,7 @@ def build_response_interventions(
 
 def build_new_response_data(
     term: ResponseTerm, data: pd.DataFrame, family: Family, purpose: Purpose
-):
+):  # pylint: disable=too-many-return-statements
     if purpose not in ("prediction", "log_likelihood"):
         raise ValueError(f"Unsupported purpose: {purpose}")
 
@@ -201,7 +201,7 @@ def _replace_truncated_response_if_needed(term: ResponseTerm, model: pm.Model) -
         if name:
             bound = model[name + "_data"].get_value(borrow=True)
             if np.isnan(np.ma.filled(bound, np.nan)).any():
-                return untruncate_response(model, term.label)
+                return untruncate_response(term.label, model)
 
     return model
 
@@ -230,7 +230,7 @@ def _build_intervention_censored(
 
 
 def _build_censored_data(
-    term: ResponseTerm, model: pm.Model, dims: tuple[str]
+    term: ResponseTerm, dims: tuple[str], model: pm.Model
 ) -> dict[str, pt.TensorVariable]:
     # NOTE: Statuses could be more efficient (in some cases) if we allowed for scalars.
     #       For now, statuses are vectors of the same length as observed data.
@@ -253,7 +253,7 @@ def _build_censored_data(
     return {"lower": lower, "upper": upper, "observed": observed_data}
 
 
-def _build_truncated_data(term: ResponseTerm, model: pm.Model, dims: tuple[str]) -> dict:
+def _build_truncated_data(term: ResponseTerm, dims: tuple[str], model: pm.Model) -> dict:
     observed, lower, upper = term.data[:, 0], term.data[:, 1], term.data[:, 2]
     call_args = _get_call_bound_arguments(term)
     value_name = call_args["x"]
@@ -282,7 +282,7 @@ def _build_truncated_data(term: ResponseTerm, model: pm.Model, dims: tuple[str])
     return {"lower": lower_data, "upper": upper_data, "observed": observed_data}
 
 
-def _build_weighted_data(term: ResponseTerm, model: pm.Model, dims: tuple[str]) -> dict:
+def _build_weighted_data(term: ResponseTerm, dims: tuple[str], model: pm.Model) -> dict:
     observed, weights = term.data[:, 0], term.data[:, 1]
     call_args = _get_call_bound_arguments(term)
 
@@ -300,13 +300,13 @@ def _build_weighted_data(term: ResponseTerm, model: pm.Model, dims: tuple[str]) 
     return {"weights": weights_data, "observed": observed_data}
 
 
-def _build_counts_data(term: ResponseTerm, model: pm.Model, dims: tuple[str]) -> dict:
+def _build_counts_data(term: ResponseTerm, dims: tuple[str], model: pm.Model) -> dict:
     observed_data = pm.Data(term.label + "_data", term.data, dims=dims, model=model)
     n_argument = term.components[0].call.kwargs.get("n")
     n_name = getattr(n_argument, "name", None)
 
     if n_argument is None:
-        n_data = observed_data.sum(axis=1)
+        n_data = pt.sum(observed_data, axis=1)
     elif n_name is None:
         n_data = term.data.sum(axis=1)[0].item()
     else:
@@ -316,7 +316,7 @@ def _build_counts_data(term: ResponseTerm, model: pm.Model, dims: tuple[str]) ->
     return {"observed": observed_data, "n": n_data}
 
 
-def _build_binomial_data(term: ResponseTerm, model: pm.Model, dims: tuple[str]) -> dict:
+def _build_binomial_data(term: ResponseTerm, dims: tuple[str], model: pm.Model) -> dict:
     successes, trials = term.data[:, 0], term.data[:, 1]
     call_args = _get_call_bound_arguments(term)
 
