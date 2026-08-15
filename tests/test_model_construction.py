@@ -90,6 +90,24 @@ def test_model_categorical_argument():
     assert parent_parameter.terms["x:z"].categorical
 
 
+def test_additive_and_group_specific_terms_share_predictor_data():
+    data = pd.DataFrame(
+        {
+            "y": np.linspace(0, 1, 24),
+            "g": np.tile(["u", "v"], 12),
+            "h": np.tile(["a", "b", "c"], 8),
+        }
+    )
+
+    model = bmb.Model("y ~ g + (g|h)", data)
+    model.build()
+
+    pymc_model = model.backend.model
+    assert pymc_model.named_vars_to_dims["g_data"] == ("__obs__", "g_levels_reduced")
+    assert "g_2_data" not in pymc_model.named_vars
+    assert_ip_dlogp(model)
+
+
 def test_model_no_response():
     with pytest.raises(ValueError):
         bmb.Model("x", pd.DataFrame({"x": [1]}))
