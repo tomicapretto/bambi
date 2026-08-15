@@ -139,7 +139,6 @@ class Poisson(Family):
 
 class StoppingRatio(Family):
     # There's a single linear predictor, not as many linear predictors as response levels.
-    # FIXME: I'm still not happy with how we're treating thresholds
     DATA_TYPE = ResponseType.ORDINAL
     PARAMETERS = {
         "p": ParamSpec(links=["logit", "probit", "cloglog"], ndim=1),
