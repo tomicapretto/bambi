@@ -151,7 +151,11 @@ class PyMCModel:
         if inference_method == "vi":
             result = self._run_vi(random_seed=random_seed, **kwargs)
         elif inference_method == "laplace":
-            result = self._run_laplace(draws=draws)
+            result = self._run_laplace(
+                draws=draws,
+                omit_offsets=omit_offsets,
+                include_response_params=include_response_params,
+            )
         else:
             result = self._run_mcmc(
                 draws=draws,
@@ -505,8 +509,6 @@ class PyMCModel:
                 else:
                     raise
 
-        # Before doing anything, make sure we compute deterministics.
-        # But, don't include those determinisics for parameters of the likelihood.
         for group in idata.groups():
             getattr(idata, group).attrs["modeling_interface"] = "bambi"
             getattr(idata, group).attrs["modeling_interface_version"] = __version__
@@ -518,7 +520,7 @@ class PyMCModel:
             self.vi_approx = pm.fit(random_seed=random_seed, **kwargs)
         return self.vi_approx
 
-    def _run_laplace(self, draws):
+    def _run_laplace(self, draws, omit_offsets, include_response_params):
         """Fit a model using a Laplace approximation.
 
         Mainly for pedagogical use, provides reasonable results for approximately Gaussian
@@ -528,6 +530,11 @@ class PyMCModel:
         ----------
         draws : int
             The number of samples to draw from the posterior distribution.
+        omit_offsets : bool
+            Omits offset terms in the `InferenceData` object returned when the model includes
+            group specific effects.
+        include_response_params : bool
+            Include parameters of the response distribution in the output.
 
         Returns
         -------
@@ -556,12 +563,35 @@ class PyMCModel:
             raise np.linalg.LinAlgError("Singular matrix. Use mcmc or vi method")
 
         cov = np.linalg.inv(hessian)
-        modes = np.concatenate([np.atleast_1d(v) for v in n_maps.values()])
+        modes = np.concatenate(
+            [np.atleast_1d(maps[value_var.name]) for value_var in self.model.value_vars]
+        )
 
         samples = np.random.multivariate_normal(modes, cov, size=draws)
 
-        # NOTE: Handle `omit_offsets` and `include_response_params`.
-        idata = _posterior_samples_to_idata(samples, self.model)
+        response_parameter_names = [
+            parameter.label for parameter in self.spec.conditional_parameters.values()
+        ]
+        idata = _posterior_samples_to_idata(
+            samples,
+            self.model,
+            excluded_var_names=response_parameter_names,
+        )
+
+        if include_response_params:
+            with self.model:
+                posterior = pm.compute_deterministics(
+                    dataset=idata.posterior,
+                    var_names=response_parameter_names,
+                    merge_dataset=True,
+                    progressbar=False,
+                )
+            idata.posterior = posterior
+
+        if omit_offsets:
+            offset_vars = [var for var in idata.posterior.data_vars if var.endswith("_offset")]
+            idata.posterior = idata.posterior.drop_vars(offset_vars)
+
         return idata
 
     def _check_dependencies(self, inference_method):
@@ -595,18 +625,28 @@ def _clone_model_with_group_specific_state(
     return cloned_model, group_specific_state.clone(memo)
 
 
-def _posterior_samples_to_idata(samples, model):
-    """Create InferenceData from samples
+def _posterior_samples_to_idata(
+    samples: np.ndarray,
+    model: pm.Model,
+    excluded_var_names: tuple[str, ...] = (),
+) -> az.InferenceData:
+    """Convert Laplace samples in value-variable space to `InferenceData`.
 
     Parameters
     ----------
-    samples : array
-        Posterior samples
-    model : PyMC model
+    samples : np.ndarray
+        Posterior draws with shape `(draw, n_value_variables)`. Values must be ordered
+        according to `model.value_vars` and stored in their unconstrained representation.
+    model : pm.Model
+        PyMC model that defines the value variables and the unobserved variables to record.
+    excluded_var_names : tuple[str, ...], optional
+        Names of unobserved variables not to evaluate or store in the posterior trace.
 
     Returns
     -------
-    An ArviZ's InferenceData object.
+    az.InferenceData
+        Posterior draws converted to constrained variables and deterministics selected for the
+        trace.
     """
     initial_point = model.initial_point()
     variables = model.value_vars
@@ -618,9 +658,19 @@ def _posterior_samples_to_idata(samples, model):
     length_pos = len(samples)
     varnames = [v.name for v in variables]
 
+    variables = [
+        variable
+        for variable in pm.util.get_default_varnames(
+            model.unobserved_value_vars, include_transformed=False
+        )
+        if variable.name not in excluded_var_names
+    ]
+
     with model:
-        strace = pm.backends.ndarray.NDArray(name=model.name)  # pylint:disable=no-member
+        # pylint:disable=no-member
+        strace = pm.backends.ndarray.NDArray(name=model.name, vars=variables)
         strace.setup(length_pos, 0)
+
     for i in range(length_pos):
         value = []
         size = 0
