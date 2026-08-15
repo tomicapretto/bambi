@@ -121,21 +121,15 @@ def _(predictor, parameters, inverse_link):
         predictor = threshold - pt.shape_padright(predictor)
 
     probability = inverse_link(predictor)
-    n_columns = probability.shape.eval()[-1]
-
-    probability = pt.concatenate(
+    survival = pt.cumprod(1 - probability, axis=-1)
+    return pt.concatenate(
         [
-            pt.shape_padright(probability[..., 0]),
-            *[
-                pt.shape_padright(probability[..., j] * pt.prod(1 - probability[..., :j], axis=-1))
-                for j in range(1, n_columns)
-            ],
-            pt.shape_padright(pt.prod(1 - probability, axis=-1)),
+            probability[..., :1],
+            probability[..., 1:] * survival[..., :-1],
+            survival[..., -1:],
         ],
         axis=-1,
     )
-
-    return probability
 
 
 @transforms_registry.transform_parameters(StoppingRatio)

@@ -129,4 +129,9 @@ def coords_from_hsgp(term):
     return coords
 
 
-def coords_for_cutpoints(): ...
+def coords_for_cutpoints(parameter_label, response_levels):
+    """Return the coordinate for the K - 1 cutpoints of an ordinal response."""
+    cutpoint_levels = [
+        f"{lower}->{upper}" for lower, upper in zip(response_levels[:-1], response_levels[1:])
+    ]
+    return {f"{parameter_label}_levels": cutpoint_levels}
