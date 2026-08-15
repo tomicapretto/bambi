@@ -1033,6 +1033,30 @@ class TestOrdinal(FitPredictParent):
         idata = self.fit(model, random_seed=1234)
         self.predict_oos(model, idata)
 
+    @pytest.mark.parametrize("family", ["cumulative", "sratio"])
+    def test_ordinal_cutpoint_dimensions(self, data_inhaler, family):
+        model = bmb.Model("rating ~ period", data_inhaler, family=family)
+        model.build()
+
+        pymc_model = model.backend.model
+        assert pymc_model.named_vars_to_dims["threshold"] == ("threshold_levels",)
+        assert list(pymc_model.coords["threshold_levels"]) == ["1->2", "2->3", "3->4"]
+        assert pymc_model.eval_rv_shapes()["threshold"] == (3,)
+
+    def test_cumulative_accepts_pymc_ordered_transform(self, data_inhaler):
+        prior = bmb.Prior(
+            "Normal",
+            mu=[-0.5, 0, 0.5],
+            sigma=1.5,
+            transform=pm.distributions.transforms.ordered,
+        )
+        model = bmb.Model(
+            "rating ~ period", data_inhaler, family="cumulative", priors={"threshold": prior}
+        )
+        model.build()
+
+        assert model.backend.model.eval_rv_shapes()["threshold"] == (3,)
+
 
 @pytest.mark.usefixtures("mock_pymc_sample")
 class TestCensoredResponses(FitPredictParent):
