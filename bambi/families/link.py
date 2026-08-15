@@ -1,4 +1,5 @@
 from collections import namedtuple
+from sys import float_info
 
 import numpy as np
 
@@ -9,7 +10,7 @@ from bambi.utils import multilinify, indentify
 
 def force_within_unit_interval(x):
     """Make sure data in unit interval is in (0, 1)."""
-    eps = np.finfo(float).eps
+    eps = float_info.epsilon
     x[x == 0] = eps
     x[x == 1] = 1 - eps
     return x
@@ -17,7 +18,7 @@ def force_within_unit_interval(x):
 
 def force_greater_than_zero(x):
     """Make sure data in positive reals is in (0, infty)."""
-    eps = np.finfo(float).eps
+    eps = float_info.epsilon
     x[x == 0] = eps
     return x
 

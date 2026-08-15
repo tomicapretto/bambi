@@ -1,5 +1,3 @@
-import numpy as np
-
 import formulae.terms
 
 from bambi.terms.base import BaseTerm, VALID_PRIORS
