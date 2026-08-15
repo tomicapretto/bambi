@@ -211,8 +211,9 @@ class PyMCModel:
                 term_label = term.label
                 offset_name = f"{term_label}_offset"
                 if term.noncentered and offset_name not in idata.posterior:
+                    sigma_name = term.hyperprior_alias.get("sigma", "sigma")
                     offset_values[offset_name] = (
-                        idata.posterior[term_label] / idata.posterior[f"{term_label}_sigma"]
+                        idata.posterior[term_label] / idata.posterior[f"{term_label}_{sigma_name}"]
                     )
 
         if data is None:
@@ -264,8 +265,9 @@ class PyMCModel:
                 term_label = term.label
                 offset_name = f"{term_label}_offset"
                 if term.noncentered and offset_name not in idata.posterior:
+                    sigma_name = term.hyperprior_alias.get("sigma", "sigma")
                     offset_values[offset_name] = (
-                        idata.posterior[term_label] / idata.posterior[f"{term_label}_sigma"]
+                        idata.posterior[term_label] / idata.posterior[f"{term_label}_{sigma_name}"]
                     )
 
         trace = idata

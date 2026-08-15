@@ -41,6 +41,7 @@ def build_group_specific_term_dot(
         dims_factor=dims_factor,
         dims_output=dims_output,
         noncentered=term.noncentered,
+        hyperprior_aliases=term.hyperprior_alias,
         model=model,
     )
 
@@ -102,6 +103,7 @@ def build_group_specific_term_idx(
         dims_expr=dims_expr,
         dims_output=dims_output,
         noncentered=term.noncentered,
+        hyperprior_aliases=term.hyperprior_alias,
         model=model,
     )
 
@@ -138,17 +140,18 @@ def build_distribution(
     dims_expr: Dims,
     dims_output: Dims,
     noncentered: bool,
+    hyperprior_aliases: dict[str, str] | None,
     model: pm.Model,
 ) -> pt.Variable:
     kwargs = {}
+    hyperprior_aliases = hyperprior_aliases or {}
     # From slowest to fastest changing
     dims = dims_factor + dims_expr + dims_output
     shape = tuple(len(model.coords[dim]) for dim in dims)
 
     for name, value in prior.args.items():
         if isinstance(value, Prior):
-            hyperparam_name = name
-            hyperparam_label = f"{label}_{hyperparam_name}"
+            hyperparam_label = f"{label}_{hyperprior_aliases.get(name, name)}"
             kwargs[name] = build_distribution(
                 prior=value,
                 label=hyperparam_label,
@@ -156,6 +159,7 @@ def build_distribution(
                 dims_expr=dims_expr,
                 dims_output=dims_output,
                 noncentered=noncentered,
+                hyperprior_aliases=None,
                 model=model,
             )
         else:
