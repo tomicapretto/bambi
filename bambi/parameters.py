@@ -1,3 +1,4 @@
+from bambi.defaults import get_default_prior
 from bambi.priors.prior import Prior
 from bambi.terms import CommonTerm, GroupSpecificTerm, HSGPTerm, OffsetTerm
 from bambi.utils import is_hsgp_term
@@ -82,8 +83,6 @@ class ConditionalParameter:
                 continue
             elif isinstance(term, HSGPTerm):
                 if term.prior is None:
-                    from bambi.defaults import get_default_prior
-
                     term.prior = get_default_prior("hsgp", cov_func=term.cov)
                 continue
             else:
@@ -128,8 +127,6 @@ class ConditionalParameter:
 
 
 def prepare_prior(prior, kind, auto_scale):
-    from bambi.defaults import get_default_prior
-
     if prior is None:
         if auto_scale:
             prior = get_default_prior(kind)

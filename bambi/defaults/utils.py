@@ -1,7 +1,7 @@
 from bambi.defaults.hsgp import HSGP_COV_PARAMS_DEFAULT_PRIORS
 
-from bambi.families import Likelihood
-from bambi.priors import Prior
+from bambi.families.likelihood import Likelihood
+from bambi.priors.prior import Prior
 
 
 def _build_prior_from_spec(spec):

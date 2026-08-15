@@ -1,7 +1,9 @@
 import numpy as np
 import pymc as pm
+import pytensor
 import pytensor.sparse as ps
 import pytensor.tensor as pt
+import scipy.sparse as sp
 
 from bambi.backend.pymc.terms import (
     build_common_term,
@@ -10,6 +12,7 @@ from bambi.backend.pymc.terms import (
     build_hsgp_term,
     build_intercept_term,
 )
+from bambi.backend.pymc.terms.info import CommonTermInfo, GroupSpecificTermInfo
 from bambi.backend.pymc.transform import transforms_registry
 from bambi.backend.pymc.utils import INVERSE_LINKS
 from bambi.config import config as bmb_config
@@ -18,20 +21,20 @@ from bambi.families.types import ParamSpec
 from bambi.terms import CommonTerm
 
 from .state import (
-    CommonTermInfo,
     ConditionalParameterInfo,
+    DenseGroupSpecificParameterGraph,
+    DenseGroupSpecificTermGraph,
     GroupSpecificGraphState,
-    GroupSpecificParameterGraph,
-    GroupSpecificTermGraph,
-    GroupSpecificTermInfo,
+    SparseGroupSpecificParameterGraph,
+    make_sparse_matrix_data,
 )
 
 
 def build_conditional_parameter(
     parameter_info: ConditionalParameterInfo,
     family: Family,
+    group_specific_state: GroupSpecificGraphState,
     model: pm.Model,
-    graph_state: GroupSpecificGraphState,
 ) -> pt.Variable:
     parameter = parameter_info.parameter
     value = 0
@@ -53,8 +56,8 @@ def build_conditional_parameter(
         group_specific_contribution = _build_group_specific(
             parameter_info=parameter_info,
             param_spec=param_spec,
+            group_specific_state=group_specific_state,
             model=model,
-            graph_state=graph_state,
         )
         value += group_specific_contribution
 
@@ -146,8 +149,8 @@ def _build_common_and_intercept(
 def _build_group_specific(
     parameter_info: ConditionalParameterInfo,
     param_spec: ParamSpec,
+    group_specific_state: GroupSpecificGraphState,
     model: pm.Model,
-    graph_state: GroupSpecificGraphState,
 ) -> pt.Variable:
     terms = parameter_info.group_specific_terms
     contribution_dims = ("__obs__",)
@@ -158,15 +161,44 @@ def _build_group_specific(
         contribution_dims += tuple(model.__bambi_attrs__["response_coords_reduced"])
 
     if bmb_config["SPARSE_DOT"]:
-        contribution = _build_group_specific_dot(terms, param_spec, model)
-        graph_state.parameters[parameter_info.label] = GroupSpecificParameterGraph(
-            contribution=contribution,
-            contribution_dims=contribution_dims,
+        return _build_sparse_group_specific(
+            parameter_info, param_spec, contribution_dims, group_specific_state, model
         )
-        return contribution
 
-    contribution, term_graphs = _build_group_specific_idx(terms, param_spec, model)
-    graph_state.parameters[parameter_info.label] = GroupSpecificParameterGraph(
+    return _build_dense_group_specific(
+        parameter_info, terms, param_spec, contribution_dims, group_specific_state, model
+    )
+
+
+def _build_sparse_group_specific(
+    parameter_info: ConditionalParameterInfo,
+    param_spec: ParamSpec,
+    contribution_dims: tuple[str, ...],
+    group_specific_state: GroupSpecificGraphState,
+    model: pm.Model,
+) -> pt.Variable:
+    contribution, term_labels, matrix = _build_sparse_group_specific_dot(
+        parameter_info, param_spec, model
+    )
+    group_specific_state.parameters[parameter_info.label] = SparseGroupSpecificParameterGraph(
+        contribution=contribution,
+        contribution_dims=contribution_dims,
+        term_labels=term_labels,
+        matrix=matrix,
+    )
+    return contribution
+
+
+def _build_dense_group_specific(
+    parameter_info: ConditionalParameterInfo,
+    terms: tuple[GroupSpecificTermInfo, ...],
+    param_spec: ParamSpec,
+    contribution_dims: tuple[str, ...],
+    group_specific_state: GroupSpecificGraphState,
+    model: pm.Model,
+) -> pt.Variable:
+    contribution, term_graphs = _build_dense_group_specific_idx(terms, param_spec, model)
+    group_specific_state.parameters[parameter_info.label] = DenseGroupSpecificParameterGraph(
         contribution=contribution,
         contribution_dims=contribution_dims,
         terms=term_graphs,
@@ -174,19 +206,38 @@ def _build_group_specific(
     return contribution
 
 
-def _build_group_specific_dot(
-    terms: tuple[GroupSpecificTermInfo, ...], param_spec: ParamSpec, model: pm.Model
-) -> pt.Variable:
-    data_blocks = []
-    param_blocks = []
-    for term_info in terms:
-        term = term_info.term
-        data, param = build_group_specific_term_dot(term, param_spec, model)
-        data_blocks.append(data)
-        param_blocks.append(param)
+def _build_sparse_group_specific_dot(
+    parameter_info: ConditionalParameterInfo, param_spec: ParamSpec, model: pm.Model
+) -> tuple[pt.Variable, tuple[str, ...], pt.Variable]:
+    terms = parameter_info.group_specific_terms
+    data = sp.hstack([term_info.term.data for term_info in terms], format="csr")
+    sparse_data = make_sparse_matrix_data(parameter_info.label)
+    data_buffer = pm.Data(
+        sparse_data.data_name,
+        data.data.astype(pytensor.config.floatX),
+        dims=sparse_data.entry_dim,
+        model=model,
+    )
+    indices_buffer = pm.Data(
+        sparse_data.indices_name, data.indices, dims=sparse_data.entry_dim, model=model
+    )
+    indptr_buffer = pm.Data(
+        sparse_data.indptr_name, data.indptr, dims=sparse_data.indptr_dim, model=model
+    )
+    ncols_buffer = pm.Data(sparse_data.ncols_name, np.asarray(data.shape[1]), model=model)
+    matrix = ps.CSR(
+        data_buffer,
+        indices_buffer,
+        indptr_buffer,
+        pt.stack([model.dim_lengths["__obs__"], ncols_buffer]),
+    )
 
-    # Design matrix Z: shape (n, q)
-    data = ps.hstack(data_blocks, format="csr")
+    param_blocks = []
+    term_labels = []
+    for term_info in terms:
+        param = build_group_specific_term_dot(term_info, param_spec, model)
+        param_blocks.append(param)
+        term_labels.append(term_info.term.label)
 
     # Coefficients array: shape (q, ) or (q, K)
     coefs = pt.concatenate(param_blocks, axis=0)
@@ -197,21 +248,20 @@ def _build_group_specific_dot(
         coefs = coefs[:, np.newaxis]
 
     # (n, ) or (n, K)
-    dot_output = ps.structured_dot(data, coefs)
+    dot_output = ps.structured_dot(matrix, coefs)
     if is_univariate:
-        return dot_output.squeeze()
+        return dot_output.squeeze(), tuple(term_labels), matrix
 
-    return dot_output
+    return dot_output, tuple(term_labels), matrix
 
 
-def _build_group_specific_idx(
+def _build_dense_group_specific_idx(
     terms: tuple[GroupSpecificTermInfo, ...], param_spec: ParamSpec, model: pm.Model
-) -> tuple[pt.Variable, dict[str, GroupSpecificTermGraph]]:
+) -> tuple[pt.Variable, dict[str, DenseGroupSpecificTermGraph]]:
     contribution = 0
     term_graphs = {}
     for term_info in terms:
-        term = term_info.term
-        lookup, term_contribution = build_group_specific_term_idx(term, param_spec, model)
-        term_graphs[term.label] = GroupSpecificTermGraph(lookup=lookup)
+        lookup, term_contribution = build_group_specific_term_idx(term_info, param_spec, model)
+        term_graphs[term_info.term.label] = DenseGroupSpecificTermGraph(lookup=lookup)
         contribution += term_contribution
     return contribution, term_graphs

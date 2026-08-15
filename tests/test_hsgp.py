@@ -256,6 +256,15 @@ def test_custom_priors_2d_by_groups(data_2d_multiple_groups):
     assert weights_rv.owner.inputs[-1].eval() == 1  # sigma
 
 
+def test_fixed_covariance_parameters_2d_by_groups(data_2d_multiple_groups):
+    term = "hsgp(x, y, by=group, c=1.5, m=10, share_cov=False)"
+    priors = {term: {"sigma": 1.5, "ell": 2.0}}
+    model = bmb.Model(f"outcome ~ 0 + {term}", data_2d_multiple_groups, priors=priors)
+
+    model.build()
+    assert_ip_dlogp(model)
+
+
 def test_custom_priors_2d_by_groups_anisotropic(data_2d_multiple_groups):
     priors = {
         "hsgp(x, y, by=group, c=1.5, m=10, share_cov=False, iso=False)": {

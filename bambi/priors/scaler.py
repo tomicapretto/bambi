@@ -7,7 +7,6 @@ from bambi.families.builtin import (
     Binomial,
     Cumulative,
     Gaussian,
-    StoppingRatio,
     StudentT,
     VonMises,
 )

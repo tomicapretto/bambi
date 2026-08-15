@@ -2,6 +2,7 @@ import numpy as np
 import pymc as pm
 import pytensor.tensor as pt
 
+from bambi.backend.pymc.terms.info import HSGPTermInfo
 from bambi.backend.pymc.utils import get_distribution_from_prior
 from bambi.families.types import ParamSpec
 from bambi.priors import Prior  # TODO: remove?
@@ -26,7 +27,7 @@ GP_KERNELS = {
 }
 
 
-def build_hsgp_term(term_info, param_spec: ParamSpec, model):
+def build_hsgp_term(term_info: HSGPTermInfo, param_spec: ParamSpec, model: pm.Model) -> pt.Variable:
     """Build and return the contribution of an HSGP term.
 
     Parameters
@@ -173,7 +174,7 @@ def build_covariance_function(term, model):
         else:
             # The value is constant
             if recycle:
-                value = (prior,) * term.groups_n
+                value = np.full(term.groups_n, prior)
             else:
                 value = prior
 
@@ -192,13 +193,12 @@ def build_covariance_function(term, model):
         output = []
         for i in range(len(term.by_levels)):
             params_level = {}
-            # FIXME: How can we be sure `value` has the correct dimension?
-            #        `value` has to be an ndarray for .ndim to work, the second check is nonsensical
             for key, value in params.items():
-                if value[..., i].ndim == 0 and isinstance(value, np.ndarray):
-                    entry = value[..., i].item()
-                else:
-                    entry = value[..., i]
+                entry = value[..., i]
+                if isinstance(entry, np.ndarray) and entry.ndim == 0:
+                    entry = entry.item()
+                elif isinstance(entry, np.generic):
+                    entry = entry.item()
                 params_level[key] = entry
             covariance_function = create_covariance_function(**params_level)
             output.append(covariance_function)
