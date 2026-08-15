@@ -10,7 +10,7 @@ import pymc as pm
 
 from bambi.terms import CommonTerm, GroupSpecificTerm
 from bambi.backend.pymc.parameters import remove_group_specific_contributions
-from bambi.backend.pymc.terms.response import untruncate_response
+from bambi.backend.pymc.terms.response import _untruncate_response
 from formulae import design_matrices
 from pytensor.sparse import StructuredDot
 
@@ -647,7 +647,7 @@ def test_predict_truncated_response_scalar_bounds(mock_pymc_sample):
     assert (samples < 5).all()
 
 
-def test_out_of_sample_censored_response_intervention(mock_pymc_sample):
+def test_out_of_sample_censored_response_predictions(mock_pymc_sample):
     data = pd.DataFrame(
         {
             "predictor": [-1.0, 0.0, 1.0],
@@ -664,11 +664,28 @@ def test_out_of_sample_censored_response_intervention(mock_pymc_sample):
     original_y_data = original_model["y_data"].get_value().copy()
     original_status_data = original_model["status_data"].get_value().copy()
 
+    in_sample = model.predict(idata, kind="response", inplace=False, random_seed=1234)
+    in_sample_samples = in_sample.posterior_predictive[response].to_numpy()
+    assert (in_sample_samples[..., 0] >= data["y"].iloc[0]).all()
+    assert (in_sample_samples[..., 2] <= data["y"].iloc[2]).all()
+
+    in_sample_latent = model.predict(idata, kind="response_latent", inplace=False, random_seed=1234)
+    in_sample_latent_samples = in_sample_latent.posterior_predictive[response].to_numpy()
+    assert (in_sample_latent_samples[..., 0] <= data["y"].iloc[0]).all()
+    assert (in_sample_latent_samples[..., 2] >= data["y"].iloc[2]).all()
+
     result = model.predict(idata, data=data, kind="response", inplace=False, random_seed=1234)
     samples = result.predictions[response].to_numpy()
 
-    assert (samples[..., 0] <= data["y"].iloc[0]).all()
-    assert (samples[..., 2] >= data["y"].iloc[2]).all()
+    assert (samples[..., 0] >= data["y"].iloc[0]).all()
+    assert (samples[..., 2] <= data["y"].iloc[2]).all()
+
+    latent = model.predict(
+        idata, data=data, kind="response_latent", inplace=False, random_seed=1234
+    )
+    latent_samples = latent.predictions[response].to_numpy()
+    assert (latent_samples[..., 0] <= data["y"].iloc[0]).all()
+    assert (latent_samples[..., 2] >= data["y"].iloc[2]).all()
     assert model.backend.model is original_model
     assert model.backend.model[response] is original_response
     np.testing.assert_array_equal(model.backend.model["y_data"].get_value(), original_y_data)
@@ -680,7 +697,7 @@ def test_out_of_sample_censored_response_intervention(mock_pymc_sample):
     assert likelihood.log_likelihood[response].shape == (2, 4, len(data))
 
 
-def test_out_of_sample_truncated_response_intervention(mock_pymc_sample):
+def test_out_of_sample_truncated_response_predictions(mock_pymc_sample):
     data = pd.DataFrame(
         {
             "predictor": [-1.0, 0.0, 1.0],
@@ -704,6 +721,16 @@ def test_out_of_sample_truncated_response_intervention(mock_pymc_sample):
 
     assert (samples > data["lower"].to_numpy()[None, None, :]).all()
     assert (samples < data["upper"].to_numpy()[None, None, :]).all()
+
+    latent = model.predict(
+        idata, data=data, kind="response_latent", inplace=False, random_seed=1234
+    )
+    latent_samples = latent.predictions[response].to_numpy()
+    outside_bounds = (latent_samples <= data["lower"].to_numpy()[None, None, :]) | (
+        latent_samples >= data["upper"].to_numpy()[None, None, :]
+    )
+    assert outside_bounds.any()
+
     assert model.backend.model is original_model
     assert model.backend.model[response] is original_response
     np.testing.assert_array_equal(model.backend.model["y_data"].get_value(), original_y_data)
@@ -718,8 +745,11 @@ def test_out_of_sample_truncated_response_intervention(mock_pymc_sample):
     assert likelihood.log_likelihood[response].shape == (2, 4, len(data))
 
     missing_bounds = data.drop(columns="upper")
+    with pytest.raises(ValueError, match="kind='response_latent'"):
+        model.predict(idata, data=missing_bounds, kind="response", inplace=False)
+
     latent = model.predict(
-        idata, data=missing_bounds, kind="response", inplace=False, random_seed=1234
+        idata, data=missing_bounds, kind="response_latent", inplace=False, random_seed=1234
     )
     assert latent.predictions[response].shape == (2, 4, len(data))
 
@@ -746,7 +776,7 @@ def test_untruncate_response_rebuilds_base_distribution(family, response):
 
     response_name = model.response_term.label
     original = model.backend.model
-    latent = untruncate_response(response_name, original)
+    latent = _untruncate_response(response_name, original)
 
     assert latent is not original
     assert latent[response_name] in latent.observed_RVs

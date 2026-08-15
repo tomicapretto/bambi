@@ -192,7 +192,7 @@ class PyMCModel:
         output_groups = ()
         if data is not None:
             output_groups = ("predictions", "predictions_constant_data")
-        elif kind == "response":
+        elif kind in ("response", "response_latent"):
             output_groups = ("posterior_predictive",)
 
         for group in output_groups:
@@ -323,8 +323,18 @@ class PyMCModel:
             posterior_for_prediction[parameters_names], compat="override"
         )
 
-        if kind == "response":
-            with self.model:
+        if kind in ("response", "response_latent"):
+            prediction_model = pm.model.fgraph.clone_model(model)
+            prediction_model = replace_response_variables(
+                self.spec.response_term, prediction_model, kind
+            )
+            interventions = build_response_interventions(
+                self.spec.response_term, prediction_model, kind
+            )
+            if interventions:
+                prediction_model = pm.do(prediction_model, interventions)
+
+            with prediction_model:
                 predictions = pm.sample_posterior_predictive(
                     trace=posterior_for_prediction,
                     var_names=responses_names,
@@ -345,12 +355,12 @@ class PyMCModel:
         kind,
         progressbar,
     ) -> None:
-        new_data, new_coords, factor_plans = self._build_new_data(data, "prediction")
+        new_data, new_coords, factor_plans = self._build_new_data(data, "prediction", kind)
         out_of_sample_plans = [
             plan for plan in factor_plans if (plan.groups_index == -1).any() or plan.groups_new
         ]
         var_names = parameters_names[:]
-        if kind == "response":
+        if kind in ("response", "response_latent"):
             var_names += responses_names
 
         trace = idata.posterior.assign(offset_values)
@@ -372,8 +382,8 @@ class PyMCModel:
                     factor_plans, group_specific_state, model
                 )
 
-        model = replace_response_variables(self.spec.response_term, model)
-        interventions = build_response_interventions(self.spec.response_term, model)
+        model = replace_response_variables(self.spec.response_term, model, kind)
+        interventions = build_response_interventions(self.spec.response_term, model, kind)
         if interventions:
             model = pm.do(model, interventions)
 
@@ -421,9 +431,11 @@ class PyMCModel:
                 progressbar=progressbar,
             )
 
-    def _build_new_data(self, data: pd.DataFrame, purpose: str):
+    def _build_new_data(self, data: pd.DataFrame, purpose: str, kind: str | None = None):
         new_coords = {"__obs__": range(len(data))}
-        new_data = build_new_response_data(self.spec.response_term, data, self.spec.family, purpose)
+        new_data = build_new_response_data(
+            self.spec.response_term, data, self.spec.family, purpose, kind
+        )
         factor_plans: list[DenseGroupSpecificFactorPlan] = []
 
         for parameter_info in self._conditional_parameter_info.values():

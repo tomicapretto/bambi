@@ -110,7 +110,7 @@ def build_response_term(
 Purpose = Literal["prediction", "log_likelihood"]
 
 
-def untruncate_response(response_name: str, model: pm.Model) -> pm.Model:
+def _untruncate_response(response_name: str, model: pm.Model) -> pm.Model:
     """Return a copy of `model` with one truncated response made latent.
 
     The transformation preserves the response as an observed RV.
@@ -123,16 +123,18 @@ def untruncate_response(response_name: str, model: pm.Model) -> pm.Model:
     return model_from_fgraph(fgraph)
 
 
-def replace_response_variables(term: ResponseTerm, model: pm.Model) -> pm.Model:
+def replace_response_variables(
+    term: ResponseTerm, model: pm.Model, kind: str | None = None
+) -> pm.Model:
     """Apply response-variable replacements required by the current cloned data."""
-    if term.is_truncated:
-        return _replace_truncated_response_if_needed(term, model)
+    if term.is_truncated and kind == "response_latent":
+        return _untruncate_response(term.label, model)
 
     return model
 
 
 def build_response_interventions(
-    term: ResponseTerm, model: pm.Model
+    term: ResponseTerm, model: pm.Model, kind: str
 ) -> dict[pt.TensorVariable, pt.TensorVariable]:
     """Build `pm.do` response interventions for posterior prediction.
 
@@ -140,23 +142,27 @@ def build_response_interventions(
     updated.  This is important because the intervention uses the response data
     containers from that clone, rather than the data in the fitted model.
     """
-    if term.is_censored:
+    if term.is_censored and kind == "response_latent":
         return _build_intervention_censored(term, model)
 
     return {}
 
 
 def build_new_response_data(
-    term: ResponseTerm, data: pd.DataFrame, family: Family, purpose: Purpose
+    term: ResponseTerm,
+    data: pd.DataFrame,
+    family: Family,
+    purpose: Purpose,
+    kind: str | None = None,
 ):  # pylint: disable=too-many-return-statements
     if purpose not in ("prediction", "log_likelihood"):
         raise ValueError(f"Unsupported purpose: {purpose}")
 
     if term.is_censored:
-        return _build_new_censored_data(term, data, purpose)
+        return _build_new_censored_data(term, data, purpose, kind)
 
     if term.is_truncated:
-        return _build_new_truncated_data(term, data, purpose)
+        return _build_new_truncated_data(term, data, purpose, kind)
 
     if term.is_constrained:
         return _build_new_constrained_data(term, data, purpose)
@@ -191,19 +197,6 @@ def _get_untruncated_rv(truncated_rv: pt.TensorVariable) -> pt.TensorVariable:
         return pm.Normal.dist(mu=mu, sigma=sigma, size=size, rng=rng)
 
     raise ValueError(f"Cannot reconstruct the base distribution for {op}.")
-
-
-def _replace_truncated_response_if_needed(term: ResponseTerm, model: pm.Model) -> pm.Model:
-    """Make a truncated response latent when new data omit named bounds."""
-    call_args = _get_call_bound_arguments(term)
-    for argument in ("lb", "ub"):
-        name = call_args.get(argument)
-        if name:
-            bound = model[name + "_data"].get_value(borrow=True)
-            if np.isnan(np.ma.filled(bound, np.nan)).any():
-                return untruncate_response(term.label, model)
-
-    return model
 
 
 def _build_intervention_censored(
@@ -334,29 +327,33 @@ def _build_binomial_data(term: ResponseTerm, dims: tuple[str], model: pm.Model) 
     return {"observed": successes_data, "n": trials_data}
 
 
-def _build_new_censored_data(term: ResponseTerm, data: pd.DataFrame, purpose: Purpose):
+def _build_new_censored_data(
+    term: ResponseTerm, data: pd.DataFrame, purpose: Purpose, kind: str | None
+):
     call_args = _get_call_bound_arguments(term)
     value_name = call_args["x"]
     status_name = call_args["status"]
     n = data.shape[0]
     data_dict = {}
 
-    # Prediction is conditional only when both response columns are provided.
-    # Otherwise, it targets the latent variable.
+    # For posterior prediction, these data only provide the observed response
+    # distribution. Whether a latent response is requested is determined by
+    # ``kind`` in ``Model.predict``, not by which response columns are present.
     # Log-likelihood defaults status to "none".
     if purpose == "prediction":
-        # If response term variables are available, compute conditional predictions when possible,
-        # such as p(Y | Y > t) when the observation is right-censored.
-        # For non-censored observations, it generates predictions for the latent variable.
-        # If response term variables are not available, generate predictions for the latent variable
-        # in all cases.
+        if kind == "response" and (
+            value_name not in data.columns or status_name not in data.columns
+        ):
+            raise ValueError(
+                "Censored response predictions require both "
+                f"'{value_name}' and '{status_name}' in the data. "
+                "Use kind='response_latent' for latent predictions."
+            )
         should_evaluate = value_name in data.columns and status_name in data.columns
         if should_evaluate:
             data_dict[value_name] = data[value_name].to_numpy()
             data_dict[status_name] = data[status_name].to_numpy()
     else:
-        # If there is a status, the status controls if it's conditional or latent.
-        # If there is no status, we assume the user wants prediction the latent variable.
         if value_name not in data.columns:
             raise ValueError(f"Response term variable '{value_name}' must be present in the data.")
 
@@ -377,12 +374,23 @@ def _build_new_censored_data(term: ResponseTerm, data: pd.DataFrame, purpose: Pu
     return {value_name + "_data": value, status_name + "_data": status}
 
 
-def _build_new_truncated_data(term: ResponseTerm, data: pd.DataFrame, purpose: Purpose):
+def _build_new_truncated_data(
+    term: ResponseTerm, data: pd.DataFrame, purpose: Purpose, kind: str | None
+):
     call_args = _get_call_bound_arguments(term)
     value_name = call_args["x"]
     lower_name = call_args.get("lb", "")
     upper_name = call_args.get("ub", "")
     n = data.shape[0]
+
+    if purpose == "prediction" and kind == "response":
+        missing_bounds = [name for name in (lower_name, upper_name) if name and name not in data]
+        if missing_bounds:
+            names = ", ".join(repr(name) for name in missing_bounds)
+            raise ValueError(
+                f"Truncated response predictions require bound variables {names} in the data. "
+                "Use kind='response_latent' for latent predictions."
+            )
 
     # Re-evaluate the response call so transformed values and bounds stay consistent.
     # Missing named bounds are represented by NaN. Literal bounds need no data value.
