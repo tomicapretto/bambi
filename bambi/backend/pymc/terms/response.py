@@ -123,6 +123,56 @@ def untruncate_response(model: pm.Model, response_name: str) -> pm.Model:
     return model_from_fgraph(fgraph)
 
 
+def replace_response_variables(term: ResponseTerm, model: pm.Model) -> pm.Model:
+    """Apply response-variable replacements required by the current cloned data."""
+    if term.is_truncated:
+        return _replace_truncated_response_if_needed(term, model)
+
+    return model
+
+
+def build_response_interventions(
+    term: ResponseTerm, model: pm.Model
+) -> dict[pt.TensorVariable, pt.TensorVariable]:
+    """Build `pm.do` response interventions for posterior prediction.
+
+    `model` must be an out-of-sample clone whose mutable data has already been
+    updated.  This is important because the intervention uses the response data
+    containers from that clone, rather than the data in the fitted model.
+    """
+    if term.is_censored:
+        return _build_intervention_censored(term, model)
+
+    return {}
+
+
+def build_new_response_data(
+    term: ResponseTerm, data: pd.DataFrame, family: Family, purpose: Purpose
+):
+    if purpose not in ("prediction", "log_likelihood"):
+        raise ValueError(f"Unsupported purpose: {purpose}")
+
+    if term.is_censored:
+        return _build_new_censored_data(term, data, purpose)
+
+    if term.is_truncated:
+        return _build_new_truncated_data(term, data, purpose)
+
+    if term.is_constrained:
+        return _build_new_constrained_data(term, data, purpose)
+
+    if term.is_weighted:
+        return _build_new_weighted_data(term, data, purpose)
+
+    if term.is_counts:
+        return _build_new_counts_data(term, data, purpose)
+
+    if term.is_binomial:
+        return _build_new_binomial_data(term, data, purpose)
+
+    return _build_new_generic_data(term, data, family, purpose)
+
+
 def _get_untruncated_rv(truncated_rv: pt.TensorVariable) -> pt.TensorVariable:
     """Rebuild the base RV of a PyMC truncated random variable."""
     if truncated_rv.owner is None:
@@ -143,14 +193,6 @@ def _get_untruncated_rv(truncated_rv: pt.TensorVariable) -> pt.TensorVariable:
     raise ValueError(f"Cannot reconstruct the base distribution for {op}.")
 
 
-def replace_response_variables(term: ResponseTerm, model: pm.Model) -> pm.Model:
-    """Apply response-variable replacements required by the current cloned data."""
-    if term.is_truncated:
-        return _replace_truncated_response_if_needed(term, model)
-
-    return model
-
-
 def _replace_truncated_response_if_needed(term: ResponseTerm, model: pm.Model) -> pm.Model:
     """Make a truncated response latent when new data omit named bounds."""
     call_args = _get_call_bound_arguments(term)
@@ -162,21 +204,6 @@ def _replace_truncated_response_if_needed(term: ResponseTerm, model: pm.Model) -
                 return untruncate_response(model, term.label)
 
     return model
-
-
-def build_response_interventions(
-    term: ResponseTerm, model: pm.Model
-) -> dict[pt.TensorVariable, pt.TensorVariable]:
-    """Build `pm.do` response interventions for posterior prediction.
-
-    `model` must be an out-of-sample clone whose mutable data has already been
-    updated.  This is important because the intervention uses the response data
-    containers from that clone, rather than the data in the fitted model.
-    """
-    if term.is_censored:
-        return _build_intervention_censored(term, model)
-
-    return {}
 
 
 def _build_intervention_censored(
@@ -305,33 +332,6 @@ def _build_binomial_data(term: ResponseTerm, model: pm.Model, dims: tuple[str]) 
         trials_data = pm.Data(trials_name + "_data", trials, dims=dims, model=model)
 
     return {"observed": successes_data, "n": trials_data}
-
-
-def build_new_response_data(
-    term: ResponseTerm, data: pd.DataFrame, family: Family, purpose: Purpose
-):
-    if purpose not in ("prediction", "log_likelihood"):
-        raise ValueError(f"Unsupported purpose: {purpose}")
-
-    if term.is_censored:
-        return _build_new_censored_data(term, data, purpose)
-
-    if term.is_truncated:
-        return _build_new_truncated_data(term, data, purpose)
-
-    if term.is_constrained:
-        return _build_new_constrained_data(term, data, purpose)
-
-    if term.is_weighted:
-        return _build_new_weighted_data(term, data, purpose)
-
-    if term.is_counts:
-        return _build_new_counts_data(term, data, purpose)
-
-    if term.is_binomial:
-        return _build_new_binomial_data(term, data, purpose)
-
-    return _build_new_generic_data(term, data, family, purpose)
 
 
 def _build_new_censored_data(term: ResponseTerm, data: pd.DataFrame, purpose: Purpose):
