@@ -10,19 +10,21 @@ import numpy as np
 import pandas as pd
 import pymc as pm
 import arviz as az
-from pytensor.sparse.sharedvar import SparseTensorSharedVariable
+from pymc.model.fgraph import fgraph_from_model, model_from_fgraph
 
 from bambi.backend.pymc.coords import coords_from_response
 from bambi.backend.pymc.parameters import (
     add_new_group_specific_contributions,
     build_conditional_parameter,
     build_marginal_parameter,
-    build_omitted_group_offsets,
     remove_group_specific_contributions,
 )
 from bambi.backend.pymc.parameters.conditional import (
+    ConditionalParameterInfo,
+    GroupSpecificFactorPlan,
+    GroupSpecificGraphState,
     build_new_conditional_parameter_data,
-    new_group_selector_name,
+    make_conditional_parameter_info,
 )
 from bambi.backend.pymc.terms import build_potentials, build_response_term
 from bambi.backend.pymc.terms.response import (
@@ -30,6 +32,7 @@ from bambi.backend.pymc.terms.response import (
     build_response_interventions,
     replace_response_variables,
 )
+from bambi.config import config as bmb_config
 
 _logger = logging.getLogger("bambi")
 
@@ -47,30 +50,6 @@ _DEPRECATION_MAP = {
 }
 
 
-def _clone_model_preserving_sparse_data(model: pm.Model) -> pm.Model:
-    """Clone a model while retaining mutable sparse data containers.
-
-    `clone_model` currently represents sparse shared variables as dense views in
-    the cloned model's named variables. The shared sparse variable is still in the
-    cloned graph, but `pm.set_data` cannot find it through the name. Restore that
-    mapping so out-of-sample operations can update the clone without changing the
-    fitted model.
-    """
-    cloned_model = pm.model.fgraph.clone_model(model)
-
-    for data_var in list(cloned_model.data_vars):
-        if data_var.owner is None:
-            continue
-
-        sparse_data = data_var.owner.inputs[0]
-        if isinstance(sparse_data, SparseTensorSharedVariable):
-            cloned_model.data_vars.remove(data_var)
-            cloned_model.data_vars.append(sparse_data)
-            cloned_model.named_vars[data_var.name] = sparse_data
-
-    return cloned_model
-
-
 class PyMCModel:
     def __init__(self, model):
         """_summary_
@@ -82,8 +61,10 @@ class PyMCModel:
         """
         self.model = None
         self.spec = model
+        self._conditional_parameter_info: dict[str, ConditionalParameterInfo] = {}
+        self._group_specific_graph: GroupSpecificGraphState = GroupSpecificGraphState()
 
-    def build(self):
+    def build(self) -> None:
         response_coords_data, response_coords, response_coords_reduced = coords_from_response(
             self.spec.response_term, self.spec.family
         )
@@ -98,12 +79,16 @@ class PyMCModel:
 
         marginal_parameters = {}
         conditional_parameters = {}
+        self._conditional_parameter_info = {}
+        self._group_specific_graph = GroupSpecificGraphState()
         for name, parameter in self.spec.marginal_parameters.items():
             marginal_parameters[name] = build_marginal_parameter(parameter, self.spec.family, model)
 
         for name, parameter in self.spec.conditional_parameters.items():
+            parameter_info = make_conditional_parameter_info(parameter)
+            self._conditional_parameter_info[name] = parameter_info
             conditional_parameters[name] = build_conditional_parameter(
-                parameter, self.spec.family, model
+                parameter_info, self.spec.family, model, self._group_specific_graph
             )
 
         build_response_term(
@@ -192,14 +177,11 @@ class PyMCModel:
         idata,
         data=None,
         include_group_specific=True,
-        sample_new_groups=False,
         random_seed=None,
         kind="response",
         inplace=True,
         progressbar=True,
     ):
-        # NOTE: How to handle `sample_new_groups`? Not sure if there's a PyMC native way.
-
         if not inplace:
             idata = deepcopy(idata)
 
@@ -218,93 +200,40 @@ class PyMCModel:
 
         # If group-specific offsets are discarded, we add them back.
         # They are needed for the computation of deterministics (model parameters).
-        omitted_group_offsets = {}
-        for parameter in self.spec.conditional_parameters.values():
-            omitted_group_offsets.update(build_omitted_group_offsets(parameter))
         offset_values = {}
-        for offset_name, (operation, *names) in omitted_group_offsets.items():
-            if offset_name not in idata.posterior:
-                values = [idata.posterior[name] for name in names]
-                offset_values[offset_name] = operation(*values)
-
-        if data is None:
-            if offset_values:
-                posterior_for_prediction = idata.posterior.assign(offset_values)
-            else:
-                posterior_for_prediction = idata.posterior
-
-            model = self.model
-            if not include_group_specific:
-                model = _clone_model_preserving_sparse_data(model)
-                model = remove_group_specific_contributions(
-                    self.spec.conditional_parameters.values(), model
-                )
-
-            # It's assumed the user always wants the parameter 'predictions' (mu, sigma, etc.)
-            with model:
-                posterior_for_prediction = pm.compute_deterministics(
-                    dataset=posterior_for_prediction,
-                    var_names=parameters_names,
-                    progressbar=progressbar,
-                    merge_dataset=True,
-                )
-            idata["posterior"] = idata.posterior.merge(
-                posterior_for_prediction[parameters_names], compat="override"
-            )
-
-            if kind == "response":
-                with self.model:
-                    predictions = pm.sample_posterior_predictive(
-                        trace=posterior_for_prediction,
-                        var_names=responses_names,
-                        random_seed=random_seed,
+        for parameter_info in self._conditional_parameter_info.values():
+            for term_info in parameter_info.group_specific_terms:
+                term = term_info.term
+                term_label = term.label
+                offset_name = f"{term_label}_offset"
+                if term.noncentered and offset_name not in idata.posterior:
+                    offset_values[offset_name] = (
+                        idata.posterior[term_label] / idata.posterior[f"{term_label}_sigma"]
                     )
 
-                idata.add_groups({"posterior_predictive": predictions.posterior_predictive})
+        if data is None:
+            self._predict_in_sample(
+                idata,
+                offset_values,
+                parameters_names,
+                responses_names,
+                include_group_specific,
+                random_seed,
+                kind,
+                progressbar,
+            )
         else:
-            new_data, new_coords, new_groups = self._build_new_data(data, purpose="prediction")
-            if new_groups and not sample_new_groups and include_group_specific:
-                factors = tuple(new_groups)
-                raise ValueError(
-                    f"There are new groups for the factors {factors} and "
-                    "'sample_new_groups' is False."
-                )
-            var_names = parameters_names[:]
-            if kind == "response":
-                var_names += responses_names
-
-            trace = idata.posterior.assign(offset_values)
-            if new_groups and sample_new_groups and include_group_specific:
-                trace = self._add_new_group_selectors(trace, new_groups, random_seed)
-
-            model = _clone_model_preserving_sparse_data(self.model)
-            pm.set_data(new_data=new_data, coords=new_coords, model=model)
-            if not include_group_specific:
-                model = remove_group_specific_contributions(
-                    self.spec.conditional_parameters.values(), model
-                )
-            elif new_groups and sample_new_groups:
-                model = add_new_group_specific_contributions(
-                    self.spec.conditional_parameters.values(), model, new_groups
-                )
-            model = replace_response_variables(self.spec.response_term, model)
-            interventions = build_response_interventions(self.spec.response_term, model)
-            if interventions:
-                model = pm.do(model, interventions)
-            with model:
-                predictions = pm.sample_posterior_predictive(
-                    trace=trace,
-                    var_names=var_names,
-                    progressbar=progressbar,
-                    random_seed=random_seed,
-                    extend_inferencedata=False,
-                    predictions=True,
-                )
-            idata.add_groups({"predictions": predictions.predictions})
-            if "predictions_constant_data" in predictions:
-                idata.add_groups(
-                    {"predictions_constant_data": predictions.predictions_constant_data}
-                )
+            self._predict_out_of_sample(
+                idata,
+                data,
+                offset_values,
+                parameters_names,
+                responses_names,
+                include_group_specific,
+                random_seed,
+                kind,
+                progressbar,
+            )
 
         if inplace:
             return None
@@ -324,43 +253,25 @@ class PyMCModel:
         if "log_likelihood" in idata:
             del idata.log_likelihood
 
-        omitted_group_offsets = {}
-        for parameter in self.spec.conditional_parameters.values():
-            omitted_group_offsets.update(build_omitted_group_offsets(parameter))
-
         offset_values = {}
-        for offset_name, (operation, *names) in omitted_group_offsets.items():
-            if offset_name not in idata.posterior:
-                values = [idata.posterior[name] for name in names]
-                offset_values[offset_name] = operation(*values)
+        for parameter_info in self._conditional_parameter_info.values():
+            for term_info in parameter_info.group_specific_terms:
+                term = term_info.term
+                term_label = term.label
+                offset_name = f"{term_label}_offset"
+                if term.noncentered and offset_name not in idata.posterior:
+                    offset_values[offset_name] = (
+                        idata.posterior[term_label] / idata.posterior[f"{term_label}_sigma"]
+                    )
 
         trace = idata
         if offset_values:
             trace = az.InferenceData(posterior=idata.posterior.assign(offset_values))
 
         if data is None:
-            with self.model:
-                pm.compute_log_likelihood(
-                    idata=trace, extend_inferencedata=True, progressbar=progressbar
-                )
+            self._compute_log_likelihood_in_sample(trace, progressbar)
         else:
-            new_data, new_coords, new_groups = self._build_new_data(data, purpose="log_likelihood")
-            if new_groups:
-                factors = tuple(new_groups)
-                raise ValueError(
-                    f"Cannot compute log likelihood for new groups of the factors {factors}."
-                )
-            model = _clone_model_preserving_sparse_data(self.model)
-            pm.set_data(new_data, coords=new_coords, model=model)
-            model = replace_response_variables(self.spec.response_term, model)
-
-            with model:
-                pm.compute_log_likelihood(
-                    idata=trace,
-                    var_names=[self.spec.response_term.label],
-                    extend_inferencedata=True,
-                    progressbar=progressbar,
-                )
+            self._compute_log_likelihood_out_of_sample(trace, data, progressbar)
 
         if offset_values:
             idata.add_groups({"log_likelihood": trace.log_likelihood})
@@ -374,32 +285,154 @@ class PyMCModel:
 
         return idata
 
-    def _add_new_group_selectors(self, posterior, new_groups, random_seed):
-        """Add per-draw sampled fitted-level indices to a posterior dataset."""
-        rng = np.random.default_rng(random_seed)
-        draw_n = posterior.sizes["draw"]
-        chain_n = posterior.sizes["chain"]
-        selector_data = {}
-        for factor_name, n_levels in new_groups.items():
-            # Match the historical implementation: choices vary by draw and are shared by chains.
-            sampled_idxs = rng.choice(n_levels, size=draw_n)
-            selector_data[new_group_selector_name(factor_name)] = (
-                ("chain", "draw"),
-                np.broadcast_to(sampled_idxs, (chain_n, draw_n)),
-            )
-        return posterior.assign(selector_data)
+    def _predict_in_sample(
+        self,
+        idata,
+        offset_values,
+        parameters_names,
+        responses_names,
+        include_group_specific,
+        random_seed,
+        kind,
+        progressbar,
+    ) -> None:
+        if offset_values:
+            posterior_for_prediction = idata.posterior.assign(offset_values)
+        else:
+            posterior_for_prediction = idata.posterior
 
-    def _build_new_data(self, data, purpose):
+        model = self.model
+        if not include_group_specific:
+            model = remove_group_specific_contributions(model, self._group_specific_graph)
+
+        # It's assumed the user always wants the parameter 'predictions' (mu, sigma, etc.)
+        with model:
+            posterior_for_prediction = pm.compute_deterministics(
+                dataset=posterior_for_prediction,
+                var_names=parameters_names,
+                progressbar=progressbar,
+                merge_dataset=True,
+            )
+        idata["posterior"] = idata.posterior.merge(
+            posterior_for_prediction[parameters_names], compat="override"
+        )
+
+        if kind == "response":
+            with self.model:
+                predictions = pm.sample_posterior_predictive(
+                    trace=posterior_for_prediction,
+                    var_names=responses_names,
+                    random_seed=random_seed,
+                )
+
+            idata.add_groups({"posterior_predictive": predictions.posterior_predictive})
+
+    def _predict_out_of_sample(
+        self,
+        idata,
+        data: pd.DataFrame,
+        offset_values,
+        parameters_names,
+        responses_names,
+        include_group_specific,
+        random_seed,
+        kind,
+        progressbar,
+    ) -> None:
+        if bmb_config["SPARSE_DOT"]:
+            raise NotImplementedError(
+                "Out-of-sample prediction with SPARSE_DOT=True is not yet implemented."
+            )
+
+        new_data, new_coords, factor_plans = self._build_new_data(data, "prediction")
+        out_of_sample_plans = [
+            plan for plan in factor_plans if (plan.groups_index == -1).any() or plan.groups_new
+        ]
+        var_names = parameters_names[:]
+        if kind == "response":
+            var_names += responses_names
+
+        trace = idata.posterior.assign(offset_values)
+
+        model, group_specific_graph = _clone_model_with_group_specific_graph(
+            self.model, self._group_specific_graph
+        )
+        pm.set_data(new_data=new_data, coords=new_coords, model=model)
+
+        if not include_group_specific:
+            model = remove_group_specific_contributions(model, group_specific_graph)
+        elif out_of_sample_plans:
+            model = add_new_group_specific_contributions(
+                model, out_of_sample_plans, group_specific_graph
+            )
+
+        model = replace_response_variables(self.spec.response_term, model)
+        interventions = build_response_interventions(self.spec.response_term, model)
+        if interventions:
+            model = pm.do(model, interventions)
+
+        with model:
+            predictions = pm.sample_posterior_predictive(
+                trace=trace,
+                var_names=var_names,
+                progressbar=progressbar,
+                random_seed=random_seed,
+                extend_inferencedata=False,
+                predictions=True,
+            )
+
+        idata.add_groups({"predictions": predictions.predictions})
+        if "predictions_constant_data" in predictions:
+            idata.add_groups({"predictions_constant_data": predictions.predictions_constant_data})
+
+    def _compute_log_likelihood_in_sample(self, trace, progressbar) -> None:
+        with self.model:
+            pm.compute_log_likelihood(
+                idata=trace, extend_inferencedata=True, progressbar=progressbar
+            )
+
+    def _compute_log_likelihood_out_of_sample(self, trace, data: pd.DataFrame, progressbar) -> None:
+        if bmb_config["SPARSE_DOT"]:
+            raise NotImplementedError(
+                "Out-of-sample log likelihood with SPARSE_DOT=True is not yet implemented."
+            )
+
+        new_data, new_coords, factor_plans = self._build_new_data(data, "log_likelihood")
+        out_of_sample_plans = [
+            plan for plan in factor_plans if (plan.groups_index == -1).any() or plan.groups_new
+        ]
+
+        if out_of_sample_plans:
+            factors = tuple(plan.factor_name for plan in out_of_sample_plans)
+            raise ValueError(
+                f"Cannot compute log likelihood for new groups of the factors {factors}."
+            )
+
+        model = pm.model.fgraph.clone_model(self.model)
+        pm.set_data(new_data, coords=new_coords, model=model)
+        model = replace_response_variables(self.spec.response_term, model)
+
+        with model:
+            pm.compute_log_likelihood(
+                idata=trace,
+                var_names=[self.spec.response_term.label],
+                extend_inferencedata=True,
+                progressbar=progressbar,
+            )
+
+    def _build_new_data(self, data: pd.DataFrame, purpose: str):
         new_coords = {"__obs__": range(len(data))}
         new_data = build_new_response_data(self.spec.response_term, data, self.spec.family, purpose)
-        new_groups = {}
+        factor_plans: list[GroupSpecificFactorPlan] = []
 
-        for parameter in self.spec.conditional_parameters.values():
-            new_data.update(
-                build_new_conditional_parameter_data(parameter, data, self.model, new_groups)
+        for parameter_info in self._conditional_parameter_info.values():
+            parameter_data, parameter_factor_plans = build_new_conditional_parameter_data(
+                parameter_info, data, self.model
             )
+            new_data.update(parameter_data)
+            factor_plans.extend(parameter_factor_plans)
 
-        return new_data, new_coords, new_groups
+        return new_data, new_coords, factor_plans
 
     def _run_mcmc(
         self,
@@ -417,7 +450,6 @@ class PyMCModel:
         sampler_backend,
         **kwargs,
     ):
-
         vars_to_sample = pm.util.get_default_varnames(
             self.model.unobserved_value_vars, include_transformed=False
         )
@@ -556,6 +588,15 @@ class PyMCModel:
                 raise ImportError(
                     f"'{inference_method}' requires package(s): {', '.join(missing)}. "
                 )
+
+
+def _clone_model_with_group_specific_graph(
+    model: pm.Model, group_specific_graph: GroupSpecificGraphState
+) -> tuple[pm.Model, GroupSpecificGraphState]:
+    """Clone a model and map group-specific graph state to cloned variables."""
+    fgraph, memo = fgraph_from_model(model)
+    cloned_model = model_from_fgraph(fgraph, mutate_fgraph=True)
+    return cloned_model, group_specific_graph.clone(memo)
 
 
 def _posterior_samples_to_idata(samples, model):

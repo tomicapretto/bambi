@@ -6,21 +6,15 @@ from bambi.backend.pymc.types import Coords
 def predictor_data_name(base_name: str, dims: tuple[str, ...], model) -> str:
     data_name = f"{base_name}_data"
 
-    if _data_name_available(data_name, dims, model):
+    if _is_data_name_available(data_name, dims, model):
         return data_name
 
     index = 2
     while True:
         indexed_data_name = f"{base_name}_{index}_data"
-        if _data_name_available(indexed_data_name, dims, model):
+        if _is_data_name_available(indexed_data_name, dims, model):
             return indexed_data_name
         index += 1
-
-
-def _data_name_available(data_name: str, dims: tuple[str, ...], model) -> bool:
-    if data_name not in model:
-        return True
-    return tuple(model.named_vars_to_dims.get(data_name, ())) == dims
 
 
 def shape_common_data(data: np.ndarray, coords: Coords) -> np.ndarray:
@@ -56,3 +50,9 @@ def shape_common_data(data: np.ndarray, coords: Coords) -> np.ndarray:
         return data.reshape((data.shape[0], *coords_shape))
 
     raise ValueError("Common term data shape does not match its coordinates.")
+
+
+def _is_data_name_available(data_name: str, dims: tuple[str, ...], model) -> bool:
+    if data_name not in model:
+        return True
+    return tuple(model.named_vars_to_dims.get(data_name, ())) == dims
