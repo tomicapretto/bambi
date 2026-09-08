@@ -6,6 +6,8 @@ from seaborn.objects import Plot
 
 import bambi as bmb
 from bambi.interpret import plot_comparisons, plot_predictions, plot_slopes
+from bambi.interpret.effects import comparisons, predictions
+from bambi.interpret.plots import PlottingConfig, plot
 
 # Render plots to a buffer instead of rendering to stddout
 matplotlib.use("Agg")
@@ -113,6 +115,25 @@ class TestCommon:
         assert isinstance(plot, Plot)
         customized = plot.label(title="Custom Slopes")
         assert isinstance(customized, Plot)
+
+    def test_panel_order_follows_data_order(self):
+        pigs = [4602, 8437, 4817]
+        data = pd.DataFrame(
+            {
+                "Time": [1.0, 1.0, 1.0, 2.0, 2.0, 2.0],
+                "Pig": pigs * 2,
+                "estimate": [1.0, 2.0, 3.0, 1.5, 2.5, 3.5],
+                "lower_94%": [0.9, 1.9, 2.9, 1.4, 2.4, 3.4],
+                "upper_94%": [1.1, 2.1, 3.1, 1.6, 2.6, 3.6],
+            }
+        )
+        config = PlottingConfig.from_params(
+            ["Time", "Pig"], subplot_kwargs={"main": "Time", "panel": "Pig"}
+        )
+
+        result = plot(data, config).plot()
+
+        assert [ax.get_title() for ax in result._figure.axes] == [str(pig) for pig in pigs]
 
 
 class TestPredictions:
@@ -267,7 +288,7 @@ class TestPredictions:
             ValueError,
             match="There are new groups for the factors \('Subject',\) and 'sample_new_groups' is False.",
         ):
-            # default: sample_new_groups=False
+            # default: sample_new_groups=None, normalized to False
             plot_predictions(model, idata, ["Days", "Subject"])
 
     @pytest.mark.parametrize(
@@ -282,6 +303,16 @@ class TestPredictions:
         model, idata = food_choice
         result = plot_predictions(model, idata, covariates)
         assert isinstance(result, Plot)
+
+    def test_categorical_response_summary_keeps_all_categories(self, food_choice):
+        model, idata = food_choice
+
+        result = predictions(model, idata, conditional={"length": [30.0, 50.0, 70.0]})
+        summary = result.summary
+
+        assert len(summary) == 9
+        assert (summary.groupby("length")["choice_dim"].nunique() == 3).all()
+        np.testing.assert_allclose(summary.groupby("length")["estimate"].sum(), 1)
 
     def test_term_transformations(self, formulae_transform, nonformulae_transform):
         model, idata = formulae_transform
@@ -425,7 +456,7 @@ class TestComparisons:
             ValueError,
             match="There are new groups for the factors \('Subject',\) and 'sample_new_groups' is False.",
         ):
-            # default: sample_new_groups=False
+            # default: sample_new_groups=None, normalized to False
             plot_comparisons(model, idata, "Days", "Subject")
 
     @pytest.mark.parametrize(
@@ -439,6 +470,21 @@ class TestComparisons:
         model, idata = food_choice
         result = plot_comparisons(model, idata, contrast, conditional)
         assert isinstance(result, Plot)
+
+    def test_categorical_response_multiple_comparison_summary(self, food_choice):
+        model, idata = food_choice
+
+        result = comparisons(
+            model,
+            idata,
+            contrast={"length": [30.0, 50.0, 70.0]},
+            conditional={"sex": ["male", "female"]},
+        )
+        summary = result.summary
+
+        assert len(summary) == 18
+        assert (summary.groupby(["sex", "value"])["choice_dim"].size() == 3).all()
+        assert (summary.groupby(["sex", "value"])["choice_dim"].nunique() == 3).all()
 
     @pytest.mark.parametrize("comparison", ["ratio", "lift"])
     def test_comparison_types(self, mtcars_fixture, comparison):
@@ -565,7 +611,7 @@ class TestSlopes:
             ValueError,
             match="There are new groups for the factors \('Subject',\) and 'sample_new_groups' is False.",
         ):
-            # default: sample_new_groups=False
+            # default: sample_new_groups=None, normalized to False
             plot_slopes(model, idata, "Days", "Subject")
 
     def test_categorical_response(self, food_choice):

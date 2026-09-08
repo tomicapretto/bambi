@@ -1,3 +1,4 @@
+import warnings
 from functools import partial
 from itertools import combinations
 from typing import Any, Callable, Mapping, Optional
@@ -32,6 +33,19 @@ from bambi.interpret.utils import (
 from bambi.interpret.validate import validate_prob
 from bambi.models import Model
 from bambi.utils import as_dataset
+from bambi.warnings import PlottingFutureWarning
+
+
+def _warn_plot_return_type():
+    """Warn about the future return type of plotting functions."""
+    warnings.warn(
+        "Bambi's interpret plotting functions currently return seaborn.objects.Plot objects. "
+        "In a future version, they will return matplotlib.figure.Figure objects instead. "
+        "To suppress this warning, use "
+        "warnings.filterwarnings('ignore', category=bambi.PlottingFutureWarning).",
+        PlottingFutureWarning,
+        stacklevel=3,
+    )
 
 
 def _determine_plot_vars(
@@ -298,6 +312,24 @@ def get_summary_stats(x: DataArray, prob: float | list[float], use_hdi: bool = T
     return stats
 
 
+def _join_prediction_data(preds_data: DataFrame, stats_data: DataFrame) -> DataFrame:
+    """Attach output statistics to each row in a prediction grid.
+
+    A multivariate response has one row of summary statistics per output level,
+    while the prediction grid has one row per observation.
+    Repeat each grid row for its output levels before joining by position.
+    """
+    n_levels, remainder = divmod(len(stats_data), len(preds_data))
+    if remainder:
+        raise ValueError(
+            "The number of prediction statistics must be a multiple of the prediction grid size."
+        )
+
+    indexes = np.repeat(np.arange(len(preds_data)), n_levels)
+    expanded_data = preds_data.iloc[indexes].reset_index(drop=True)
+    return expanded_data.join(stats_data.reset_index(drop=True))
+
+
 def _build_predictions(
     model: Model,
     idata: DataTree,
@@ -392,7 +424,7 @@ def predictions(
     use_hdi: bool = True,
     prob: float | list[float] = az.rcParams["stats.ci_prob"],
     transforms: dict | None = None,
-    sample_new_groups: bool = False,
+    sample_new_groups: bool | None = None,
 ) -> Result:
     """Compute conditional adjusted predictions.
 
@@ -418,8 +450,10 @@ def predictions(
         arviz rcParams. When a list is provided, multiple nested intervals are computed.
     transforms : dict or None
         Dictionary of transformations to apply to predictions.
-    sample_new_groups : bool
-        Whether to sample new group levels. Default is False.
+    sample_new_groups : bool or None
+        Deprecated. Explicit boolean values emit a `FutureWarning` because new groups will be
+        handled automatically in a future version. The default `None` preserves the current
+        `False` behavior during this transition.
 
     Returns
     -------
@@ -461,7 +495,11 @@ def predictions(
     y_hat = as_dataset(idata[target_info.group])[target_info.var_name]
 
     stats_data = get_summary_stats(response_transform(y_hat), prob, use_hdi)
-    summary_df = aggregate(data=preds_data.join(stats_data, on=None), by=average_by)
+    summary_df = aggregate(
+        data=_join_prediction_data(preds_data, stats_data),
+        by=average_by,
+        preserve=_extract_dim_columns(stats_data, []),
+    )
 
     return Result(summary=summary_df, draws=idata)
 
@@ -475,7 +513,7 @@ def plot_predictions(
     use_hdi: bool = True,
     prob: float | list[float] = az.rcParams["stats.ci_prob"],
     transforms: dict | None = None,
-    sample_new_groups: bool = False,
+    sample_new_groups: bool | None = None,
     fig_kwargs: Optional[dict[str, Any]] = None,
     subplot_kwargs: Optional[dict[str, str]] = None,
 ) -> Plot:
@@ -504,8 +542,10 @@ def plot_predictions(
         are drawn.
     transforms : dict or None
         Dictionary of transformations to apply to predictions.
-    sample_new_groups : bool
-        Whether to sample new group levels. Default is False.
+    sample_new_groups : bool or None
+        Deprecated. Explicit boolean values emit a `FutureWarning` because new groups will be
+        handled automatically in a future version. The default `None` preserves the current
+        `False` behavior during this transition.
     fig_kwargs : dict or None
         Additional keyword arguments for figure customization. Use the 'theme' key
         to pass a dictionary of matplotlib rc parameters.
@@ -515,15 +555,17 @@ def plot_predictions(
     Returns
     -------
     Plot
-        A Seaborn objects Plot. In Jupyter notebooks, the plot automatically displays.
-        In scripts, call `.show()` to display. The returned Plot object can be
-        customized before displaying using method chaining (e.g., `.label()`, `.theme()`).
+        A `seaborn.objects.Plot`. In Jupyter notebooks, the plot automatically displays.
+        In scripts, call `.show()` to display. The returned Plot object can be customized before
+        displaying using method chaining (e.g., `.label()`, `.theme()`). In a future version this
+        function will return a `matplotlib.figure.Figure`.
 
     Raises
     ------
     ValueError
         If more than 3 conditional variables are provided without averaging.
     """
+    _warn_plot_return_type()
     var_names = _determine_plot_vars(conditional, average_by, model.data)
 
     result = predictions(
@@ -558,7 +600,7 @@ def comparisons(
     use_hdi: bool = True,
     prob: float | list[float] = az.rcParams["stats.ci_prob"],
     transforms: dict | None = None,
-    sample_new_groups: bool = False,
+    sample_new_groups: bool | None = None,
 ) -> Result:
     """Compute conditional adjusted comparisons.
 
@@ -587,8 +629,10 @@ def comparisons(
         arviz rcParams. When a list is provided, multiple nested intervals are computed.
     transforms : dict or None
         Dictionary of transformations to apply to comparisons.
-    sample_new_groups : bool
-        Whether to sample new group levels. Default is False.
+    sample_new_groups : bool or None
+        Deprecated. Explicit boolean values emit a `FutureWarning` because new groups will be
+        handled automatically in a future version. The default `None` preserves the current
+        `False` behavior during this transition.
 
     Returns
     -------
@@ -632,16 +676,25 @@ def comparisons(
         for k, v in compared_draws.items()
     }
     # Comparison column name corresponds to the contrast values being compared (e.g., 1_vs_4)
-    comparison_df = pd.concat(summary_draws, names=["comparison", "index"]).reset_index(level=0)
-
-    summary_df = (
-        preds_data.loc[preds_data[con.variable.name] == con.variable.iloc[0], context_columns]
+    comparison_df = (
+        pd.concat(summary_draws, names=["comparison", "index"])
+        .reset_index(level=0)
+        .sort_index(kind="stable")
         .reset_index(drop=True)
-        .join(comparison_df, on=None)
+    )
+
+    context_rows = preds_data[con.variable.name] == con.variable.iloc[0]
+    summary_df = _join_prediction_data(
+        preds_data.loc[context_rows, context_columns],
+        comparison_df,
     )
 
     summary_df = summary_df.rename(columns={"comparison": "value"})
-    summary_df = aggregate(data=summary_df, by=average_by, preserve=["value"])
+    summary_df = aggregate(
+        data=summary_df,
+        by=average_by,
+        preserve=["value", *_extract_dim_columns(comparison_df, [])],
+    )
 
     # Add summary metadata
     estimate_type = comparison if isinstance(comparison, str) else comparison.__name__
@@ -662,7 +715,7 @@ def plot_comparisons(
     use_hdi: bool = True,
     prob: float | list[float] = az.rcParams["stats.ci_prob"],
     transforms: dict | None = None,
-    sample_new_groups: bool = False,
+    sample_new_groups: bool | None = None,
     fig_kwargs: Optional[dict[str, Any]] = None,
     subplot_kwargs: Optional[Mapping[str, str]] = None,
 ) -> Plot:
@@ -696,8 +749,10 @@ def plot_comparisons(
         are drawn.
     transforms : dict or None
         Dictionary of transformations to apply to comparisons.
-    sample_new_groups : bool
-        Whether to sample new group levels. Default is False.
+    sample_new_groups : bool or None
+        Deprecated. Explicit boolean values emit a `FutureWarning` because new groups will be
+        handled automatically in a future version. The default `None` preserves the current
+        `False` behavior during this transition.
     fig_kwargs : dict or None
         Additional keyword arguments for figure customization. Use the 'theme' key
         to pass a dictionary of matplotlib rc parameters.
@@ -707,15 +762,17 @@ def plot_comparisons(
     Returns
     -------
     Plot
-        A Seaborn objects Plot. In Jupyter notebooks, the plot automatically displays.
-        In scripts, call `.show()` to display. The returned Plot object can be
-        customized before displaying using method chaining (e.g., `.label()`, `.theme()`).
+        A `seaborn.objects.Plot`. In Jupyter notebooks, the plot automatically displays.
+        In scripts, call `.show()` to display. The returned Plot object can be customized before
+        displaying using method chaining (e.g., `.label()`, `.theme()`). In a future version this
+        function will return a `matplotlib.figure.Figure`.
 
     Raises
     ------
     ValueError
         If more than 3 conditional variables are provided without averaging.
     """
+    _warn_plot_return_type()
     var_names = _determine_plot_vars(conditional, average_by, model.data)
 
     result = comparisons(
@@ -753,7 +810,7 @@ def slopes(
     use_hdi: bool = True,
     prob: float | list[float] = az.rcParams["stats.ci_prob"],
     transforms: dict | None = None,
-    sample_new_groups: bool = False,
+    sample_new_groups: bool | None = None,
 ) -> Result:
     """Compute conditional adjusted slopes.
 
@@ -793,8 +850,10 @@ def slopes(
         arviz rcParams. When a list is provided, multiple nested intervals are computed.
     transforms : dict or None
         Dictionary of transformations to apply to predictions before differencing.
-    sample_new_groups : bool
-        Whether to sample new group levels. Default is False.
+    sample_new_groups : bool or None
+        Deprecated. Explicit boolean values emit a `FutureWarning` because new groups will be
+        handled automatically in a future version. The default `None` preserves the current
+        `False` behavior during this transition.
 
     Returns
     -------
@@ -844,15 +903,14 @@ def slopes(
     # Compute summary statistics
     stats = get_summary_stats(scaled_draws, prob, use_hdi)
 
-    summary_df = (
-        preds_data.loc[preds_data[wrt_var.variable.name] == x_val, context_columns]
-        .reset_index(drop=True)
-        .join(stats, on=None)
-    )
-
     estimate_type = slope if isinstance(slope, str) else slope.__name__
 
-    summary_df = aggregate(data=summary_df, by=average_by)
+    context_rows = preds_data[wrt_var.variable.name] == x_val
+    summary_df = aggregate(
+        data=_join_prediction_data(preds_data.loc[context_rows, context_columns], stats),
+        by=average_by,
+        preserve=_extract_dim_columns(stats, []),
+    )
 
     # Add summary metadata
     summary_df.insert(0, "term", wrt_var.variable.name)
@@ -874,7 +932,7 @@ def plot_slopes(
     use_hdi: bool = True,
     prob: float | list[float] = az.rcParams["stats.ci_prob"],
     transforms: dict | None = None,
-    sample_new_groups: bool = False,
+    sample_new_groups: bool | None = None,
     fig_kwargs: Optional[dict[str, Any]] = None,
     subplot_kwargs: Optional[Mapping[str, str]] = None,
 ) -> Plot:
@@ -911,8 +969,10 @@ def plot_slopes(
         are drawn.
     transforms : dict or None
         Dictionary of transformations to apply to predictions before differencing.
-    sample_new_groups : bool
-        Whether to sample new group levels. Default is False.
+    sample_new_groups : bool or None
+        Deprecated. Explicit boolean values emit a `FutureWarning` because new groups will be
+        handled automatically in a future version. The default `None` preserves the current
+        `False` behavior during this transition.
     fig_kwargs : dict or None
         Additional keyword arguments for figure customization.
     subplot_kwargs : Mapping[str, str] or None
@@ -921,15 +981,17 @@ def plot_slopes(
     Returns
     -------
     Plot
-        A Seaborn objects Plot. In Jupyter notebooks, the plot automatically displays.
-        In scripts, call `.show()` to display. The returned Plot object can be
-        customized before displaying using method chaining (e.g., `.label()`, `.theme()`).
+        A `seaborn.objects.Plot`. In Jupyter notebooks, the plot automatically displays.
+        In scripts, call `.show()` to display. The returned Plot object can be customized before
+        displaying using method chaining (e.g., `.label()`, `.theme()`). In a future version this
+        function will return a `matplotlib.figure.Figure`.
 
     Raises
     ------
     ValueError
         If more than 3 conditional variables are provided without averaging.
     """
+    _warn_plot_return_type()
     var_names = _determine_plot_vars(conditional, average_by, model.data)
 
     result = slopes(
