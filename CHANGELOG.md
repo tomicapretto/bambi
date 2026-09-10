@@ -1,3 +1,36 @@
+<a id="0.21.0"></a>
+# [Bambi 0.21.0](https://github.com/bambinos/bambi/releases/tag/0.21.0) - 2026-09-10
+
+## What's Changed
+* Update arviz.preview to arviz in notebooks [#985](https://github.com/bambinos/bambi/issues/985) by [@NeuralImprint](https://github.com/NeuralImprint) in [#999](https://github.com/bambinos/bambi/pull/999)
+* Add deprecations (and fixes) for changes in future release of Bambi by [@tomicapretto](https://github.com/tomicapretto) in [#1005](https://github.com/bambinos/bambi/pull/1005)
+
+## New Contributors
+* [@NeuralImprint](https://github.com/NeuralImprint) made their first contribution in [#999](https://github.com/bambinos/bambi/pull/999)
+
+**Full Changelog**: https://github.com/bambinos/bambi/compare/0.20.0...0.21.0
+
+[Changes][0.21.0]
+
+
+<a id="0.20.0"></a>
+# [Bambi 0.20.0](https://github.com/bambinos/bambi/releases/tag/0.20.0) - 2026-08-10
+
+## What's Changed
+* Add lognormal family by [@Qayad-Ali](https://github.com/Qayad-Ali) in [#998](https://github.com/bambinos/bambi/pull/998)
+* add _re_center_intercept by [@aloctavodia](https://github.com/aloctavodia) in [#994](https://github.com/bambinos/bambi/pull/994)
+* Raise an error for prior names that match no term by [@AlexanderFengler](https://github.com/AlexanderFengler) in [#1001](https://github.com/bambinos/bambi/pull/1001)
+* REF: fix  `_re_center_intercept` to reconstruct offsets and center factors by [@jordandeklerk](https://github.com/jordandeklerk) in [#1000](https://github.com/bambinos/bambi/pull/1000)
+
+## New Contributors
+* [@Qayad-Ali](https://github.com/Qayad-Ali) made their first contribution in [#998](https://github.com/bambinos/bambi/pull/998)
+* [@jordandeklerk](https://github.com/jordandeklerk) made their first contribution in [#1000](https://github.com/bambinos/bambi/pull/1000)
+
+**Full Changelog**: https://github.com/bambinos/bambi/compare/0.19.0...0.20.0
+
+[Changes][0.20.0]
+
+
 <a id="0.19.0"></a>
 # [Bambi 0.19.0](https://github.com/bambinos/bambi/releases/tag/0.19.0) - 2026-07-12
 
@@ -609,6 +642,8 @@ Release 0.0.5
 [Changes][0.0.5]
 
 
+[0.21.0]: https://github.com/bambinos/bambi/compare/0.20.0...0.21.0
+[0.20.0]: https://github.com/bambinos/bambi/compare/0.19.0...0.20.0
 [0.19.0]: https://github.com/bambinos/bambi/compare/0.18.0...0.19.0
 [0.18.0]: https://github.com/bambinos/bambi/compare/0.17.2...0.18.0
 [0.17.2]: https://github.com/bambinos/bambi/compare/0.17.1...0.17.2
