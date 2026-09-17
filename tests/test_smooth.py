@@ -29,7 +29,7 @@ def test_random_basis_and_prediction(smooth_data, center):
 
 
 def test_hierarchical_prior_and_new_data(smooth_data):
-    name = "cr_spline(x, df=6)"
+    name = "cr(x, df=6)"
     model = bmb.Model(f"y ~ {name}", smooth_data)
     term = model.parameters["mu"].terms[name]
     assert isinstance(term, SmoothTerm)
@@ -61,7 +61,7 @@ def test_hierarchical_prior_and_new_data(smooth_data):
 
 
 def test_custom_priors(smooth_data):
-    name = "cr_spline(x, df=6)"
+    name = "cr(x, df=6)"
     model = bmb.Model(
         f"y ~ {name}",
         smooth_data,
@@ -72,7 +72,7 @@ def test_custom_priors(smooth_data):
 
 
 def test_uncentered_smooth(smooth_data):
-    name = "cr_spline(x, df=6, center=False)"
+    name = "cr(x, df=6, center=False)"
     with pytest.raises(ValueError, match="center=True"):
         bmb.Model(f"y ~ {name}", smooth_data)
     model = bmb.Model(
@@ -91,7 +91,7 @@ def test_uncentered_smooth(smooth_data):
 
 
 def test_non_normal_null_prior_rejected(smooth_data):
-    name = "cr_spline(x, df=6)"
+    name = "cr(x, df=6)"
     with pytest.raises(ValueError, match="null-space prior must be Normal"):
         bmb.Model(
             f"y ~ {name}", smooth_data, priors={name: {"null": bmb.Prior("Laplace", mu=0, b=1)}}
@@ -100,10 +100,10 @@ def test_non_normal_null_prior_rejected(smooth_data):
 
 def test_smooth_interaction_rejected(smooth_data):
     with pytest.raises(NotImplementedError, match="Interactions"):
-        bmb.Model("y ~ x:cr_spline(x, df=6)", smooth_data)
+        bmb.Model("y ~ x:cr(x, df=6)", smooth_data)
 
 
 def test_group_specific_smooth_rejected(smooth_data):
     smooth_data["group"] = np.tile(["a", "b"], 20)
     with pytest.raises(NotImplementedError, match="Group-specific smooths"):
-        bmb.Model("y ~ (cr_spline(x, df=6)|group)", smooth_data)
+        bmb.Model("y ~ (cr(x, df=6)|group)", smooth_data)

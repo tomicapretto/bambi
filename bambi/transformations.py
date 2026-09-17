@@ -6,19 +6,18 @@ from formulae.transforms import NaturalCubicSpline, register_stateful_transform
 
 @register_stateful_transform
 class CRSpline(NaturalCubicSpline):
-    """Natural cubic spline in random-effects coordinates (experimental).
+    """Natural cubic spline as a random-effects term.
 
-    Uses formulae's CR arguments and remembered training basis. The first
-    ``null_space_dimension`` columns are unpenalized; remaining columns have an
-    identity curvature penalty. Named ``cr_spline`` because ``cr`` already
-    denotes a competing-risks response in Bambi.
+    The first `null_space_dimension` columns are unpenalized,
+    while remaining columns have an identity curvature penalty.
+    Overrides formulae's `cr` transform to return the basis in random-effects coordinates.
 
     Examples
     --------
-    >>> model = bmb.Model("y ~ cr_spline(x, df=8)", data)
+    >>> model = bmb.Model("y ~ cr(x, df=8)", data)
     """
 
-    __transform_name__ = "cr_spline"
+    __transform_name__ = "cr"
 
     def eval(self, x):
         return self.to_random(super().eval(x))
@@ -529,6 +528,7 @@ def get_distance(x):
 
 # These functions are made available in the namespace where the model formula is evaluated
 transformations_namespace = {
+    "cr": CRSpline,
     "c": c,
     "counts": counts,
     "censored": censored,
