@@ -1,7 +1,8 @@
 from bambi.defaults import get_default_prior
 from bambi.priors.prior import Prior
 from bambi.terms import CommonTerm, GroupSpecificTerm, HSGPTerm, OffsetTerm
-from bambi.utils import is_hsgp_term
+from bambi.terms.smooth import SmoothTerm
+from bambi.utils import is_hsgp_term, is_smooth_term
 
 
 class MarginalParameter:
@@ -50,6 +51,12 @@ class ConditionalParameter:
                 continue
 
             prior = priors.get(name, priors.get("common", None))
+            if is_smooth_term(term):
+                smooth = SmoothTerm(term, priors.get(name), self.prefix)
+                if smooth.null_space_dimension == 2 and "Intercept" in self.design.common.terms:
+                    raise ValueError("Use center=True for a smooth in a model with an intercept.")
+                self.terms[name] = smooth
+                continue
             if isinstance(prior, Prior):
                 if any(isinstance(x, Prior) for x in prior.args.values()):
                     raise ValueError(
@@ -69,6 +76,8 @@ class ConditionalParameter:
             noncentered = self.spec.noncentered
 
         for name, term in self.design.group.terms.items():
+            if is_smooth_term(term.expr):
+                raise NotImplementedError("Group-specific smooths are not supported yet.")
             prior = priors.get(name, priors.get("group_specific", None))
             self.terms[name] = GroupSpecificTerm(term, prior, self.prefix, noncentered)
 
@@ -80,6 +89,8 @@ class ConditionalParameter:
 
     def build_priors(self):
         for term in self.terms.values():
+            if isinstance(term, SmoothTerm):
+                continue
             if isinstance(term, GroupSpecificTerm):
                 kind = "group_specific"
             elif isinstance(term, CommonTerm) and term.kind == "intercept":
