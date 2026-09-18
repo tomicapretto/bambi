@@ -160,6 +160,46 @@ def _scale_group_specific_half_normal(term, intercept_stats, response_std):
     term.prior.args["sigma"].update(sigma=np.squeeze(np.atleast_1d(sigma)))
 
 
+def _is_default_smooth_prior_shape(prior):
+    """Check a smooth term's prior dict still matches the default distribution families."""
+    constant = prior.get("constant")
+    if constant is not None and (not isinstance(constant, Prior) or constant.name != "Normal"):
+        return False
+
+    linear = prior.get("linear")
+    if not isinstance(linear, Prior) or linear.name != "Normal":
+        return False
+
+    curvature = prior.get("curvature")
+    if not isinstance(curvature, Prior) or curvature.name != "Normal":
+        return False
+
+    curvature_sigma = curvature.args.get("sigma")
+    if not isinstance(curvature_sigma, Prior) or curvature_sigma.name != "HalfNormal":
+        return False
+
+    return True
+
+
+def _scale_smooth_term_normal(term, response_std, intercept_stats):
+    """Scale priors for a smooth term's null-space and curvature components."""
+    prior = term.prior
+
+    constant = prior.get("constant")
+    if constant is not None:
+        mu, sigma = intercept_stats
+        constant.update(mu=mu, sigma=sigma)
+
+    # "linear" is the second null-space column if there's a "constant", else the first.
+    linear_index = term.null_space_dimension - 1
+    linear = prior["linear"]
+    linear_sigma = _get_normal_slope_sigma(term.data[:, linear_index], response_std)
+    linear.update(mu=0, sigma=linear_sigma)
+
+    curvature = prior["curvature"]
+    curvature.args["sigma"].update(sigma=response_std)
+
+
 def scale_priors(model):
     main_parameter = model.parameters[model.family.likelihood.parent]
 
@@ -203,3 +243,9 @@ def scale_priors(model):
         is_half_normal = getattr(term.prior.args.get("sigma"), "name", None) == "HalfNormal"
         if auto_scale and is_half_normal:
             _scale_group_specific_half_normal(term, intercept_stats, response_std)
+
+    # Scale smooth terms.
+    for term in main_parameter.smooth_terms.values():
+        auto_scale = getattr(term.prior["linear"], "auto_scale", False)
+        if auto_scale and _is_default_smooth_prior_shape(term.prior):
+            _scale_smooth_term_normal(term, response_std, intercept_stats)

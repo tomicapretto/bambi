@@ -1,18 +1,77 @@
-from bambi.priors.prior import Prior
-from bambi.terms.common import CommonTerm
+import warnings
+
+import formulae
+
+from bambi.priors import Prior
+from bambi.terms.base import BaseTerm
 
 
-class SmoothTerm(CommonTerm):
-    """Common term with one Normal vector and a hierarchical curvature scale.
+class SmoothTerm(BaseTerm):
+    """Term for a penalized smooth with a hierarchical curvature prior."""
 
-    The ``null`` prior provides fixed Normal means and scales for the leading
-    null-space coefficients. The ``sigma`` prior provides one shared random
-    scale for all remaining coefficients, in the same spline dimension.
-    """
+    def __init__(self, term, prior, prefix=None):
+        self.term = term
+        self.prior = prior
+        self.data = term.data
+        self.prefix = prefix
+
+    @property
+    def term(self):
+        return self._term
+
+    @term.setter
+    def term(self, value):
+        assert isinstance(value, formulae.terms.terms.Term)
+        self._term = value
+
+    @property
+    def name(self):
+        if self.prefix:
+            return f"{self.prefix}_{self.term.name}"
+        return self.term.name
+
+    @property
+    def data(self):
+        return self._data
+
+    @data.setter
+    def data(self, value):
+        self._data = value
+
+    @property
+    def kind(self):
+        return self.term.kind
+
+    @property
+    def shape(self):
+        return self.data.shape
+
+    @property
+    def levels(self):
+        return None
+
+    @property
+    def categorical(self):
+        return False
+
+    @property
+    def basis(self):
+        return self.components[0].call.stateful_transform.__transform_name__
 
     @property
     def null_space_dimension(self):
         return self.components[0].call.stateful_transform.null_space_dimension
+
+    @property
+    def has_intercept(self):
+        return self.null_space_dimension == 2
+
+    @property
+    def prior_keys(self):
+        keys = {"linear", "curvature"}
+        if self.has_intercept:
+            keys.add("constant")
+        return keys
 
     @property
     def prior(self):
@@ -20,21 +79,32 @@ class SmoothTerm(CommonTerm):
 
     @prior.setter
     def prior(self, value):
-        defaults = {
-            "null": Prior("Normal", mu=0, sigma=2.5),
-            "sigma": Prior("HalfNormal", sigma=1),
-        }
-        if value is not None:
-            if not isinstance(value, dict) or set(value) - set(defaults):
-                raise ValueError("Smooth priors must be a dictionary with 'null' and/or 'sigma'.")
-            if not all(isinstance(prior, Prior) for prior in value.values()):
-                raise ValueError("Smooth priors must contain Prior instances.")
-            defaults.update(value)
-        if any(
-            isinstance(arg, Prior) for prior in defaults.values() for arg in prior.args.values()
-        ):
-            raise ValueError("Nested hyperpriors are not supported for smooth priors.")
-        null = defaults["null"]
-        if null.name != "Normal" or null.dist is not None or set(null.args) != {"mu", "sigma"}:
-            raise ValueError("The null-space prior must be Normal with 'mu' and 'sigma'.")
-        self._prior = defaults
+        if value is None:
+            return
+
+        if not isinstance(value, dict) or set(value) - self.prior_keys:
+            raise ValueError(
+                f"Smooth priors must be a dictionary with keys in {sorted(self.prior_keys)}."
+                f"Currently has keys {sorted(value)}."
+            )
+
+        curvature_prior = value["curvature"]
+        if curvature_prior.name == "Normal":
+            if isinstance(curvature_prior.args["mu"], dict):
+                warnings.warn(
+                    "The curvature prior usually has a scalar mean.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+
+            if not isinstance(curvature_prior.args["sigma"], Prior):
+                warnings.warn(
+                    "The scale of the curvature prior is usually modeled as a random variable.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+
+        self._prior = value
+
+    def __str__(self):
+        return self.make_str()

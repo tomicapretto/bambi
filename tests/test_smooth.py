@@ -33,7 +33,7 @@ def test_hierarchical_prior_and_new_data(smooth_data):
     model = bmb.Model(f"y ~ {name}", smooth_data)
     term = model.parameters["mu"].terms[name]
     assert isinstance(term, SmoothTerm)
-    assert term.prior["sigma"].name == "HalfNormal"
+    assert term.prior["curvature"].args["sigma"].name == "HalfNormal"
     model.set_alias({name: "smooth"})
     model.build()
     pymc_model = model.backend.model
@@ -44,7 +44,7 @@ def test_hierarchical_prior_and_new_data(smooth_data):
     values = np.linspace(-1, 1, 6)
     logp = pm.logp(pymc_model["smooth"], values)
     np.testing.assert_allclose(
-        logp.eval({pymc_model["smooth_sigma"]: 0.75}),
+        logp.eval({pymc_model["smooth_curvature_sigma"]: 0.75}),
         norm.logpdf(values, scale=[2.5, *([0.75] * 5)]),
     )
     with model.backend.model:
@@ -65,9 +65,11 @@ def test_custom_priors(smooth_data):
     model = bmb.Model(
         f"y ~ {name}",
         smooth_data,
-        priors={name: {"sigma": bmb.Prior("HalfNormal", sigma=3)}},
+        priors={
+            name: {"curvature": bmb.Prior("Normal", mu=0, sigma=bmb.Prior("HalfNormal", sigma=3))}
+        },
     )
-    assert model.parameters["mu"].terms[name].prior["sigma"].args["sigma"] == 3
+    assert model.parameters["mu"].terms[name].prior["curvature"].args["sigma"].args["sigma"] == 3
     model.build()
 
 
@@ -78,23 +80,28 @@ def test_uncentered_smooth(smooth_data):
     model = bmb.Model(
         f"y ~ 0 + {name}",
         smooth_data,
-        priors={name: {"null": bmb.Prior("Normal", mu=np.array([1, 2]), sigma=np.array([3, 4]))}},
+        priors={
+            name: {
+                "constant": bmb.Prior("Normal", mu=1, sigma=3),
+                "linear": bmb.Prior("Normal", mu=2, sigma=4),
+            }
+        },
     )
     assert model.parameters["mu"].terms[name].null_space_dimension == 2
     model.build()
     pymc_model = model.backend.model
     values = np.linspace(-1, 1, 6)
     np.testing.assert_allclose(
-        pm.logp(pymc_model[name], values).eval({pymc_model[f"{name}_sigma"]: 0.75}),
+        pm.logp(pymc_model[name], values).eval({pymc_model[f"{name}_curvature_sigma"]: 0.75}),
         norm.logpdf(values, loc=[1, 2, 0, 0, 0, 0], scale=[3, 4, 0.75, 0.75, 0.75, 0.75]),
     )
 
 
-def test_non_normal_null_prior_rejected(smooth_data):
+def test_non_normal_component_prior_rejected(smooth_data):
     name = "cr(x, df=6)"
-    with pytest.raises(ValueError, match="null-space prior must be Normal"):
+    with pytest.raises(ValueError, match="'linear' prior must be Normal"):
         bmb.Model(
-            f"y ~ {name}", smooth_data, priors={name: {"null": bmb.Prior("Laplace", mu=0, b=1)}}
+            f"y ~ {name}", smooth_data, priors={name: {"linear": bmb.Prior("Laplace", mu=0, b=1)}}
         )
 
 

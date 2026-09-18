@@ -7,7 +7,7 @@ import formulae as fm
 import numpy as np
 from xarray import DataTree
 
-from bambi.transformations import CRSpline, HSGP
+from bambi.transformations import HSGP, SmoothTransform
 
 
 def listify(obj):
@@ -126,16 +126,15 @@ def is_stateful_transform(component):
 
 
 def is_smooth_term(term):
-    """Detect prototype smooths and reject unsupported interactions."""
-    components = getattr(term, "components", [])
-    smooths = [
-        component
-        for component in components
-        if is_call_component(component) and isinstance(component.call.stateful_transform, CRSpline)
-    ]
-    if smooths and len(components) != 1:
-        raise NotImplementedError("Interactions with smooth terms are not supported yet.")
-    return bool(smooths)
+    """Determines if formulae term represents a Smooth term"""
+    if not is_single_component(term):
+        return False
+    component = term.components[0]
+    if not is_call_component(component):
+        return False
+    if not is_stateful_transform(component):
+        return False
+    return isinstance(component.call.stateful_transform, SmoothTransform)
 
 
 def is_hsgp_term(term):

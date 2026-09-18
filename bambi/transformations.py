@@ -4,8 +4,12 @@ import pandas as pd
 from formulae.transforms import NaturalCubicSpline, register_stateful_transform
 
 
+class SmoothTransform:
+    """Parent class for penalized smooths."""
+
+
 @register_stateful_transform
-class CRSpline(NaturalCubicSpline):
+class CRSpline(SmoothTransform, NaturalCubicSpline):
     """Natural cubic spline as a random-effects term.
 
     The first `null_space_dimension` columns are unpenalized,

@@ -6,7 +6,6 @@ from bambi.backend.pymc.utils import get_distribution_from_prior
 from bambi.backend.pymc.types import Coords
 from bambi.backend.pymc.data import predictor_data_name, shape_common_data
 from bambi.families.types import ParamSpec
-from bambi.backend.pymc.terms.smooth import build_smooth_coefficients
 
 
 def flatten_data(data: pt.Variable, coords: Coords) -> pt.Variable:
@@ -47,7 +46,6 @@ def shape_prior_arg(value: np.ndarray, shape: tuple[int, ...]) -> np.ndarray:
 def build_common_term(
     term_info, param_spec: ParamSpec, model: pm.Model
 ) -> tuple[pt.Variable, pt.Variable]:
-    from bambi.terms.smooth import SmoothTerm  # pylint: disable=import-outside-toplevel
 
     term = term_info.term
     param_name = term.label
@@ -74,13 +72,6 @@ def build_common_term(
     param_coords = coords | response_coords
     param_dims = tuple(param_coords)
     param_shape = tuple(len(coord) for coord in param_coords.values())
-
-    if isinstance(term, SmoothTerm):
-        if response_coords:
-            raise NotImplementedError("Prototype smooths require scalar response parameters.")
-        with model:
-            param = build_smooth_coefficients(term, param_dims)
-        return flatten_data(model[data_name], coords), param
 
     # Makes sure arguments are of the shape implied by dims and their coords
     kwargs = {name: shape_prior_arg(value, param_shape) for name, value in term.prior.args.items()}
