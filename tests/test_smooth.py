@@ -4,12 +4,12 @@ import numpy as np
 import pandas as pd
 import preliz as pz
 
-from formulae.transforms import CyclicCubicSpline, NaturalCubicSpline
+from formulae.transforms import CyclicCubicSpline, NaturalCubicSpline, ThinPlateRegressionSpline
 from xarray import DataTree
 
 import bambi as bmb
 from bambi.terms.smooth import SmoothTerm
-from bambi.transformations import CCSpline, CRSpline
+from bambi.transformations import CCSpline, CRSpline, TPSpline
 
 RANDOM_SEED = sum(map(ord, "Test smooths"))
 
@@ -473,6 +473,59 @@ class TestCc:
 
         assert model.parameters["mu"].terms[name].shared
         model.build()
+
+
+class TestTp:
+    @staticmethod
+    def name(center):
+        return f"tp(x, df=6, center={center})"
+
+    @pytest.mark.parametrize(
+        "center, prior_keys",
+        [(False, ["constant", "linear", "curvature"]), (True, ["linear", "curvature"])],
+    )
+    def test_model_builds_with_default_priors(self, smooth_data, center, prior_keys):
+        name = self.name(center)
+        formula = f"y ~ 0 + {name}" if not center else f"y ~ {name}"
+        model = bmb.Model(formula, smooth_data)
+
+        term = model.parameters["mu"].terms[name]
+        assert list(term.prior) == prior_keys
+        model.build()
+
+    @pytest.mark.parametrize("center", [False, True])
+    def test_random_basis(self, smooth_data, center):
+        original, adapted = ThinPlateRegressionSpline(), TPSpline()
+        original(smooth_data.x, df=6, center=center)
+
+        np.testing.assert_allclose(
+            adapted(smooth_data.x, df=6, center=center),
+            original.to_random(),
+        )
+
+    @pytest.mark.parametrize("center", [False, True])
+    @pytest.mark.parametrize("new_data", [False, True])
+    def test_predict(self, smooth_data, prediction_data, center, new_data):
+        name = self.name(center)
+        formula = f"y ~ 0 + {name}" if not center else f"y ~ {name}"
+        model = bmb.Model(formula, smooth_data)
+        model.set_alias({name: "surface"})
+        model.build()
+        prior = model.prior_predictive(draws=3, random_seed=RANDOM_SEED)
+        draws = posterior_draws(prior)
+        data = prediction_data["smooth"] if new_data else None
+
+        result = model.predict(draws, data=data, inplace=False)
+        basis = (
+            model.parameters["mu"]
+            .terms[name]
+            .term.eval_new_data(smooth_data if data is None else data)
+        )
+        expected = result["posterior"]["surface"].values @ basis.T
+        if center:
+            expected += result["posterior"]["Intercept"].values[..., None]
+        group = "posterior" if data is None else "predictions"
+        np.testing.assert_allclose(result[group]["mu"].values, expected, atol=1e-10)
 
 
 @pytest.mark.parametrize(

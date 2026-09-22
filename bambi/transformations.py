@@ -1,7 +1,12 @@
 import numpy as np
 import pandas as pd
 
-from formulae.transforms import CyclicCubicSpline, NaturalCubicSpline, register_stateful_transform
+from formulae.transforms import (
+    CyclicCubicSpline,
+    NaturalCubicSpline,
+    ThinPlateRegressionSpline,
+    register_stateful_transform,
+)
 
 
 class SmoothTransform:
@@ -238,6 +243,29 @@ class CCSpline(SmoothTransform, CyclicCubicSpline):
                     basis[rows, i, :] = spline.eval(x[rows])
             return basis.reshape((len(x), -1))
 
+        return self.to_random(super().eval(x))
+
+
+@register_stateful_transform
+class TPSpline(SmoothTransform, ThinPlateRegressionSpline):
+    """Thin-plate regression spline as a random-effects term.
+
+    Formulae's `tp` transform uses a low-rank radial basis with constant and linear null-space
+    directions. This adapter returns its random-effects parameterization, where curved columns
+    have an identity penalty. Unlike `cr` and `cc`, `tp` does not support `by` or `shared`.
+    """
+
+    __transform_name__ = "tp"
+    unpenalized_prior_keys = ("constant", "linear")
+
+    def __init__(self):
+        super().__init__()
+        # SmoothTerm uses these attributes for every smooth transform. Formulae's tp has no
+        # grouped-smooth interface, so they retain their non-grouped values.
+        self.by_levels = None
+        self.shared = False
+
+    def eval(self, x):
         return self.to_random(super().eval(x))
 
 

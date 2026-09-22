@@ -55,7 +55,7 @@ def generate_prior_hsgp(cov_name: str):
 
 
 def generate_prior_smooth(term, auto_scale):
-    if term.basis in {"cr", "cc"}:
+    if term.basis in {"cr", "cc", "tp"}:
         return generate_prior_cr(term, auto_scale)
 
     raise ValueError(f"Unsupported smooth basis for automatic prior generation: {term.basis!r}.")
