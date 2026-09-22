@@ -81,6 +81,12 @@ class Model:
         `bmb.config["UNUSED_PRIORS"]` to `"error"` or `"ignore"` to change that.
         Bare term priors can be combined with priors nested under the parent component. If both
         specify the same term, the nested parent prior takes precedence.
+        A smooth term maps to a dictionary with `linear` and `curvature` entries, plus `constant`
+        when the smooth is not centered. Each entry can be a `Prior` or a fixed numeric value;
+        fixed values emit a warning and are not automatically scaled. Scalars broadcast to all
+        coefficients in that component. For grouped smooths, constant and linear vectors index
+        groups in their coordinate order; curvature vectors index basis columns and broadcast
+        across groups. Curvature matrices can specify separate values for each group.
     link : str or dict of str to str, optional
         The name of the link function to use. Valid names are `"cloglog"`, `"identity"`,
         `"inverse_squared"`, `"inverse"`, `"log"`, `"logit"`, `"probit"`, and
@@ -1370,6 +1376,16 @@ def hsgp_repr(term) -> str:
     return "\n".join(output_list)
 
 
+def smooth_repr(term) -> str:
+    """Format a smooth term with one indented line per prior block."""
+    blocks = [
+        f"    {name} ~ {term.prior[name]}"
+        for name in ("constant", "linear", "curvature")
+        if name in term.prior
+    ]
+    return "\n".join([term.name, *blocks])
+
+
 def make_priors_summary(parameter: ConditionalParameter) -> str:
     """Get a summary of terms and priors in a conditional parameter."""
     # Common effects
@@ -1388,11 +1404,15 @@ def make_priors_summary(parameter: ConditionalParameter) -> str:
     # HSGP
     hsgp = [hsgp_repr(term) for term in parameter.hsgp_terms.values()]
 
+    # Smooths
+    smooths = [smooth_repr(term) for term in parameter.smooth_terms.values()]
+
     priors_dict = {
         "Common-level effects": priors_common,
         "Group-level effects": priors_group,
         "Offset effects": offsets,
         "HSGP contributions": hsgp,
+        "Smooth contributions": smooths,
     }
 
     priors_list = []

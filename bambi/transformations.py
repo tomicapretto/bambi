@@ -1,7 +1,147 @@
 import numpy as np
 import pandas as pd
 
-from formulae.transforms import register_stateful_transform
+from formulae.transforms import NaturalCubicSpline, register_stateful_transform
+
+
+class SmoothTransform:
+    """Parent class for penalized smooths."""
+
+
+@register_stateful_transform
+class CRSpline(SmoothTransform, NaturalCubicSpline):
+    """Natural cubic spline as a random-effects term.
+
+    The first `null_space_dimension` columns are unpenalized,
+    while remaining columns have an identity curvature penalty.
+    Overrides formulae's `cr` transform to return the basis in random-effects coordinates.
+
+    With `by` is set, fit a separate basis to each observed group, using that group's
+    knots, boundaries, centering constraint and linear standardization.
+    Explicit knots and boundaries apply to every group.
+
+    Parameters
+    ----------
+    x : pd.Series
+        Numeric predictor.
+    df : int, optional
+        Basis size per group after centering. Defaults to 10 when knots are omitted.
+    knots : array-like, optional
+        Interior knots. By default, use quantiles of unique values.
+    lower_bound, upper_bound : float, optional
+        Boundary knots. By default, use data range.
+    center : bool, optional
+        Impose a training sum-to-zero constraint. Defaults to True.
+    by : pd.Series, optional
+        Categorical grouping variable. Defaults to None, for a single smooth.
+    shared : bool, optional
+        Share all random parameters of the curvature prior across groups. Defaults to False.
+        Ignored without `by`. Coefficients are drawn independently conditional on these
+        parameters, with a separate draw for each group and curvature component.
+
+    Notes
+    -----
+    For grouped smooths, numeric curvature prior arguments can be scalars, vectors of
+    length ``groups_n``, or arrays broadcastable to ``(groups_n, curvature_n)``. Vectors
+    specify values by group and are treated as columns. To specify values by curvature
+    component, use an explicit row array with shape ``(1, curvature_n)``. These conventions
+    also apply when the curvature coefficients themselves are fixed. Without ``by``, numeric
+    vectors specify values by curvature component.
+
+    Random curvature parameters have one draw per group, or a single shared draw when
+    ``shared=True``. They apply to all curvature components. For Normal curvature priors,
+    only the scale can be random; the mean must be numeric. The constant and linear prior
+    components require numeric distribution arguments.
+
+    Examples
+    --------
+    >>> model = bmb.Model("y ~ cr(x, df=8)", data)
+    >>> model = bmb.Model("y ~ group + cr(x, df=8, by=group, shared=True)", data)
+    """
+
+    __transform_name__ = "cr"
+
+    def __init__(self):
+        super().__init__()
+        self.by_levels = None
+        self.by_indexes = None
+        self.shared = False
+        self.group_splines = None
+        self.basis_dimension = None
+
+    def __call__(
+        self,
+        x: pd.Series,
+        df: int | None = None,
+        knots: np.ndarray | None = None,
+        lower_bound: float | None = None,
+        upper_bound: float | None = None,
+        center: bool = True,
+        by: pd.Series | None = None,
+        shared: bool = False,
+    ):
+        if by is None:
+            return super().__call__(x, df, knots, lower_bound, upper_bound, center)
+
+        if not self.params_set:
+            if not (
+                isinstance(by.dtype, pd.CategoricalDtype)
+                or pd.api.types.is_object_dtype(by.dtype)
+                or pd.api.types.is_string_dtype(by.dtype)
+            ):
+                raise ValueError("'by' must be categorical.")
+
+            if pd.isna(by).any():
+                raise ValueError("'by' cannot contain missing values.")
+
+            if isinstance(by.dtype, pd.CategoricalDtype) and by.dtype.ordered:
+                self.by_levels = np.asarray(
+                    [level for level in by.dtype.categories if level in set(by)]
+                )
+            else:
+                self.by_levels = np.unique(by)
+
+            self.by_indexes = pd.Categorical(by, categories=self.by_levels).codes
+            self.shared = shared
+            self._center = bool(center)
+            self.group_splines = []
+            x = np.asarray(x)
+            by = np.asarray(by)
+
+            for level in self.by_levels:
+                spline = CRSpline()
+                basis = spline(x[by == level], df, knots, lower_bound, upper_bound, center)
+                self.group_splines.append(spline)
+
+            self.basis_dimension = basis.shape[1]
+            self.params_set = True
+        return self.eval(x, by)
+
+    def eval(self, x, by=None):
+        # When `by` is used, we evaluate each group separately by calling `eval` on the
+        # corresponding group-specific spline. Each of those calls follows the non-grouped
+        # path at the bottom, so `to_random` is applied once for each group.
+        # When `by` is not used, there is only one evaluation and `to_random` is applied once.
+        if self.by_levels is not None:
+            if by is None:
+                raise ValueError("Supply 'by' when evaluating a grouped smooth.")
+
+            by = np.asarray(by)
+            x = np.asarray(x)
+            indexes = pd.Categorical(by, categories=self.by_levels).codes
+            if np.any(indexes < 0):
+                unknown = pd.unique(by[indexes < 0]).tolist()
+                raise ValueError(f"Unknown level(s) in smooth 'by': {unknown}.")
+
+            # Group-major blocks keep formulae's design matrix two-dimensional.
+            basis = np.zeros((len(x), len(self.by_levels), self.basis_dimension))
+            for i, spline in enumerate(self.group_splines):
+                rows = indexes == i
+                if np.any(rows):
+                    basis[rows, i, :] = spline.eval(x[rows])
+            return basis.reshape((len(x), -1))
+
+        return self.to_random(super().eval(x))
 
 
 def c(*args):
@@ -509,6 +649,7 @@ def get_distance(x):
 
 # These functions are made available in the namespace where the model formula is evaluated
 transformations_namespace = {
+    "cr": CRSpline,
     "c": c,
     "counts": counts,
     "censored": censored,

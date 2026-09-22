@@ -7,7 +7,7 @@ import formulae as fm
 import numpy as np
 from xarray import DataTree
 
-from bambi.transformations import HSGP
+from bambi.transformations import HSGP, SmoothTransform
 
 
 def listify(obj):
@@ -123,6 +123,18 @@ def is_call_component(component) -> bool:
 def is_stateful_transform(component):
     """Determines if formulae call component is a stateful transformation."""
     return component.call.stateful_transform is not None
+
+
+def is_smooth_term(term):
+    """Determine if a formulae term represents a smooth term."""
+    if not is_single_component(term):
+        return False
+    component = term.components[0]
+    if not is_call_component(component):
+        return False
+    if not is_stateful_transform(component):
+        return False
+    return isinstance(component.call.stateful_transform, SmoothTransform)
 
 
 def is_hsgp_term(term):
