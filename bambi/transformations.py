@@ -1,11 +1,17 @@
 import numpy as np
 import pandas as pd
 
-from formulae.transforms import NaturalCubicSpline, register_stateful_transform
+from formulae.transforms import CyclicCubicSpline, NaturalCubicSpline, register_stateful_transform
 
 
 class SmoothTransform:
-    """Parent class for penalized smooths."""
+    """Parent class for penalized smooths.
+
+    `unpenalized_prior_keys` names the null-space coefficients in their order in the
+    random-effects basis before centering. Centering removes leading null-space directions.
+    """
+
+    unpenalized_prior_keys = ()
 
 
 @register_stateful_transform
@@ -42,15 +48,15 @@ class CRSpline(SmoothTransform, NaturalCubicSpline):
     Notes
     -----
     For grouped smooths, numeric curvature prior arguments can be scalars, vectors of
-    length ``groups_n``, or arrays broadcastable to ``(groups_n, curvature_n)``. Vectors
+    length `groups_n`, or arrays broadcastable to `(groups_n, curvature_n)`. Vectors
     specify values by group and are treated as columns. To specify values by curvature
-    component, use an explicit row array with shape ``(1, curvature_n)``. These conventions
-    also apply when the curvature coefficients themselves are fixed. Without ``by``, numeric
+    component, use an explicit row array with shape `(1, curvature_n)`. These conventions
+    also apply when the curvature coefficients themselves are fixed. Without `by`, numeric
     vectors specify values by curvature component.
 
     Random curvature parameters have one draw per group, or a single shared draw when
-    ``shared=True``. They apply to all curvature components. For Normal curvature priors,
-    only the scale can be random; the mean must be numeric. The constant and linear prior
+    `shared=True`. They apply to all curvature components. For Normal curvature priors,
+    only the scale can be random and the mean must be numeric. The constant and linear prior
     components require numeric distribution arguments.
 
     Examples
@@ -60,6 +66,7 @@ class CRSpline(SmoothTransform, NaturalCubicSpline):
     """
 
     __transform_name__ = "cr"
+    unpenalized_prior_keys = ("constant", "linear")
 
     def __init__(self):
         super().__init__()
@@ -134,6 +141,96 @@ class CRSpline(SmoothTransform, NaturalCubicSpline):
                 raise ValueError(f"Unknown level(s) in smooth 'by': {unknown}.")
 
             # Group-major blocks keep formulae's design matrix two-dimensional.
+            basis = np.zeros((len(x), len(self.by_levels), self.basis_dimension))
+            for i, spline in enumerate(self.group_splines):
+                rows = indexes == i
+                if np.any(rows):
+                    basis[rows, i, :] = spline.eval(x[rows])
+            return basis.reshape((len(x), -1))
+
+        return self.to_random(super().eval(x))
+
+
+@register_stateful_transform
+class CCSpline(SmoothTransform, CyclicCubicSpline):
+    """Cyclic cubic spline as a random-effects term.
+
+    The cyclic spline has a constant null-space direction when uncentered and no null-space
+    directions when centered. Its values and first two derivatives match at the period boundary.
+    The `by` and `shared` arguments have the same semantics as for :class:`CRSpline`.
+    """
+
+    __transform_name__ = "cc"
+    unpenalized_prior_keys = ("constant",)
+
+    def __init__(self):
+        super().__init__()
+        self.by_levels = None
+        self.by_indexes = None
+        self.shared = False
+        self.group_splines = None
+        self.basis_dimension = None
+
+    def __call__(
+        self,
+        x: pd.Series,
+        period: float,
+        df: int | None = None,
+        knots: np.ndarray | None = None,
+        lower_bound: float | None = None,
+        center: bool = True,
+        by: pd.Series | None = None,
+        shared: bool = False,
+    ):
+        if by is None:
+            return super().__call__(x, period, df, knots, lower_bound, center)
+
+        if not self.params_set:
+            if not (
+                isinstance(by.dtype, pd.CategoricalDtype)
+                or pd.api.types.is_object_dtype(by.dtype)
+                or pd.api.types.is_string_dtype(by.dtype)
+            ):
+                raise ValueError("'by' must be categorical.")
+
+            if pd.isna(by).any():
+                raise ValueError("'by' cannot contain missing values.")
+
+            if isinstance(by.dtype, pd.CategoricalDtype) and by.dtype.ordered:
+                self.by_levels = np.asarray(
+                    [level for level in by.dtype.categories if level in set(by)]
+                )
+            else:
+                self.by_levels = np.unique(by)
+
+            self.by_indexes = pd.Categorical(by, categories=self.by_levels).codes
+            self.shared = shared
+            self._center = bool(center)
+            self.group_splines = []
+            x = np.asarray(x)
+            by = np.asarray(by)
+
+            for level in self.by_levels:
+                spline = CCSpline()
+                basis = spline(x[by == level], period, df, knots, lower_bound, center)
+                self.group_splines.append(spline)
+
+            self.basis_dimension = basis.shape[1]
+            self.params_set = True
+        return self.eval(x, by)
+
+    def eval(self, x, by=None):
+        if self.by_levels is not None:
+            if by is None:
+                raise ValueError("Supply 'by' when evaluating a grouped smooth.")
+
+            by = np.asarray(by)
+            x = np.asarray(x)
+            indexes = pd.Categorical(by, categories=self.by_levels).codes
+            if np.any(indexes < 0):
+                unknown = pd.unique(by[indexes < 0]).tolist()
+                raise ValueError(f"Unknown level(s) in smooth 'by': {unknown}.")
+
             basis = np.zeros((len(x), len(self.by_levels), self.basis_dimension))
             for i, spline in enumerate(self.group_splines):
                 rows = indexes == i

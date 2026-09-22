@@ -55,7 +55,7 @@ def generate_prior_hsgp(cov_name: str):
 
 
 def generate_prior_smooth(term, auto_scale):
-    if term.basis == "cr":
+    if term.basis in {"cr", "cc"}:
         return generate_prior_cr(term, auto_scale)
 
     raise ValueError(f"Unsupported smooth basis for automatic prior generation: {term.basis!r}.")
@@ -67,8 +67,9 @@ def generate_prior_cr(term, auto_scale):
         priors[param] = _build_prior_from_spec(prior_spec)
         priors[param].auto_scale = auto_scale
 
-    if not term.has_intercept:
-        del priors["constant"]
+    # Drop priors that will not be included in the term
+    for name in set(priors) - set(term.prior_keys):
+        del priors[name]
 
     return priors
 
