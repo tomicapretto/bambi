@@ -591,3 +591,28 @@ def test_unpenalized_hyperpriors_rejected(smooth_data, distribution, block, argu
 def test_group_specific_smooth_rejected(grouped_smooth_data):
     with pytest.raises(NotImplementedError, match="Group-specific smooths"):
         bmb.Model("y ~ (cr(x, df=6) | group)", grouped_smooth_data)
+
+
+@pytest.mark.parametrize("basis", ["cr", "cc", "tp"])
+@pytest.mark.parametrize("center", [False, True])
+@pytest.mark.parametrize("auto_scale", [False, True])
+def test_reset_smooth_priors(smooth_data, basis, center, auto_scale):
+    period = ", period=5" if basis == "cc" else ""
+    name = f"{basis}(x, df=6, center={center}{period})"
+    formula = f"y ~ {name}" if center else f"y ~ 0 + {name}"
+    expected = bmb.Model(formula, smooth_data, auto_scale=auto_scale)
+    expected_priors = expected.parameters["mu"].terms[name].prior
+    custom_priors = {
+        key: bmb.Prior(
+            "Normal",
+            mu=123,
+            sigma=bmb.Prior("HalfNormal", sigma=7) if key == "curvature" else 7,
+        )
+        for key in expected_priors
+    }
+    model = bmb.Model(formula, smooth_data, auto_scale=auto_scale, priors={name: custom_priors})
+
+    model.set_priors({name: None})
+
+    assert model.parameters["mu"].terms[name].prior == expected_priors
+    model.build()

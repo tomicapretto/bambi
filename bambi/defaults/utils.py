@@ -1,5 +1,5 @@
 from bambi.defaults.hsgp import HSGP_COV_PARAMS_DEFAULT_PRIORS
-from bambi.defaults.smooths import CR_DEFAULT_PRIORS
+from bambi.defaults.smooths import CC_DEFAULT_PRIORS, CR_DEFAULT_PRIORS, TP_DEFAULT_PRIORS
 
 from bambi.families.likelihood import Likelihood
 from bambi.priors.prior import Prior
@@ -55,8 +55,12 @@ def generate_prior_hsgp(cov_name: str):
 
 
 def generate_prior_smooth(term, auto_scale):
-    if term.basis in {"cr", "cc", "tp"}:
+    if term.basis == "cr":
         return generate_prior_cr(term, auto_scale)
+    if term.basis == "cc":
+        return generate_prior_cc(term, auto_scale)
+    if term.basis == "tp":
+        return generate_prior_tp(term, auto_scale)
 
     raise ValueError(f"Unsupported smooth basis for automatic prior generation: {term.basis!r}.")
 
@@ -67,9 +71,32 @@ def generate_prior_cr(term, auto_scale):
         priors[param] = _build_prior_from_spec(prior_spec)
         priors[param].auto_scale = auto_scale
 
-    # Drop priors that will not be included in the term
-    for name in set(priors) - set(term.prior_keys):
-        del priors[name]
+    if not term.has_intercept:
+        del priors["constant"]
+
+    return priors
+
+
+def generate_prior_cc(term, auto_scale):
+    priors = {}
+    for param, prior_spec in CC_DEFAULT_PRIORS.items():
+        priors[param] = _build_prior_from_spec(prior_spec)
+        priors[param].auto_scale = auto_scale
+
+    if not term.has_intercept:
+        del priors["constant"]
+
+    return priors
+
+
+def generate_prior_tp(term, auto_scale):
+    priors = {}
+    for param, prior_spec in TP_DEFAULT_PRIORS.items():
+        priors[param] = _build_prior_from_spec(prior_spec)
+        priors[param].auto_scale = auto_scale
+
+    if not term.has_intercept:
+        del priors["constant"]
 
     return priors
 
@@ -88,7 +115,7 @@ def get_default_prior(term_type, **kwargs):
     - hsgp: The priors depend on the value passed to `kwargs["cov_func"]`.
         See `HSGP_COV_PARAMS_DEFAULT_PRIORS`.
     - smooth: The priors depend on the value passed to `kwargs["term"]`.
-        See `CR_DEFAULT_PRIORS`.
+        See `CR_DEFAULT_PRIORS`, `CC_DEFAULT_PRIORS`, and `TP_DEFAULT_PRIORS`.
 
     Parameters
     ----------

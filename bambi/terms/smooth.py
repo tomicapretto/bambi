@@ -120,6 +120,7 @@ class SmoothTerm(BaseTerm):
     @prior.setter
     def prior(self, value):
         if value is None:
+            self._prior = None
             return
 
         if not isinstance(value, dict):

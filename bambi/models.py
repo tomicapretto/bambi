@@ -73,20 +73,14 @@ class Model:
     priors : dict, optional
         Optional specification of priors for one or more terms. A dictionary where the keys are
         the names of terms in the model, "common," "group_specific," or the name of a model
-        component, and the values are instances of class `Prior`. A distributional component
-        name (e.g. "sigma" when it is modeled with a formula) maps to a nested dictionary of
+        component, and the values are instances of class `Prior` or `dict`. An observational model
+        parameter (e.g. "sigma" when it is modeled with a formula) maps to a nested dictionary of
         the same form; a constant component name maps directly to a `Prior`, a number, or an
         array. If priors are unset, use automatic priors inspired by the R rstanarm library.
         Names that don't match any term or component are reported with a warning; set
         `bmb.config["UNUSED_PRIORS"]` to `"error"` or `"ignore"` to change that.
         Bare term priors can be combined with priors nested under the parent component. If both
         specify the same term, the nested parent prior takes precedence.
-        A smooth term maps to a dictionary with `linear` and `curvature` entries, plus `constant`
-        when the smooth is not centered. Each entry can be a `Prior` or a fixed numeric value;
-        fixed values emit a warning and are not automatically scaled. Scalars broadcast to all
-        coefficients in that component. For grouped smooths, constant and linear vectors index
-        groups in their coordinate order; curvature vectors index basis columns and broadcast
-        across groups. Curvature matrices can specify separate values for each group.
     link : str or dict of str to str, optional
         The name of the link function to use. Valid names are `"cloglog"`, `"identity"`,
         `"inverse_squared"`, `"inverse"`, `"log"`, `"logit"`, `"probit"`, and

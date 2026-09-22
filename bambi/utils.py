@@ -126,30 +126,26 @@ def is_stateful_transform(component):
 
 
 def is_smooth_term(term):
-    """Determine if a formulae term represents a smooth term."""
-    if not is_single_component(term):
-        return False
-    component = term.components[0]
-    if not is_call_component(component):
-        return False
-    if not is_stateful_transform(component):
-        return False
-    return isinstance(component.call.stateful_transform, SmoothTransform)
+    """Determine whether a formulae term contains a smooth transform.
+
+    Interactions are included, but SmoothTerm will validate them during construction.
+    """
+    return any(
+        is_call_component(component)
+        and isinstance(component.call.stateful_transform, SmoothTransform)
+        for component in getattr(term, "components", ())
+    )
 
 
 def is_hsgp_term(term):
-    """Determines if formulae term represents an HSGP term
+    """Determine whether a formulae term contains an HSGP transform.
 
-    Bambi uses this function to detect HSGP terms and treat them in a different way.
+    Interactions are included, but HSGPTerm will validate them during construction.
     """
-    if not is_single_component(term):
-        return False
-    component = term.components[0]
-    if not is_call_component(component):
-        return False
-    if not is_stateful_transform(component):
-        return False
-    return isinstance(component.call.stateful_transform, HSGP)
+    return any(
+        is_call_component(component) and isinstance(component.call.stateful_transform, HSGP)
+        for component in getattr(term, "components", ())
+    )
 
 
 def remove_common_intercept(dm: fm.matrices.DesignMatrices) -> fm.matrices.DesignMatrices:

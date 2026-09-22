@@ -27,7 +27,7 @@ class CRSpline(SmoothTransform, NaturalCubicSpline):
     while remaining columns have an identity curvature penalty.
     Overrides formulae's `cr` transform to return the basis in random-effects coordinates.
 
-    With `by` is set, fit a separate basis to each observed group, using that group's
+    When `by` is set, fit a separate basis to each observed group, using that group's
     knots, boundaries, centering constraint and linear standardization.
     Explicit knots and boundaries apply to every group.
 
