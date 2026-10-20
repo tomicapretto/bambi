@@ -24,7 +24,7 @@ from helpers import (
     join_vector_response,
     linear_data,
     normal_prior,
-    ordered_beta_reference_logp,  
+    ordered_beta_reference_logp,
     vector_normal_data,
     vector_normal_family,
     vector_student_t_family,
