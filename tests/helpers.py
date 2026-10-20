@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 import pymc as pm
 from pytensor.graph.traversal import ancestors
+from scipy import special, stats
 
 import bambi as bmb
 from bambi.families.types import DimType, ParamSpec, ResponseType
@@ -169,3 +170,22 @@ def vector_student_t_family():
         dist=partial(pm.MvStudentT, scale=VECTOR_NORMAL_COV),
     )
     return VectorStudentTFamily("vector_student_t", likelihood, {"mu": "identity", "nu": "log"})
+
+
+def ordered_beta_reference_logp(value, mu, kappa, c0, c1):
+    """Ordered beta log-density, computed independently with SciPy."""
+    eta = special.logit(mu)
+    p0 = special.expit(c0 - eta)
+    p1 = special.expit(eta - c1)
+    with np.errstate(divide="ignore"):
+        interior = np.log1p(-(p0 + p1)) + stats.beta(mu * kappa, (1 - mu) * kappa).logpdf(value)
+    return np.where(value == 0, np.log(p0), np.where(value == 1, np.log(p1), interior))
+
+
+def zero_one_inflated_beta_reference_logp(value, mu, kappa, zoi, coi):
+    """Zero-one-inflated beta log-density, computed independently with SciPy."""
+    with np.errstate(divide="ignore"):
+        interior = np.log1p(-zoi) + stats.beta(mu * kappa, (1 - mu) * kappa).logpdf(value)
+        log_p0 = np.log(zoi) + np.log1p(-coi)
+        log_p1 = np.log(zoi) + np.log(coi)
+    return np.where(value == 0, log_p0, np.where(value == 1, log_p1, interior))

@@ -12,9 +12,7 @@ TRANSFORMS = {"ordered": pm.distributions.transforms.ordered}
 
 def build_marginal_parameter(parameter, family, model: pm.Model):
     if isinstance(parameter.prior, (int, float)):
-        return pm.Deterministic(
-            parameter.label, pt.as_tensor_variable(parameter.prior), model=model
-        )
+        return pm.Data(parameter.label, parameter.prior, model=model)
 
     dims = tuple()
     param_spec = (

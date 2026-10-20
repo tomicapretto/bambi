@@ -322,6 +322,8 @@ def test_hyperprior_on_common_effect(data_random_n100):
         "gamma",
         "vonmises",
         "wald",
+        "ordered_beta",
+        "zero_one_inflated_beta",
     ],
 )
 def test_automatic_priors(family):
@@ -341,9 +343,11 @@ def test_links(data_random_n100):
         "loglogistic": ["identity", "log", "inverse"],
         "lognormal": ["identity", "log", "inverse"],
         "negativebinomial": ["identity", "log", "cloglog"],
+        "ordered_beta": ["logit"],
         "poisson": ["identity", "log"],
         "vonmises": ["identity"],
         "wald": ["inverse", "inverse_squared", "identity", "log"],
+        "zero_one_inflated_beta": ["logit", "probit", "cloglog"],
     }
     for family, links in FAMILIES.items():
         for link in links:
@@ -365,9 +369,11 @@ def test_bad_links(data_random_n100):
         "loglogistic": ["logit", "probit", "cloglog"],
         "lognormal": ["logit", "probit", "cloglog"],
         "negativebinomial": ["logit", "probit", "inverse", "inverse_squared"],
+        "ordered_beta": ["probit", "cloglog", "identity", "log"],
         "poisson": ["logit", "probit", "cloglog", "inverse", "inverse_squared"],
         "vonmises": ["logit", "probit", "cloglog"],
         "wald": ["logit", "probit", "cloglog"],
+        "zero_one_inflated_beta": ["inverse", "inverse_squared", "log"],
     }
 
     for family, links in FAMILIES.items():
@@ -518,6 +524,89 @@ def test_cure_model_construction(model_cure, model_shape, family, parent, shape)
     point = model.backend.model.initial_point()
     assert np.isfinite(model.backend.model.compile_logp()(point))
     assert np.isfinite(model.backend.model.compile_dlogp()(point)).all()
+
+
+@pytest.fixture(scope="module")
+def zero_one_data():
+    rng = np.random.default_rng(1234)
+    x = rng.normal(size=100)
+    mu = 1 / (1 + np.exp(-0.5 * x))
+    y = rng.beta(mu * 10, (1 - mu) * 10)
+    y[:10] = 0
+    y[10:25] = 1
+    return pd.DataFrame({"y": y, "x": x, "w": rng.uniform(0.5, 1.5, size=100)})
+
+
+@pytest.mark.parametrize("model_kappa", [False, True])
+@pytest.mark.parametrize(
+    "family, others",
+    [
+        ("ordered_beta", []),
+        ("zero_one_inflated_beta", []),
+        ("zero_one_inflated_beta", ["coi"]),
+        ("zero_one_inflated_beta", ["zoi", "coi"]),
+    ],
+)
+def test_bounded_beta_model_construction(zero_one_data, family, others, model_kappa):
+    additionals = [f"{name} ~ x" for name in others]
+    if model_kappa:
+        additionals.append("kappa ~ x")
+
+    model = bmb.Model(bmb.Formula("y ~ x", *additionals), zero_one_data, family=family)
+    model.build()
+    assert model.family.link["mu"].name == "logit"
+    assert model.family.link["kappa"].name == "log"
+    expected = {"mu"} | set(others) | ({"kappa"} if model_kappa else set())
+    assert set(model.conditional_parameters) == expected
+    assert set(model.marginal_parameters) == set(model.family.likelihood.params) - expected
+    point = model.backend.model.initial_point()
+    assert np.isfinite(model.backend.model.compile_logp()(point))
+    assert np.isfinite(model.backend.model.compile_dlogp()(point)).all()
+
+
+def test_ordered_beta_cutpoints_transform(zero_one_data):
+    model = bmb.Model("y ~ x", zero_one_data, family="ordered_beta")
+    model.build()
+    transform = transforms_registry.get_parameter_transform(model.family)
+    parameters = {"mu": pt.as_tensor(0.5), "kappa": pt.as_tensor(10.0)}
+    parameters |= {"cut0": pt.as_tensor(-1.0), "logdelta": pt.as_tensor(0.0)}
+    parameters = transform(parameters)
+    assert set(parameters) == {"mu", "kappa", "c0", "c1"}
+    assert parameters["c0"].eval() == -1
+    assert parameters["c1"].eval() == pytest.approx(0)
+
+    # The response receives the transformed cutpoints.
+    pm_model = model.backend.model
+    response_node = pm_model["y"].owner
+    _, _, c0, c1 = response_node.op.dist_params(response_node)
+    cut0 = pm_model.rvs_to_values[pm_model["cut0"]]
+    logdelta = pm_model.rvs_to_values[pm_model["logdelta"]]
+    outputs = pm_model.replace_rvs_by_values([c0, c1])
+    evaluate = pytensor.function([cut0, logdelta], outputs, on_unused_input="ignore")
+    c0, c1 = evaluate(-1.5, 0.7)
+    np.testing.assert_allclose(np.squeeze(c0), -1.5)
+    np.testing.assert_allclose(np.squeeze(c1), -1.5 + np.exp(0.7))
+
+
+@pytest.mark.parametrize("coi", [0.0, 1.0])
+def test_zero_one_inflated_beta_fixed_coi(zero_one_data, coi):
+    # Fixing 'coi' gives a zero-inflated (coi = 0) or one-inflated (coi = 1) beta.
+    boundary = 1 - coi
+    data = zero_one_data[zero_one_data["y"] != boundary]
+    model = bmb.Model("y ~ x", data, family="zero_one_inflated_beta", priors={"coi": coi})
+    model.build()
+    pm_model = model.backend.model
+    assert "coi" not in {rv.name for rv in pm_model.free_RVs}
+    assert "coi" in {var.name for var in pm_model.data_vars}
+    point = pm_model.initial_point()
+    assert np.isfinite(pm_model.compile_logp()(point))
+
+
+@pytest.mark.parametrize("family", ["ordered_beta", "zero_one_inflated_beta"])
+def test_bounded_beta_weighted_response(zero_one_data, family):
+    model = bmb.Model("weighted(y, w) ~ x", zero_one_data, family=family)
+    model.build()
+    assert_ip_dlogp(model)
 
 
 @pytest.mark.parametrize("alpha", [0.5, 1.0, 2.5])
@@ -1305,6 +1394,139 @@ def test_sparse_dot_out_of_sample_log_likelihood(mock_pymc_sample, monkeypatch):
     result = model.compute_log_likelihood(idata, data=data.head(3), inplace=False)
 
     assert result.log_likelihood["y"].shape == (2, 4, 3)
+
+
+@pytest.mark.parametrize("sparse_dot", [False, True], ids=["dense", "sparse"])
+class TestNewGroupConditioning:
+    # Check that dense/sparse new-group predictions condition on posterior hyperparameters
+    # by shifting location or adjusting scale while keeping the prediction seed fixed.
+    # See https://github.com/bambinos/bambi/issues/1068
+    @pytest.fixture(autouse=True)
+    def configure_sparse_dot(self, monkeypatch, sparse_dot):
+        monkeypatch.setattr(bmb.config, "SPARSE_DOT", sparse_dot)
+
+    @pytest.fixture
+    def data(self):
+        return pd.DataFrame(
+            {
+                "y": np.arange(9, dtype=float),
+                "x": np.tile([1.0, 2.0, 3.0], 3),
+                "g": np.repeat(["a", "b", "c"], 3),
+            }
+        )
+
+    @pytest.fixture
+    def new_data(self):
+        return pd.DataFrame({"g": ["a", "new_a", "new_a", "new_b"], "x": [1.0, 2.0, 3.0, 4.0]})
+
+    def test_location(self, data, new_data, mock_pymc_sample):
+        prior = bmb.Prior(
+            "Normal",
+            mu=bmb.Prior("Normal", mu=2, sigma=1),
+            sigma=bmb.Prior("HalfNormal", sigma=1),
+        )
+        model = bmb.Model("y ~ 0 + (1|g)", data, noncentered=False, priors={"1|g": prior})
+        idata = model.fit(draws=4, chains=2, random_seed=12)
+        before = model.predict(idata, data=new_data, random_seed=1, inplace=False)
+        changed = idata.copy(deep=True)
+        changed.posterior["1|g"] += 3
+        changed.posterior["1|g_mu"] += 3
+        after = model.predict(changed, data=new_data, random_seed=1, inplace=False)
+
+        before_mu = before.predictions["mu"].values
+        after_mu = after.predictions["mu"].values
+        assert before_mu.shape == after_mu.shape == (2, 4, 4)
+        np.testing.assert_allclose(after_mu - before_mu, 3, atol=1e-8, rtol=0)
+
+    def test_scale(self, data, new_data, mock_pymc_sample):
+        prior = bmb.Prior(
+            "Normal",
+            mu=bmb.Prior("Normal", mu=2, sigma=1),
+            sigma=bmb.Prior("HalfNormal", sigma=1),
+        )
+        model = bmb.Model("y ~ 0 + (1|g)", data, noncentered=False, priors={"1|g": prior})
+        idata = model.fit(draws=4, chains=2, random_seed=12)
+        before = model.predict(idata, data=new_data, random_seed=3, inplace=False)
+        changed = idata.copy(deep=True)
+        changed.posterior["1|g_sigma"] *= 2
+        after = model.predict(changed, data=new_data, random_seed=3, inplace=False)
+
+        before_mu = before.predictions["mu"].values
+        after_mu = after.predictions["mu"].values
+        assert before_mu.shape == after_mu.shape == (2, 4, 4)
+        np.testing.assert_allclose(after_mu[..., 0], before_mu[..., 0], atol=1e-8, rtol=0)
+        mu = idata.posterior["1|g_mu"].values[..., None]
+        np.testing.assert_allclose(
+            after_mu[..., 1:] - mu, 2 * (before_mu[..., 1:] - mu), atol=1e-8, rtol=0
+        )
+
+    def test_slope_with_repeated_new_labels(self, data, new_data, mock_pymc_sample):
+        prior = bmb.Prior(
+            "Normal",
+            mu=bmb.Prior("Normal", mu=2, sigma=1),
+            sigma=bmb.Prior("HalfNormal", sigma=1),
+        )
+        model = bmb.Model("y ~ 0 + (0 + x|g)", data, noncentered=False, priors={"x|g": prior})
+        idata = model.fit(draws=4, chains=2, random_seed=12)
+        before = model.predict(idata, data=new_data, random_seed=5, inplace=False)
+        changed = idata.copy(deep=True)
+        changed.posterior["x|g"] += 3
+        changed.posterior["x|g_mu"] += 3
+        after = model.predict(changed, data=new_data, random_seed=5, inplace=False)
+
+        before_mu = before.predictions["mu"].values
+        after_mu = after.predictions["mu"].values
+        assert before_mu.shape == after_mu.shape == (2, 4, 4)
+        expected = 3 * new_data["x"].values
+        np.testing.assert_allclose(
+            after_mu - before_mu, np.broadcast_to(expected, before_mu.shape), atol=1e-8, rtol=0
+        )
+        np.testing.assert_allclose(before_mu[..., 1] / 2, before_mu[..., 2] / 3, atol=1e-8, rtol=0)
+
+    def test_alias(self, data, new_data, mock_pymc_sample):
+        prior = bmb.Prior(
+            "Normal",
+            mu=bmb.Prior("Normal", mu=2, sigma=1),
+            sigma=bmb.Prior("HalfNormal", sigma=1),
+        )
+        model = bmb.Model("y ~ 0 + (1|g)", data, noncentered=False, priors={"1|g": prior})
+        model.set_alias({"1|g": "group_effect", "sigma": "group_sd"})
+        idata = model.fit(draws=4, chains=2, random_seed=12)
+        before = model.predict(idata, data=new_data, random_seed=7, inplace=False)
+        changed = idata.copy(deep=True)
+        changed.posterior["group_effect"] += 3
+        changed.posterior["group_effect_mu"] += 3
+        after = model.predict(changed, data=new_data, random_seed=7, inplace=False)
+
+        before_mu = before.predictions["mu"].values
+        after_mu = after.predictions["mu"].values
+        assert before_mu.shape == after_mu.shape == (2, 4, 4)
+        np.testing.assert_allclose(after_mu - before_mu, 3, atol=1e-8, rtol=0)
+
+    def test_categorical_log_odds(self, data, new_data, mock_pymc_sample):
+        prior = bmb.Prior(
+            "Normal",
+            mu=bmb.Prior("Normal", mu=2, sigma=1),
+            sigma=bmb.Prior("HalfNormal", sigma=1),
+        )
+        data = data.assign(y=pd.Categorical(["a", "b", "c"] * 3))
+        model = bmb.Model(
+            "y ~ 0 + (1|g)", data, family="categorical", noncentered=False, priors={"1|g": prior}
+        )
+        idata = model.fit(draws=4, chains=2, random_seed=12)
+        before = model.predict(idata, data=new_data, random_seed=9, inplace=False)
+        changed = idata.copy(deep=True)
+        changed.posterior["1|g"] += 3
+        changed.posterior["1|g_mu"] += 3
+        after = model.predict(changed, data=new_data, random_seed=9, inplace=False)
+
+        before_p = before.predictions["p"].values
+        after_p = after.predictions["p"].values
+        assert before_p.shape == after_p.shape == (2, 4, 4, 3)
+        delta = np.log(after_p[..., 1:] / after_p[..., :1]) - np.log(
+            before_p[..., 1:] / before_p[..., :1]
+        )
+        np.testing.assert_allclose(delta, 3, atol=1e-8, rtol=0)
 
 
 @pytest.mark.parametrize("noncentered", [True, False])
