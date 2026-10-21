@@ -1,6 +1,5 @@
 import logging
 import pathlib
-from functools import partial
 
 import arviz as az
 import numpy as np
@@ -34,7 +33,6 @@ from bambi.parameters import (
 from bambi.terms import CommonTerm, GroupSpecificTerm
 
 from helpers import (
-    VECTOR_NORMAL_COV,
     assert_ip_dlogp,
     censored_nonlinear_data,
     censored_nonlinear_model,
@@ -2432,36 +2430,6 @@ def test_scalar_transform_result_broadcasts_for_prediction(monkeypatch, transfor
         np.testing.assert_array_equal(group.mu.values, np.ones((1, 1, size)))
 
 
-@pytest.mark.parametrize(
-    ("family", "auxiliary"),
-    [("cumulative", "threshold"), ("osm", "alpha"), ("osm", "delta")],
-)
-def test_ordinal_nonlinear_auxiliary_formulas_are_rejected(family, auxiliary):
-    data = pd.DataFrame(
-        {
-            "y": pd.Categorical(["low", "mid", "high"], ordered=True),
-            "x": [0, 1, 2],
-        }
-    )
-    formula = bmb.Formula("y ~ nl(rate*x)", f"{auxiliary} ~ 1", nlpars=("rate",))
-
-    with pytest.raises(ValueError, match="Ordinal auxiliary parameters"):
-        bmb.Model(formula, data, family=family)
-
-
-def test_ordinal_nonlinear_expressions_cannot_depend_on_threshold():
-    data = pd.DataFrame(
-        {
-            "y": pd.Categorical(["low", "mid", "high"], ordered=True),
-            "x": [0, 1, 2],
-        }
-    )
-    formula = bmb.Formula("y ~ nl(threshold*x)")
-
-    with pytest.raises(ValueError, match="cannot depend on vector-valued auxiliary"):
-        bmb.Model(formula, data, family="cumulative")
-
-
 @pytest.mark.parametrize("family, inverse_link", [("gaussian", lambda x: x), ("poisson", np.exp)])
 @pytest.mark.parametrize("predictor", ["a ~ 0", "a ~ 1"])
 def test_intercept_only_prediction_accepts_row_only_data(family, inverse_link, predictor):
@@ -2510,6 +2478,22 @@ def test_bare_nonlinear_coefficient_broadcasts_without_data_columns():
         size = 2 if new_data is None else 3
         np.testing.assert_allclose(group.mu.values, np.full((1, 1, size), 0.5))
         assert ("a" in group) is (new_data is None)
+
+
+@pytest.mark.parametrize(
+    ("additionals", "order"),
+    [((), ("sigma", "mu")), (("sigma ~ z",), ("mu", "sigma"))],
+)
+def test_additive_model_dependency_graph(additionals, order):
+    model = bmb.Model(bmb.Formula("y ~ x", *additionals), linear_data())
+
+    assert set(model.parameter_graph.nodes) == set(model.parameters)
+    for name, parameter in model.parameters.items():
+        assert model.parameter_graph.nodes[name] is parameter
+    assert model.parameter_graph.dependencies == {"mu": (), "sigma": ()}
+    assert model.parameter_graph.order == order
+    assert model.parameter_graph.expression_nodes == {}
+    assert model.parameter_graph.nonlinear_coefficients == {}
 
 
 def test_dependency_graph_contains_all_quantity_roles(nonlinear_ownership_data):
@@ -2629,15 +2613,6 @@ def test_likelihood_parameter_and_expression_data_collision_is_rejected():
         bmb.Model(formula, data)
 
 
-@pytest.mark.parametrize("response", ["mu", "sigma"])
-def test_likelihood_parameter_and_response_data_collision_is_rejected(response):
-    data = linear_data().rename(columns={"y": response})
-    formula = bmb.Formula(f"{response} ~ a * x", nlpars=("a",))
-
-    with pytest.raises(ValueError, match=f"modeled likelihood parameters.*{response}"):
-        bmb.Model(formula, data)
-
-
 def test_predictor_dependent_parameter_builds_expected_graph():
     data = linear_data()
     model = bmb.Model(exponential_formula(), data, priors=exponential_priors())
@@ -2724,15 +2699,6 @@ def test_set_priors_uses_nested_parameter_names():
     assert prior.args == {"mu": 1, "sigma": 0.25}
 
 
-def test_non_proportion_multicolumn_response_is_rejected():
-    data = linear_data()
-    data["y"] = pd.Categorical(["low", "high"] * (len(data) // 2))
-    formula = bmb.Formula("y ~ rate * x", nlpars=("rate",))
-
-    with pytest.raises(ValueError, match="one observed response or a proportion response"):
-        bmb.Model(formula, data, family="gaussian")
-
-
 def test_dropna_aligns_all_model_inputs():
     data = linear_data(8)
     data.index = [4, 4, 2, 2, 9, 9, 1, 1]
@@ -2814,13 +2780,6 @@ def test_marginal_coefficient_rejects_term_prior_dictionary():
         )
 
 
-@pytest.mark.parametrize("family", ["categorical", "multinomial"])
-def test_nonlinear_weighted_response_rejects_vector_parents(family):
-    formula = bmb.Formula("weighted(y, w) ~ a * x", nlpars=("a",))
-    with pytest.raises(ValueError, match="Nonlinear formulas currently require"):
-        bmb.Model(formula, weighted_nonlinear_data(), family=family, priors={"a": normal_prior()})
-
-
 def test_dropna_aligns_nonlinear_expression_and_weighted_response():
     data = weighted_nonlinear_data().assign(z=[0.0, np.nan, 0.5, -0.5])
     model = weighted_nonlinear_model(data, dropna=True)
@@ -2865,79 +2824,14 @@ def test_nonlinear_competing_risks_families_build(family):
     assert np.isfinite(model.backend.model.compile_logp()(model.backend.model.initial_point()))
 
 
-@pytest.mark.parametrize(
-    ("response_ndim", "parent_ndim", "coefs_dim"),
-    [
-        (1, 2, DimType.RESPONSE),
-        (2, 1, DimType.RESPONSE),
-        (2, 2, DimType.RESPONSE),
-        (1, 1, DimType.RESPONSE_REDUCED),
-    ],
-)
-def test_nonlinear_numeric_vector_response_rejects_unsupported_axes(
-    response_ndim, parent_ndim, coefs_dim
-):
-    class UnsupportedVectorFamily(bmb.Family):
-        RESPONSE_NDIM = response_ndim
-        PARAMETERS = {"mu": ParamSpec(links=["identity"], ndim=parent_ndim, coefs_dim=coefs_dim)}
-
-    likelihood = bmb.Likelihood(
-        "VectorNormal", params=["mu"], parent="mu", dist=partial(pm.MvNormal, cov=VECTOR_NORMAL_COV)
-    )
-    family = UnsupportedVectorFamily("unsupported_vector_normal", likelihood, "identity")
-    with pytest.raises(ValueError, match="Nonlinear vector parents"):
-        bmb.Model(
-            bmb.Formula("join(y1, y2) ~ 0 + nl(0.7)"),
-            vector_normal_data(),
-            family=family,
-            extra_namespace={"join": join_vector_response},
-        )
-
-
-def test_nonlinear_numeric_vector_response_rejects_unsupported_shapes():
-    data = vector_normal_data()
-    response_formula = bmb.Formula("join(y1, y2) ~ 0 + nl(0.7)")
-    namespace = {"join": join_vector_response}
-
-    class VectorAuxiliaryFamily(bmb.Family):
-        RESPONSE_NDIM = 1
-        PARAMETERS = {
-            "mu": ParamSpec(links=["identity"], ndim=1, coefs_dim=DimType.RESPONSE),
-            "scale": ParamSpec(links=["identity"], ndim=1, coefs_dim=DimType.RESPONSE),
-        }
-
-    auxiliary_likelihood = bmb.Likelihood(
-        "VectorAuxiliaryNormal",
-        params=["mu", "scale"],
-        parent="mu",
-        dist=partial(pm.MvNormal, cov=VECTOR_NORMAL_COV),
-    )
-    auxiliary_family = VectorAuxiliaryFamily(
-        "vector_auxiliary_normal", auxiliary_likelihood, "identity"
-    )
-    with pytest.raises(ValueError, match="scalar auxiliary parameters"):
-        bmb.Model(response_formula, data, family=auxiliary_family, extra_namespace=namespace)
-
-    scalar_data = pd.DataFrame({"y": np.linspace(0, 1, len(data))})
-    with pytest.raises(ValueError, match="requires a numeric matrix response"):
-        bmb.Model(
-            "y ~ 0 + nl(0.7)",
-            scalar_data,
-            family=vector_normal_family(),
-        )
-
-
-@pytest.mark.parametrize("response", ["weighted(y1, w)", "censored(y1, status)", "counts(y1, y2)"])
-def test_nonlinear_numeric_vector_response_rejects_special_wrappers(response):
-    data = vector_normal_data().assign(w=1.0, status="none")
-    with pytest.raises(ValueError, match="requires a numeric matrix response"):
-        bmb.Model(bmb.Formula(f"{response} ~ 0 + nl(0.7)"), data, family=vector_normal_family())
-
-
-def test_nonlinear_numeric_vector_response_rejects_categorical_encoding():
+def test_nonlinear_numeric_vector_response_accepts_one_hot_encoding():
     data = pd.DataFrame({"y": pd.Categorical(["a", "b", "a"])})
-    with pytest.raises(ValueError, match="requires a numeric matrix response"):
-        bmb.Model(bmb.Formula("y ~ 0 + nl(0.7)"), data, family=vector_normal_family())
+    model = bmb.Model(bmb.Formula("y ~ 0 + nl(0.7)"), data, family=vector_normal_family())
+    model.build()
+    np.testing.assert_array_equal(
+        model.backend.model["y_data"].get_value(), [[1, 0], [0, 1], [1, 0]]
+    )
+    assert_ip_dlogp(model)
 
 
 @pytest.mark.parametrize(

@@ -196,10 +196,8 @@ class PyMCModel:
         parameter_values = {}
         self._conditional_parameter_info = {}
         self._group_specific_state = GroupSpecificGraphState()
-        quantities = self.spec.parameter_graph.nodes or self.spec.parameters
-        order = self.spec.parameter_graph.order or (
-            tuple(self.spec.marginal_parameters) + tuple(self.spec.conditional_parameters)
-        )
+        quantities = self.spec.parameter_graph.nodes
+        order = self.spec.parameter_graph.order
         for name in order:
             quantity = quantities[name]
             if isinstance(quantity, Marginal):

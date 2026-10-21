@@ -10,6 +10,7 @@ from scipy import stats
 from scipy.special import expit, ndtr, gamma
 
 import bambi as bmb
+from bambi.families.types import DimType, ParamSpec, ResponseType
 from bambi.parameters import MarginalCoefficient
 from bambi.terms import GroupSpecificTerm
 
@@ -4406,6 +4407,100 @@ def test_nonlinear_numeric_vector_response_fixed_values_and_predictions():
     rate = coefficients["rate_Intercept"] + 0.1 * coefficients["rate_z"]
     expected = rate * np.array([[-0.2], [0.3]]) + 0.1 * coefficients["z"]
     np.testing.assert_allclose(actual[[0, 1]], expected)
+
+
+@pytest.mark.parametrize(
+    ("response_type", "response_ndim", "distribution", "response"),
+    [
+        (ResponseType.CATEGORICAL, 0, "Categorical", "y"),
+        (ResponseType.ORDINAL, 0, "Categorical", "y"),
+        (ResponseType.NUMERIC, 1, "Multinomial", "counts(first, second)"),
+    ],
+)
+def test_nonlinear_custom_family_response_encoding(
+    response_type, response_ndim, distribution, response
+):
+    class CustomFamily(bmb.Family):
+        DATA_TYPE = response_type
+        RESPONSE_NDIM = response_ndim
+        PARAMETERS = {"p": ParamSpec(links=["identity"], ndim=1, coefs_dim=DimType.RESPONSE)}
+
+    family = CustomFamily(
+        "custom", bmb.Likelihood(distribution, params=["p"], parent="p"), "identity"
+    )
+    data = pd.DataFrame(
+        {"y": pd.Categorical(["a", "b", "a"]), "first": [1, 2, 0], "second": [2, 0, 3]}
+    )
+    model = bmb.Model(bmb.Formula(f"{response} ~ 0 + nl(0.5)"), data, family=family)
+    model.build()
+    assert_ip_dlogp(model)
+    result = model.predict(fixed_parameter_idata(), kind="response_params", inplace=False)
+    np.testing.assert_allclose(result.posterior["p"], 0.5)
+    likelihood = model.compute_log_likelihood(result, inplace=False)
+    expected_logp = np.full(len(data), np.log(0.5))
+    if response_ndim:
+        counts = data[["first", "second"]].to_numpy()
+        expected_logp = np.array(
+            [stats.multinomial.logpmf(row, row.sum(), [0.5, 0.5]) for row in counts]
+        )
+    np.testing.assert_allclose(
+        likelihood.log_likelihood[model.response_term.label],
+        np.broadcast_to(expected_logp, (2, 3, len(data))),
+    )
+    draws = model.predict(result, kind="response", inplace=False, random_seed=133)
+    assert (
+        draws.posterior_predictive[model.response_term.label].shape
+        == (2, 3, len(data)) + (2,) * response_ndim
+    )
+
+
+@pytest.mark.parametrize("coefs_dim", [DimType.RESPONSE, DimType.RESPONSE_REDUCED])
+def test_nonlinear_numeric_vector_response_with_vector_auxiliary(coefs_dim):
+    class VectorNormalFamily(bmb.Family):
+        RESPONSE_NDIM = 1
+        PARAMETERS = {
+            "mu": ParamSpec(links=["identity"], ndim=1, coefs_dim=coefs_dim),
+            "sigma": ParamSpec(links=["log"], ndim=1, coefs_dim=DimType.RESPONSE),
+        }
+
+    family = VectorNormalFamily(
+        "vector_normal", bmb.Likelihood("Normal", params=["mu", "sigma"], parent="mu"), "identity"
+    )
+    data = vector_normal_data()
+    model = bmb.Model(
+        bmb.Formula("join(y1, y2) ~ 0 + nl(0.7*x)", "sigma ~ 0 + nl(exp(0.2*z))"),
+        data,
+        family=family,
+        extra_namespace={"join": join_vector_response},
+    )
+    model.build()
+    assert not model.backend.model.free_RVs
+    assert_ip_dlogp(model)
+    result = model.predict(fixed_parameter_idata(), kind="response_params", inplace=False)
+    expected_mu = np.broadcast_to(0.7 * data.x.to_numpy()[:, None], (len(data), 2))
+    expected_sigma = np.broadcast_to(np.exp(0.2 * data.z.to_numpy()[:, None]), (len(data), 2))
+    np.testing.assert_allclose(
+        result.posterior["mu"], np.broadcast_to(expected_mu, (2, 3, len(data), 2))
+    )
+    np.testing.assert_allclose(
+        result.posterior["sigma"], np.broadcast_to(expected_sigma, (2, 3, len(data), 2))
+    )
+    likelihood = model.compute_log_likelihood(result, inplace=False)
+    expected_logp = stats.norm.logpdf(data[["y1", "y2"]], loc=expected_mu, scale=expected_sigma)
+    np.testing.assert_allclose(
+        likelihood.log_likelihood[model.response_term.label],
+        np.broadcast_to(expected_logp, (2, 3, len(data), 2)),
+    )
+    new_data = data.iloc[:2][["x", "z"]]
+    params = model.predict(result, data=new_data, kind="response_params", inplace=False)
+    np.testing.assert_allclose(
+        params.predictions["mu"], np.broadcast_to(expected_mu[:2], (2, 3, 2, 2))
+    )
+    np.testing.assert_allclose(
+        params.predictions["sigma"], np.broadcast_to(expected_sigma[:2], (2, 3, 2, 2))
+    )
+    draws = model.predict(result, data=new_data, kind="response", inplace=False, random_seed=132)
+    assert draws.predictions[model.response_term.label].shape == (2, 3, 2, 2)
 
 
 def test_nonlinear_numeric_vector_response_constant_expression():

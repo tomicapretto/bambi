@@ -305,7 +305,7 @@ def split_predictor(source: str, parameter_names) -> tuple[str | None, Nonlinear
 
 @dataclass(frozen=True)
 class ParameterDependencyGraph:
-    """Dependency metadata for a nonlinear model's parameter-level expressions.
+    """Modeled quantities and their parameter dependencies.
 
     Attributes
     ----------
@@ -523,6 +523,7 @@ def prepare_nonlinear_data(
     dropna,
     include_response=True,
     parameter_names=(),
+    additive_predictors=None,
 ):
     """Prepare aligned, complete observations for every part of a nonlinear model.
 
@@ -541,6 +542,8 @@ def prepare_nonlinear_data(
         Whether the response is required in ``data``.
     parameter_names : Collection of str
         Names of modeled parameters, which are excluded from required data columns.
+    additive_predictors : Collection of str or None, optional
+        Parsed additive predictors. If omitted, they are extracted from the formulas.
 
     Returns
     -------
@@ -559,13 +562,12 @@ def prepare_nonlinear_data(
     for expression in expressions.values():
         variables.update(expression.symbols - parameter_names)
     response_formula, parent_rhs = split_nonlinear_formula(formula.main)
-    additive_rhs, _ = split_predictor(parent_rhs, parameter_names)
-    if additive_rhs is not None:
-        variables.update(set(fm.model_description(additive_rhs).var_names) - parameter_names)
+    if additive_predictors is None:
+        sources = [parent_rhs] + [f.partition("~")[2] for f in formula.additionals]
+        additive_predictors = [split_predictor(source, parameter_names)[0] for source in sources]
     if include_response:
         variables.update(fm.model_description(response_formula).var_names)
-    for predictor_formula in formula.additionals:
-        rhs, _ = split_predictor(predictor_formula.partition("~")[2], parameter_names)
+    for rhs in additive_predictors:
         if rhs is None:
             continue
         predictor_variables = fm.model_description(rhs).var_names

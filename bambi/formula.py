@@ -1,6 +1,5 @@
 import keyword
 import warnings
-from typing import Sequence
 
 import formulae as fm
 
@@ -73,10 +72,9 @@ class Formula:
         self, formula: str, *additionals: str, nlpars: list[str] | tuple[str, ...] | None = None
     ):
         self.nlpars = self._check_nlpars(nlpars)
-        self.additionals_lhs = []
         self.main = formula
         self.additionals = additionals
-        self.check_additionals(additionals)
+        self.additionals_lhs = [self.check_additional(additional) for additional in additionals]
 
         if self.is_nonlinear:
             duplicates = {
@@ -113,24 +111,7 @@ class Formula:
             raise ValueError(f"Duplicate nonlinear parameter name(s): {sorted(duplicates)}.")
         return tuple(nlpars)
 
-    def check_additionals(self, additionals: Sequence[str]):
-        """Check if the additional formulas match the expected format
-
-        Parameters
-        ----------
-        additionals : sequence of str
-            Model formulas that describe model parameters rather than a response variable.
-
-        Returns
-        -------
-        additionals : sequence of str
-            If all formulas match the required format, it returns them.
-        """
-        for additional in additionals:
-            self.check_additional(additional)
-        return additionals
-
-    def check_additional(self, additional: str):
+    def check_additional(self, additional: str) -> str:
         """Check if an additional formula matches the expected format
 
         Parameters
@@ -138,10 +119,16 @@ class Formula:
         additional : str
             A model formula that describes a model parameter.
 
+        Returns
+        -------
+        str
+            The parameter name on the left-hand side.
+
         Raises
         ------
         ValueError
             If the formula does not contain a response term.
+
         ValueError
             If the response term is not a plain name.
         """
@@ -149,7 +136,6 @@ class Formula:
         response_formula = f"{lhs} ~ 1" if self.is_nonlinear and separator else additional
         response = fm.model_description(response_formula).response
 
-        # There's a response in the formula
         if response is None:
             raise ValueError("Additional formulas must contain a response name.")
 
@@ -157,7 +143,7 @@ class Formula:
         if not isinstance(response.term.components[0], fm.terms.variable.Variable):
             raise ValueError("The response must be a name")
 
-        self.additionals_lhs.append(response.term.name)
+        return response.term.name
 
     def get_all_formulas(self):
         """Get all the model formulas
