@@ -47,9 +47,8 @@ from bambi.backend.pymc.terms.response import (
     replace_response_variables,
 )
 from bambi.config import config as bmb_config
-from bambi.nonlinear import prepare_nonlinear_data
 from bambi.parameters import Conditional, ConditionalCoefficient, Marginal
-from bambi.utils import as_dataset
+from bambi.utils import as_dataset, prepare_new_data
 
 _logger = logging.getLogger("bambi")
 
@@ -777,18 +776,11 @@ class PyMCModel:
             trace["log_likelihood"] = _fixed_log_likelihood(model, posterior)
 
     def _build_new_data(self, data: pd.DataFrame, purpose: str, kind: str | None = None):
-        if self.spec.formula.is_nonlinear:
-            data = prepare_nonlinear_data(
-                self.spec.formula,
-                {
-                    name: parameter.expression
-                    for name, parameter in self.spec.parameter_graph.expression_nodes.items()
-                },
-                data,
-                dropna=False,
-                include_response=purpose == "log_likelihood",
-                parameter_names=self.spec.parameter_graph.dependencies,
-            )
+        data = prepare_new_data(
+            self.spec,
+            data,
+            include_response=purpose == "log_likelihood",
+        )
         new_coords = {"__obs__": range(len(data))}
         new_data = build_new_response_data(
             self.spec.response_term, data, self.spec.family, purpose, kind

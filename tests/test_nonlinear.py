@@ -281,7 +281,7 @@ def test_unsupported_expression_syntax_is_rejected(expression):
 
 
 @pytest.mark.parametrize(
-    "source, additive, expression",
+    "source, linear_formula, nlexpr",
     [
         ("nl(exp(b * x) + x) + z", "z", "exp(b * x) + x"),
         ("z - exp(b * x) + (1 + x | group)", "z + (1 + x | group)", "-exp(b * x)"),
@@ -299,15 +299,15 @@ def test_unsupported_expression_syntax_is_rejected(expression):
         ("(nl(b * x) + (1 | group))", "(1 | group)", "b * x"),
     ],
 )
-def test_split_additive_and_nonlinear_predictor(source, additive, expression):
-    actual_additive, actual_expression = split_predictor(source, ("a", "b"))
-    if additive is None:
-        assert actual_additive is None
+def test_split_linear_formula_and_nlexpr(source, linear_formula, nlexpr):
+    actual_linear_formula, actual_nlexpr = split_predictor(source, ("a", "b"))
+    if linear_formula is None:
+        assert actual_linear_formula is None
     else:
-        assert actual_additive.replace(" ", "") == additive.replace(" ", "")
+        assert actual_linear_formula.replace(" ", "") == linear_formula.replace(" ", "")
     values = {"a": 0.5, "b": 0.3, "x": pt.as_tensor_variable([0.2, 0.8])}
-    actual = evaluate_expression(actual_expression.root, values).eval()
-    expected = evaluate_expression(NonlinearExpression.parse(expression).root, values).eval()
+    actual = evaluate_expression(actual_nlexpr.root, values).eval()
+    expected = evaluate_expression(NonlinearExpression.parse(nlexpr).root, values).eval()
     np.testing.assert_allclose(actual, expected)
 
 

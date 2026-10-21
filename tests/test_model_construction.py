@@ -16,6 +16,8 @@ from scipy.special import expit, ndtr
 from scipy.stats import norm
 
 import bambi as bmb
+from bambi.utils import prepare_data, prepare_new_data
+from bambi.nonlinear import NonlinearExpression
 from bambi.backend.pymc.parameters import remove_group_specific_contributions
 from bambi.backend.pymc.terms.response import _untruncate_response
 from bambi.backend.pymc.transform import transforms_registry
@@ -143,7 +145,7 @@ def test_additive_and_group_specific_terms_share_predictor_data():
 
 
 def test_model_no_response():
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="No outcome variable is set"):
         bmb.Model("x", pd.DataFrame({"x": [1]}))
 
 
@@ -1199,14 +1201,24 @@ def test_untruncate_response_rebuilds_base_distribution(family, response):
     assert "truncated" not in str(latent[response_name].owner.op).lower()
 
 
-@pytest.mark.skip(reason="this example no longer trigger the fallback to adapt_diag")
-def test_init_fallback(init_data, caplog):
-    model = bmb.Model("od ~ temp + (1|source) + 0", init_data)
-    with caplog.at_level(logging.INFO):
-        model.fit(draws=100, init="auto")
-        assert "Initializing NUTS using jitter+adapt_diag..." in caplog.text
+def test_init_fallback(caplog, monkeypatch, mock_pymc_sample):
+    model = bmb.Model("y ~ x", linear_data())
+    sample = pm.sample
+    initializations = []
+
+    def sample_with_initialization_failure(**kwargs):
+        initializations.append(kwargs["init"])
+        if len(initializations) == 1:
+            raise ValueError("Mass matrix contains zeros on the diagonal.")
+        return sample(**kwargs)
+
+    with monkeypatch.context() as patch, caplog.at_level(logging.INFO):
+        patch.setattr(pm, "sample", sample_with_initialization_failure)
+        result = model.fit(draws=3, chains=1, init="auto", inference_method="pymc")
         assert "The default initialization" in caplog.text
-        assert "Initializing NUTS using adapt_diag..." in caplog.text
+
+    assert initializations == ["auto", "adapt_diag"]
+    assert "posterior" in result
 
 
 def test_2d_response_no_shape(mock_pymc_sample):
@@ -2697,6 +2709,108 @@ def test_set_priors_uses_nested_parameter_names():
     prior = model.parameters["mu"].nonlinear_coefficients["a"].terms["z"].prior
     assert prior.name == "Normal"
     assert prior.args == {"mu": 1, "sigma": 0.25}
+
+
+@pytest.mark.parametrize("nonlinear", [False, True])
+def test_prepare_data_aligns_formulas_and_converts_categories(nonlinear):
+    data = pd.DataFrame(
+        {
+            "y": [1.0, 2.0, 3.0, 4.0, 5.0],
+            "x": [np.nan, 0.2, 0.3, 0.4, 0.5],
+            "z": [0.0, np.nan, 0.2, 0.3, 0.4],
+            "group": ["a", "b", None, "a", "b"],
+            "treatment": [0, 1, 0, 1, 0],
+            "unused": np.nan,
+        }
+    )
+    original = data.copy(deep=True)
+    if nonlinear:
+        formula = bmb.Formula("y ~ rate*x + treatment", "rate ~ z + (1 | group)", nlpars=("rate",))
+    else:
+        formula = bmb.Formula("y ~ x + treatment", "sigma ~ z + (1 | group)")
+
+    if nonlinear:
+        linear_formulas = ("treatment", "z + (1 | group)")
+        nonlinear_exprs = (NonlinearExpression.parse("rate*x"),)
+    else:
+        linear_formulas = ("x + treatment", "z + (1 | group)")
+        nonlinear_exprs = ()
+    prepared = prepare_data(
+        data,
+        formula,
+        linear_formulas,
+        categorical="treatment",
+        dropna=True,
+        nonlinear_exprs=nonlinear_exprs,
+    )
+
+    assert prepared.index.tolist() == [3, 4]
+    assert prepared.group.dtype == "category"
+    assert prepared.treatment.dtype == "category"
+    pd.testing.assert_frame_equal(data, original)
+    with pytest.raises(ValueError, match="3 incomplete rows"):
+        prepare_data(data, formula, linear_formulas, nonlinear_exprs=nonlinear_exprs)
+
+
+def test_prepare_data_linear_covariate_can_share_a_parameter_name():
+    data = pd.DataFrame({"y": [1, 2], "sigma": [np.nan, 0.5]})
+
+    prepared = prepare_data(
+        data, bmb.Formula("y ~ sigma"), ("sigma",), parameters=("mu", "sigma"), dropna=True
+    )
+
+    pd.testing.assert_frame_equal(prepared, data.iloc[1:])
+
+
+@pytest.mark.parametrize(
+    ("linear_formula", "missing_column"),
+    [("group + (x | group)", "group"), ("(x | group)", "x")],
+)
+def test_prepare_new_data_missing_groups_do_not_hide_missing_predictors(
+    linear_formula, missing_column
+):
+    training = pd.DataFrame({"y": [1, 2, 1, 2], "x": [1, 2, 3, 4], "group": ["a", "a", "b", "b"]})
+    model = bmb.Model(f"y ~ {linear_formula}", training)
+    data = pd.DataFrame({"group": ["a", "b"], "x": [1.0, 2.0]})
+    data.loc[0, missing_column] = None
+
+    with pytest.raises(ValueError, match="1 incomplete row"):
+        prepare_new_data(model, data)
+
+
+@pytest.mark.parametrize("nonlinear", [False, True])
+def test_prepare_new_data_checks_response_only_when_requested(nonlinear, monkeypatch):
+    training = pd.DataFrame({"y": [1, 2, 1, 2], "x": [1, 2, 3, 4], "group": ["a", "a", "b", "b"]})
+    data = pd.DataFrame({"y": [1.0, np.nan], "x": [1.0, 2.0], "group": ["a", None]})
+    original = data.copy(deep=True)
+    if nonlinear:
+        formula = bmb.Formula("y ~ a*x + (1 | group)", "a ~ 1", nlpars=("a",))
+    else:
+        formula = bmb.Formula("y ~ x + (1 | group)")
+    model = bmb.Model(formula, training)
+    monkeypatch.setattr(
+        "formulae.model_description", lambda *_: pytest.fail("New data must not reparse formulas")
+    )
+
+    prepared = prepare_new_data(model, data)
+
+    assert prepared.index.tolist() == [0, 1]
+    assert prepared.group.dtype == "category"
+    pd.testing.assert_frame_equal(data, original)
+    with pytest.raises(ValueError, match="1 incomplete row"):
+        prepare_new_data(model, data, include_response=True)
+
+
+def test_distributional_model_aligns_rows_across_linear_formulas():
+    data = pd.DataFrame(
+        {"y": [1.0, 2.0, 3.0, 4.0], "x": [np.nan, 0.2, 0.3, 0.4], "z": [0, np.nan, 1, 2]}
+    )
+
+    model = bmb.Model(bmb.Formula("y ~ x", "sigma ~ z"), data, dropna=True)
+
+    pd.testing.assert_frame_equal(model.data, data.iloc[2:])
+    np.testing.assert_array_equal(model.response_term.data, data.y.iloc[2:])
+    np.testing.assert_array_equal(model.parameters["sigma"].terms["z"].data, data.z.iloc[2:])
 
 
 def test_dropna_aligns_all_model_inputs():

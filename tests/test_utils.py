@@ -11,7 +11,7 @@ from pymc.distributions.distribution import support_point
 from pymc.distributions.shape_utils import change_dist_size
 from scipy import integrate, special, stats
 
-from bambi.utils import listify
+from bambi.utils import listify, split_formula
 from bambi.backend.pymc.links import cloglog, probit
 from bambi.backend.pymc.data import shape_common_data
 from bambi.backend.pymc.utils import (
@@ -32,6 +32,17 @@ def test_listify():
     assert listify(None) == []
     assert listify([1, 2, 3]) == [1, 2, 3]
     assert listify("giraffe") == ["giraffe"]
+
+
+@pytest.mark.parametrize("rhs", ["x + z", "a * exp(-k * x)", "trt + nl(x + 1)"])
+def test_split_formula(rhs):
+    assert split_formula(f" y ~ {rhs} ") == ("y ~ 1", rhs)
+
+
+@pytest.mark.parametrize("formula", ["y", "~ x", "y ~", "y ~ x ~ z"])
+def test_split_formula_rejects_incomplete_formulas(formula):
+    with pytest.raises(ValueError, match="A formula must have the form"):
+        split_formula(formula)
 
 
 def test_shape_common_data_no_coords_single_column():

@@ -3372,9 +3372,13 @@ def test_marginal_coefficient_prior_alias_and_output(prior, additionals, mock_py
     assert "a_Intercept" not in model.backend.model.named_vars
     assert model.backend.model["slope"].ndim == 0
     prior_draws = model.backend.prior_predictive(draws=3, prior_only=True, random_seed=123)
-    assert "slope" in prior_draws.prior
+    estimated = isinstance(prior, bmb.Prior)
+    assert ("slope" in prior_draws.prior) == estimated
     posterior = model.fit(draws=3, chains=1, random_seed=123)
-    assert "slope" in posterior.posterior
+    assert ("slope" in posterior.posterior) == estimated
+    if not estimated:
+        np.testing.assert_allclose(prior_draws.constant_data["slope"], prior)
+        np.testing.assert_allclose(posterior.constant_data["slope"], prior)
     model.set_priors({"a": bmb.Prior("Normal", mu=0.7, sigma=0.2)})
     assert coefficient.prior.args == {"mu": 0.7, "sigma": 0.2}
     model.build()

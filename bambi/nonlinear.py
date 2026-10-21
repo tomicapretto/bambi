@@ -3,6 +3,7 @@ from __future__ import annotations
 import ast
 import re
 from dataclasses import dataclass
+from typing import Collection
 
 import pandas as pd
 import formulae as fm
@@ -210,20 +211,47 @@ def has_nl_wrapper(source: str) -> bool:
     )
 
 
-def split_predictor(source: str, parameter_names) -> tuple[str | None, NonlinearExpression | None]:
-    """Separate additive formula terms from arithmetic contributions.
+def split_predictor(
+    source: str, parameters: Collection[str]
+) -> tuple[str | None, NonlinearExpression | None]:
+    """Separate ordinary formula terms from nonlinear expressions.
 
-    Terms referencing modeled quantities are arithmetic. ``nl(expr)`` explicitly keeps an
-    arithmetic expression together, including data-only terms and literal constants. Outside
-    the wrapper, parentheses retain ordinary formula grouping semantics. Expression-only
-    formulas without a wrapper retain their original arithmetic interpretation.
+    Ordinary terms are returned as a formula string for Formulae to build design matrices.
+    Terms referencing names in `parameters` are automatically parsed as mathematical
+    expressions, without requiring `nl(...)`. All such terms are combined into one expression
+    evaluated using the values of those parameters and the observed data.
+
+    The optional `nl(expr)` wrapper includes an entire expression in the nonlinear part,
+    even terms containing only data or constants. Outside `nl`, parentheses retain ordinary
+    formula grouping semantics. If an unwrapped predictor consists entirely of
+    parameter-dependent expressions and constants, it has no linear formula part.
+
+    Examples
+    --------
+    Separate an ordinary treatment effect from two parameter-dependent terms without a wrapper:
+
+    >>> linear_formula, nlexpr = split_predictor(
+    ...     "trt + x ** a + y ** b", ("a", "b")
+    ... )
+    >>> linear_formula
+    'trt'
+    >>> sorted(nlexpr.symbols)
+    ['a', 'b', 'x', 'y']
+
+    Use the optional wrapper to include a data-only expression in the nonlinear part:
+
+    >>> linear_formula, nlexpr = split_predictor("trt + nl(x + 1)", ())
+    >>> linear_formula
+    'trt'
+    >>> sorted(nlexpr.symbols)
+    ['x']
     """
     tokens = _PredictorScanner(source).scan(add_intercept=False)[:-1]
-    additive = []
-    nonlinear = []
+    linear_terms = []
+    nl_terms = []
     explicit = has_nl_wrapper(source)
     only_constants = True
-    parameter_names = set(parameter_names)
+    parameter_names = set(parameters)
 
     def collect(part, sign=1):
         nonlocal only_constants
@@ -245,14 +273,18 @@ def split_predictor(source: str, parameter_names) -> tuple[str | None, Nonlinear
                 collect(part[start:index], current_sign)
                 current_sign = sign if token.kind == "PLUS" else -sign
                 start = index + 1
+
         if start:
             collect(part[start:], current_sign)
             return
+
         if not part:
             raise ValueError(f"Malformed nonlinear expression: {source!r}.")
+
         if part[0].kind in ("PLUS", "MINUS"):
             collect(part[1:], sign if part[0].kind == "PLUS" else -sign)
             return
+
         if part[0].kind == "LEFT_PAREN" and part[-1].kind == "RIGHT_PAREN":
             depth = 0
             enclosed = True
@@ -267,6 +299,7 @@ def split_predictor(source: str, parameter_names) -> tuple[str | None, Nonlinear
             if enclosed and not group_specific:
                 collect(part[1:-1], sign)
                 return
+
         text = " ".join(str(token.lexeme) for token in part)
         if has_nl_wrapper(text):
             try:
@@ -282,25 +315,28 @@ def split_predictor(source: str, parameter_names) -> tuple[str | None, Nonlinear
             ):
                 raise ValueError("'nl(...)' must be a separate additive term with one argument.")
             text = ast.unparse(node.args[0])
-            nonlinear.append((sign, text))
+            nl_terms.append((sign, text))
         elif nonlinear_symbol_names(text) & parameter_names:
-            nonlinear.append((sign, text))
+            nl_terms.append((sign, text))
         else:
             only_constants &= len(part) == 1 and part[0].kind == "NUMBER"
-            additive.append((sign, text))
+            linear_terms.append((sign, text))
 
     collect(tokens)
-    if not nonlinear:
+    if not nl_terms:
         return source, None
+
     if not explicit and only_constants:
         return None, NonlinearExpression.parse(source.strip())
-    expression_source = " ".join(
-        ("+" if sign > 0 else "-") + f" ({text})" for sign, text in nonlinear
-    )
-    additive_source = " ".join(
-        ("+" if sign > 0 else "-") + f" {text}" for sign, text in additive
+
+    nlexpr_source = " ".join(("+" if sign > 0 else "-") + f" ({text})" for sign, text in nl_terms)
+
+    linear_formula = " ".join(
+        ("+" if sign > 0 else "-") + f" {text}" for sign, text in linear_terms
     ).lstrip("+ ")
-    return additive_source or "1", NonlinearExpression.parse(expression_source)
+
+    nlexpr = NonlinearExpression.parse(nlexpr_source)
+    return linear_formula or "1", nlexpr
 
 
 @dataclass(frozen=True)
@@ -364,74 +400,51 @@ class ParameterDependencyGraph:
         return coefficients
 
 
-def split_nonlinear_formula(formula: str) -> tuple[str, str]:
-    """Separate a nonlinear formula into its response and expression.
+def resolve_nonlinear_symbols(
+    nlexpr: NonlinearExpression, parameters: Collection[str], data: pd.DataFrame
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """Separate nonlinear expression symbols into parameter and data names.
 
     Parameters
     ----------
-    formula : str
-        Formula in the form ``response ~ expression``.
-
-    Returns
-    -------
-    response_formula : str
-        Intercept-only formula used to build the response design.
-    expression : str
-        Nonlinear expression from the right-hand side.
-
-    Raises
-    ------
-    ValueError
-        If the formula does not contain one response and one expression.
-    """
-    lhs, separator, rhs = formula.partition("~")
-    if not separator or not lhs.strip() or not rhs.strip() or "~" in rhs:
-        raise ValueError("A nonlinear formula must have the form 'response ~ expression'.")
-    return f"{lhs.strip()} ~ 1", rhs.strip()
-
-
-def resolve_nonlinear_symbols(expression, parameter_names, data):
-    """Partition expression symbols into modeled parameters and observed data columns.
-
-    Parameters
-    ----------
-    expression : NonlinearExpression
+    nlexpr : NonlinearExpression
         Parsed nonlinear expression.
-    parameter_names : Collection of str
-        Names available as modeled parameters.
+    parameters : Collection of str
+        Names of likelihood parameters and nonlinear coefficients.
     data : pandas.DataFrame
         Model data containing observed expression inputs.
 
     Returns
     -------
     dependencies : tuple of str
-        Modeled parameters referenced directly by the expression.
+        Parameter names referenced by the expression, sorted alphabetically.
     data_names : tuple of str
-        Observed data columns referenced directly by the expression.
+        Data column names referenced by the expression, sorted alphabetically.
 
     Raises
     ------
     ValueError
-        If a symbol is ambiguous, unresolved, or names non-numeric data.
+        If a symbol names both a parameter and a data column, names neither, or refers to
+        a non-numeric data column.
 
     Examples
     --------
-    >>> expression = NonlinearExpression.parse("sigma_y + attempts")
-    >>> data = pd.DataFrame({"attempts": [10]})
-    >>> resolve_nonlinear_symbols(expression, ("sigma_y",), data)
-    (('sigma_y',), ('attempts',))
+    >>> nlexpr = NonlinearExpression.parse("sigma + rate * x")
+    >>> data = pd.DataFrame({"x": [0.0, 1.0]})
+    >>> resolve_nonlinear_symbols(nlexpr, ("sigma", "rate"), data)
+    (('rate', 'sigma'), ('x',))
     """
-    parameter_names = set(parameter_names)
+    parameter_names = set(parameters)
     data_columns = set(data.columns)
-    collisions = expression.symbols & parameter_names & data_columns
+    collisions = nlexpr.symbols & parameter_names & data_columns
     if collisions:
         raise ValueError(
             "Nonlinear expression symbols must not be both modeled parameters and data columns: "
             f"{sorted(collisions)}."
         )
 
-    dependencies = expression.symbols & parameter_names
-    data_names = expression.symbols - dependencies
+    dependencies = nlexpr.symbols & parameter_names
+    data_names = nlexpr.symbols - dependencies
     unknown = data_names - data_columns
     if unknown:
         raise ValueError(
@@ -514,74 +527,6 @@ def parameter_dependency_order(dependencies, declaration_order=None) -> tuple[st
     for name in sorted(names, key=rank.__getitem__):
         visit(name)
     return tuple(order)
-
-
-def prepare_nonlinear_data(
-    formula,
-    expressions,
-    data,
-    dropna,
-    include_response=True,
-    parameter_names=(),
-    additive_predictors=None,
-):
-    """Prepare aligned, complete observations for every part of a nonlinear model.
-
-    Parameters
-    ----------
-    formula : Formula
-        Nonlinear model formula and its parameter formulas.
-    expressions : Mapping of str to NonlinearExpression or NonlinearExpression
-        Parsed expressions keyed by the parameter they define. A single expression is accepted
-        for backwards compatibility.
-    data : pandas.DataFrame
-        Model or prediction data.
-    dropna : bool
-        Whether to remove incomplete rows instead of raising an error.
-    include_response : bool
-        Whether the response is required in ``data``.
-    parameter_names : Collection of str
-        Names of modeled parameters, which are excluded from required data columns.
-    additive_predictors : Collection of str or None, optional
-        Parsed additive predictors. If omitted, they are extracted from the formulas.
-
-    Returns
-    -------
-    pandas.DataFrame
-        Data with a shared complete-row mask applied when requested.
-
-    Raises
-    ------
-    ValueError
-        If required data are incomplete.
-    """
-    parameter_names = set(parameter_names) | set(formula.nlpars)
-    if isinstance(expressions, NonlinearExpression):
-        expressions = {"__parent__": expressions}
-    variables = set()
-    for expression in expressions.values():
-        variables.update(expression.symbols - parameter_names)
-    response_formula, parent_rhs = split_nonlinear_formula(formula.main)
-    if additive_predictors is None:
-        sources = [parent_rhs] + [f.partition("~")[2] for f in formula.additionals]
-        additive_predictors = [split_predictor(source, parameter_names)[0] for source in sources]
-    if include_response:
-        variables.update(fm.model_description(response_formula).var_names)
-    for rhs in additive_predictors:
-        if rhs is None:
-            continue
-        predictor_variables = fm.model_description(rhs).var_names
-        variables.update(set(predictor_variables) - parameter_names)
-
-    columns = sorted(variables & set(data.columns))
-    incomplete = data[columns].isna().any(axis=1)
-    if incomplete.any():
-        if not dropna:
-            raise ValueError(f"'data' contains {incomplete.sum()} incomplete rows.")
-        data = data.loc[~incomplete].copy()
-    if len(data) == 0:
-        raise ValueError("'data' does not contain any complete observation.")
-    return data
 
 
 _BINARY_OPERATORS = {

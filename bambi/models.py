@@ -6,7 +6,6 @@ from importlib.metadata import version
 
 import formulae as fm
 import numpy as np
-import pandas as pd
 from arviz_plots import plot_dist
 from arviz_stats import residual_r2
 from formulae.matrices import ResponseMatrix
@@ -41,9 +40,7 @@ from bambi.nonlinear import (
     ParameterDependencyGraph,
     SUPPORTED_FUNCTIONS,
     parameter_dependency_order,
-    prepare_nonlinear_data,
     resolve_nonlinear_symbols,
-    split_nonlinear_formula,
     split_predictor,
 )
 from bambi.scaling import scale_priors
@@ -53,7 +50,9 @@ from bambi.utils import (
     as_dataset,
     indentify,
     listify,
+    prepare_data,
     remove_common_intercept,
+    split_formula,
     wrapify,
 )
 
@@ -182,13 +181,6 @@ class Model:
         self.potentials = potentials
         self.center_predictors = center_predictors
 
-        # Read and clean data
-        if not isinstance(data, pd.DataFrame):
-            raise ValueError("'data' must be a pandas DataFrame.")
-
-        # Some columns are converted to categorical
-        self.data = with_categorical_cols(data, categorical)
-
         # Handle priors
         priors = {} if priors is None else deepcopy(priors)
 
@@ -199,55 +191,70 @@ class Model:
         additional_namespace = transformations_namespace.copy()
         if not isinstance(extra_namespace, (type(None), dict)):
             raise ValueError("'namespace' must be a dictionary or None")
+        additional_namespace.update(extra_namespace or {})
 
-        if isinstance(extra_namespace, dict):
-            additional_namespace.update(extra_namespace)
-
-        # Create family
+        # Create family. Sets `family` attribute.
         self._set_family(family, link)
 
         # Temporary method to handle deprecated count response
         self._convert_deprecated_c_response()
 
+        # Start processing model formulas
         is_ordinal_family = isinstance(self.family, ORDINAL_FAMILIES)
-        is_nonlinear = self.formula.is_nonlinear
+        is_nonlinear_formula = self.formula.is_nonlinear
         parent_name = self.family.likelihood.parent
         nonlinear_names = set(self.formula.nlpars)
         parameter_names = nonlinear_names | set(self.family.likelihood.params)
         formulas = {parent_name: self.formula.main} | dict(
             zip(self.formula.additionals_lhs, self.formula.additionals)
         )
-        additive_predictors = {}
-        expressions = {}
+        linear_formulas = {}
+        nonlinear_exprs = {}
         data_names = {}
         dependencies = {name: () for name in parameter_names}
 
-        if is_nonlinear:
+        if is_nonlinear_formula:
             collisions_params = nonlinear_names & set(self.family.likelihood.params)
-            collisions_data = nonlinear_names & set(self.data.columns)
-
             if collisions_params:
                 raise ValueError(
                     "Nonlinear parameter names must not be likelihood parameter names: "
                     f"{sorted(collisions_params)}."
                 )
 
+            for param_name, param_formula in formulas.items():
+                linear_formula, nonlinear_expr = split_predictor(
+                    param_formula.partition("~")[2], parameter_names
+                )
+                linear_formulas[param_name] = linear_formula
+                if nonlinear_expr is not None and param_name in parameter_names:
+                    nonlinear_exprs[param_name] = nonlinear_expr
+        else:
+            linear_formulas = {
+                name: parameter_formula.partition("~")[2]
+                for name, parameter_formula in formulas.items()
+            }
+
+        self.data = prepare_data(
+            data,
+            self.formula,
+            categorical=categorical,
+            dropna=dropna,
+            parameters=parameter_names,
+            nonlinear_exprs=nonlinear_exprs.values(),
+            linear_formulas=linear_formulas.values(),
+        )
+
+        if is_nonlinear_formula:
+            collisions_data = nonlinear_names & set(self.data.columns)
             if collisions_data:
                 raise ValueError(
                     "Nonlinear parameter names must not also be data columns: "
                     f"{sorted(collisions_data)}."
                 )
-
-            for name, parameter_formula in formulas.items():
-                additive_rhs, expression = split_predictor(
-                    parameter_formula.partition("~")[2], parameter_names
+            for param_name, nonlinear_expr in nonlinear_exprs.items():
+                dependencies[param_name], data_names[param_name] = resolve_nonlinear_symbols(
+                    nonlinear_expr, parameter_names, self.data
                 )
-                additive_predictors[name] = additive_rhs
-                if expression is not None and name in parameter_names:
-                    expressions[name] = expression
-                    dependencies[name], data_names[name] = resolve_nonlinear_symbols(
-                        expression, parameter_names, self.data
-                    )
 
             used_nlpars = {
                 dependency
@@ -262,29 +269,17 @@ class Model:
                     f"{sorted(unused)}."
                 )
 
-            self.data = prepare_nonlinear_data(
-                self.formula,
-                expressions,
-                self.data,
-                dropna,
-                parameter_names=parameter_names,
-                additive_predictors=additive_predictors.values(),
-            )
-            response_formula, _ = split_nonlinear_formula(self.formula.main)
-            if additive_predictors[parent_name] is not None:
+            response_formula, _ = split_formula(self.formula.main)
+            if linear_formulas[parent_name] is not None:
                 response_formula = (
-                    f"{response_formula.partition('~')[0]} ~ {additive_predictors[parent_name]}"
+                    f"{response_formula.partition('~')[0]} ~ {linear_formulas[parent_name]}"
                 )
         else:
-            additive_predictors = {
-                name: parameter_formula.partition("~")[2]
-                for name, parameter_formula in formulas.items()
-            }
             response_formula = self.formula.main
 
         if is_ordinal_family:
-            if is_nonlinear:
-                if additive_predictors[parent_name] is not None:
+            if is_nonlinear_formula:
+                if linear_formulas[parent_name] is not None:
                     check_ordinal_formula(Formula(response_formula))
             else:
                 self.formula = check_ordinal_formula(self.formula)
@@ -295,14 +290,9 @@ class Model:
         response_design = fm.design_matrices(
             response_formula, self.data, na_action, 1, additional_namespace
         )
+
         if is_ordinal_family:
             response_design = remove_common_intercept(response_design)
-
-        if response_design.response is None:
-            raise ValueError(
-                "No outcome variable is set! "
-                "Please specify an outcome variable using the formula interface."
-            )
 
         self.response_term = ResponseTerm(response_design.response)
         self._response_component = _ResponseComponentAdapter(
@@ -338,18 +328,18 @@ class Model:
             )
 
         for name in formulas:
-            expression = expressions.get(name)
-            additive_rhs = additive_predictors[name]
-            if additive_rhs is None:
+            nlexpr = nonlinear_exprs.get(name)
+            linear_formula = linear_formulas[name]
+            if linear_formula is None:
                 design = None
             elif name == parent_name:
                 design = response_design
             else:
                 design = fm.design_matrices(
-                    additive_rhs, self.data, na_action, 1, additional_namespace
+                    linear_formula, self.data, na_action, 1, additional_namespace
                 )
 
-            if name in nonlinear_names and expression is None:
+            if name in nonlinear_names and nlexpr is None:
                 if (
                     design.common is not None
                     and len(design.common.terms) == 1
@@ -362,7 +352,7 @@ class Model:
             parameter_priors = {}
             if design is not None:
                 parameter_priors = priors.get(name, {})
-                if name == parent_name and expression is None:
+                if name == parent_name and nlexpr is None:
                     parameter_priors = {
                         key: value for key, value in priors.items() if key != parent_name
                     } | parameter_priors
@@ -387,7 +377,7 @@ class Model:
                 design,
                 parameter_priors,
                 self,
-                expression=expression,
+                expression=nlexpr,
                 data_names=data_names.get(name, ()),
                 **kwargs,
             )
@@ -403,16 +393,16 @@ class Model:
             self.parameters[name] = MarginalParameter(name, priors.get(name), self)
 
         quantities = self.parameters | nonlinear_coefficients
-        for name in expressions:
+        for name in nonlinear_exprs:
             quantities[name].nonlinear_coefficients = {
                 dependency: nonlinear_coefficients[dependency]
                 for dependency in dependencies[name]
                 if dependency in nonlinear_coefficients
             }
 
-        if is_nonlinear:
+        if is_nonlinear_formula:
             declaration_order = (
-                tuple(name for name in self.family.likelihood.params if name not in expressions)
+                tuple(name for name in self.family.likelihood.params if name not in nonlinear_exprs)
                 + tuple(self.formula.nlpars)
                 + tuple(self.family.likelihood.params)
                 + tuple(self.formula.additionals_lhs)
@@ -827,7 +817,7 @@ class Model:
 
         Parameters
         ----------
-        family : str or bambi.families.Family
+        family : str or Family
             A specification of the model family.
             Either a string, or an instance of class `families.Family`.
             If a string is passed, a family with the corresponding name must be defined in the
@@ -838,10 +828,6 @@ class Model:
             `"softmax"`. Not all the link functions can be used with all the families.
             If a dictionary, keys are the names of the target parameters and the values are the
             names of the link functions.
-
-        Returns
-        -------
-        `None`
         """
 
         # If string, get builtin family
@@ -1638,20 +1624,6 @@ class Model:
         {'mu'}
         """
         return {k: v for k, v in self.parameters.items() if isinstance(v, ConditionalParameter)}
-
-
-def with_categorical_cols(data: pd.DataFrame, columns) -> pd.DataFrame:
-    """Convert selected columns of a DataFrame to categorical type.
-
-    It converts all object columns plus columns specified in the `columns` argument.
-    """
-    # Convert 'object' and explicitly asked columns to categorical.
-    object_columns = list(data.select_dtypes("object").columns)
-    to_convert = list(set(object_columns + listify(columns)))
-    if to_convert:
-        data = data.copy()  # don't modify original data frame
-        data[to_convert] = data[to_convert].apply(lambda x: x.astype("category"))
-    return data
 
 
 def prior_repr(term) -> str:
