@@ -26,7 +26,7 @@ from bambi.parameters import ConditionalParameter
 from bambi.terms import CommonTerm
 
 from .state import (
-    ConditionalParameterInfo,
+    ConditionalInfo,
     DenseGroupSpecificParameterGraph,
     DenseGroupSpecificTermGraph,
     GroupSpecificGraphState,
@@ -36,7 +36,7 @@ from .state import (
 
 
 def build_conditional_parameter(
-    parameter_info: ConditionalParameterInfo,
+    parameter_info: ConditionalInfo,
     family: Family,
     group_specific_state: GroupSpecificGraphState,
     model: pm.Model,
@@ -105,7 +105,7 @@ def build_conditional_parameter(
 
 
 def build_additive_predictor(
-    parameter_info: ConditionalParameterInfo,
+    parameter_info: ConditionalInfo,
     param_spec: ParamSpec,
     group_specific_state: GroupSpecificGraphState,
     model: pm.Model,
@@ -220,7 +220,7 @@ def _build_common_and_intercept(
 
 
 def _build_group_specific(
-    parameter_info: ConditionalParameterInfo,
+    parameter_info: ConditionalInfo,
     param_spec: ParamSpec,
     group_specific_state: GroupSpecificGraphState,
     model: pm.Model,
@@ -241,7 +241,7 @@ def _build_group_specific(
 
 
 def _build_sparse_group_specific(
-    parameter_info: ConditionalParameterInfo,
+    parameter_info: ConditionalInfo,
     param_spec: ParamSpec,
     contribution_dims: tuple[str, ...],
     group_specific_state: GroupSpecificGraphState,
@@ -260,7 +260,7 @@ def _build_sparse_group_specific(
 
 
 def _build_dense_group_specific(
-    parameter_info: ConditionalParameterInfo,
+    parameter_info: ConditionalInfo,
     terms: tuple[GroupSpecificTermInfo, ...],
     param_spec: ParamSpec,
     contribution_dims: tuple[str, ...],
@@ -277,7 +277,7 @@ def _build_dense_group_specific(
 
 
 def _build_sparse_group_specific_dot(
-    parameter_info: ConditionalParameterInfo, param_spec: ParamSpec, model: pm.Model
+    parameter_info: ConditionalInfo, param_spec: ParamSpec, model: pm.Model
 ) -> tuple[pt.Variable, tuple[str, ...], pt.Variable]:
     terms = parameter_info.group_specific_terms
     data = sp.hstack([term_info.term.data for term_info in terms], format="csr")

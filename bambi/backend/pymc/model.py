@@ -23,14 +23,14 @@ from bambi.backend.pymc.parameters import (
     remove_group_specific_contributions,
 )
 from bambi.backend.pymc.parameters.conditional import (
-    ConditionalParameterInfo,
+    ConditionalInfo,
     DenseGroupSpecificFactorPlan,
     GroupSpecificGraphState,
     add_new_dense_group_specific_contributions,
     add_new_sparse_group_specific_contributions,
     build_new_dense_conditional_parameter_data,
     build_new_sparse_conditional_parameter_data,
-    make_conditional_parameter_info,
+    make_conditional_info,
 )
 from bambi.backend.pymc.terms import build_potentials, build_response_term
 from bambi.backend.pymc.terms.response import (
@@ -86,7 +86,7 @@ class PyMCModel:
         self.spec = model
         self.fit = False
         self.vi_approx = None
-        self._conditional_parameter_info: dict[str, ConditionalParameterInfo] = {}
+        self._conditional_info: dict[str, ConditionalInfo] = {}
         self._group_specific_state: GroupSpecificGraphState = GroupSpecificGraphState()
 
     @property
@@ -120,7 +120,7 @@ class PyMCModel:
         }
 
         parameter_values = {}
-        self._conditional_parameter_info = {}
+        self._conditional_info = {}
         self._group_specific_state = GroupSpecificGraphState()
         quantities = self.spec.parameter_graph.nodes
         order = self.spec.parameter_graph.order
@@ -129,9 +129,9 @@ class PyMCModel:
             if isinstance(quantity, Marginal):
                 value = build_marginal_parameter(quantity, self.spec.family, model)
             else:
-                parameter_info = make_conditional_parameter_info(quantity)
+                parameter_info = make_conditional_info(quantity)
                 if quantity.design is not None:
-                    self._conditional_parameter_info[name] = parameter_info
+                    self._conditional_info[name] = parameter_info
                 value = build_conditional_parameter(
                     parameter_info,
                     self.spec.family,
@@ -269,7 +269,7 @@ class PyMCModel:
         if omit_group_specific:
             group_specific_var_names = [
                 term_info.term.label
-                for parameter_info in self._conditional_parameter_info.values()
+                for parameter_info in self._conditional_info.values()
                 for term_info in parameter_info.group_specific_terms
             ]
             var_names = [name for name in var_names if name not in group_specific_var_names]
@@ -324,7 +324,7 @@ class PyMCModel:
         # They are needed for the computation of deterministics (model parameters).
         posterior = as_dataset(idata["posterior"])
         offset_values = {}
-        for parameter_info in self._conditional_parameter_info.values():
+        for parameter_info in self._conditional_info.values():
             for term_info in parameter_info.group_specific_terms:
                 term = term_info.term
                 term_label = term.label
@@ -383,7 +383,7 @@ class PyMCModel:
         posterior = as_dataset(idata["posterior"])
 
         offset_values = {}
-        for parameter_info in self._conditional_parameter_info.values():
+        for parameter_info in self._conditional_info.values():
             for term_info in parameter_info.group_specific_terms:
                 term = term_info.term
                 term_label = term.label
@@ -649,7 +649,7 @@ class PyMCModel:
         )
         factor_plans: list[DenseGroupSpecificFactorPlan] = []
 
-        for parameter_info in self._conditional_parameter_info.values():
+        for parameter_info in self._conditional_info.values():
             if bmb_config["SPARSE_DOT"] and parameter_info.group_specific_terms:
                 parameter_data, parameter_factor_plans, parameter_coords = (
                     build_new_sparse_conditional_parameter_data(parameter_info, data, self.model)
