@@ -167,9 +167,6 @@ class Model:
         self.parameters = {}
         self.built = False  # build()
 
-        # build() will loop over this, calling _set_priors()
-        self._added_priors = {}
-
         self.family = None  # _add_response()
         self.backend = None  # _set_backend()
 
@@ -345,12 +342,15 @@ class Model:
         for name, parameter_info in parameters_config.items():
             dependencies[name] = tuple(sorted(parameter_info["nonlinear"]["dependencies"]))
 
+        # Ordinal's parent usually depends on auxiliary parameters.
+        # We should device a more general mechanism to specify dependencies between parameters.
+        # In this case, they're family related. In others, they could be prior related.
         if isinstance(self.family, ORDINAL_FAMILIES):
             dependencies[parent_name] = tuple(
                 sorted(set(dependencies[parent_name]) | auxiliary_params)
             )
 
-        # Sorting allows reproduciblity
+        # Sorting allows reproducibility
         declaration_order = (
             tuple(sorted(marginal_params))
             + (parent_name,)
@@ -359,6 +359,7 @@ class Model:
         )
         parameter_order = parameter_dependency_order(dependencies, declaration_order)
 
+        # Build non-linear coefficients and parameters in the appropriate order
         nonlinear_coefficients = {}
         for name in parameter_order:
             if name in marginal_params:
@@ -692,16 +693,51 @@ class Model:
             # Validate before touching any state, so a rejected call leaves the model as it was.
             self._check_prior_names(priors)
 
-        kwargs = dict(zip(["priors", "common", "group_specific"], [priors, common, group_specific]))
-        self._added_priors.update(kwargs)
-        self._build_priors()  # After updating, we need to rebuild priors.
+        # Arguments `common` and `group_specific` only affect the parent parameter.
+        parent_name = self.family.likelihood.parent
+
+        parent_parameter = self.parameters[parent_name]
+        if parent_parameter.design is None and (common is not None or group_specific is not None):
+            raise ValueError(
+                "Set priors by coefficient name instead of 'common' or 'group_specific'."
+            )
+        if common is not None:
+            for term in parent_parameter.common_terms.values():
+                term.prior = common
+
+        if group_specific is not None:
+            for term in parent_parameter.group_specific_terms.values():
+                term.prior = group_specific
+
+        if priors is not None:
+            # `normalized_priors` maps component names to their prior specifications:
+            #   - a term-to-prior dict for conditional parameters,
+            #   - a single prior for marginal parameters.
+            # Bare term priors are merged into the parent component, with explicitly nested
+            # parent priors taking precedence.
+            parameters = self._quantities_with_terms() | self._marginal_quantities
+            normalized_priors = {name: priors[name] for name in parameters if name in priors}
+            if parent_parameter.design is not None:
+                parent_priors = {
+                    name: prior for name, prior in priors.items() if name not in parameters
+                }
+                if parent_name in normalized_priors:
+                    parent_priors.update(normalized_priors[parent_name])
+                normalized_priors[parent_name] = parent_priors
+
+            # Make sure mutation of Prior objects within update_priors does not have side effects.
+            normalized_priors = deepcopy(normalized_priors)
+
+            for name, component in parameters.items():
+                prior = normalized_priors.get(name)
+                if prior is not None:
+                    component.update_priors(prior)
+
+        self._build_priors()
         self.built = False
 
     def _build_priors(self):
         """Carry out all operations related to the construction and/or scaling of priors."""
-        # Set custom priors that have been passed via `Model.set_priors()`
-        self._set_priors(**self._added_priors)
-
         # Prepare all priors
         quantities_with_terms = self._quantities_with_terms()
         for parameter in quantities_with_terms.values():
@@ -751,51 +787,6 @@ class Model:
             warnings.warn(message + " They will be ignored." + hint, UserWarning)
         else:
             raise ValueError(f"{message} Valid names for this model: {sorted(valid)}.{hint}")
-
-    def _set_priors(self, priors=None, common=None, group_specific=None):
-        """Internal version of `set_priors()`, with same arguments.
-
-        Runs during `Model._build_priors()`.
-        """
-        # Arguments `common` and `group_specific` only affect the parent parameter.
-        parent_name = self.family.likelihood.parent
-
-        parent_parameter = self.parameters[parent_name]
-        if parent_parameter.design is None and (common is not None or group_specific is not None):
-            raise ValueError(
-                "Set priors by coefficient name instead of 'common' or 'group_specific'."
-            )
-        if common is not None:
-            for term in parent_parameter.common_terms.values():
-                term.prior = common
-
-        if group_specific is not None:
-            for term in parent_parameter.group_specific_terms.values():
-                term.prior = group_specific
-
-        if priors is not None:
-            # `normalized_priors` maps component names to their prior specifications:
-            #   - a term-to-prior dict for conditional parameters,
-            #   - a single prior for marginal parameters.
-            # Bare term priors are merged into the parent component, with explicitly nested
-            # parent priors taking precedence.
-            parameters = self._quantities_with_terms() | self._marginal_quantities
-            normalized_priors = {name: priors[name] for name in parameters if name in priors}
-            if parent_parameter.design is not None:
-                parent_priors = {
-                    name: prior for name, prior in priors.items() if name not in parameters
-                }
-                if parent_name in normalized_priors:
-                    parent_priors.update(normalized_priors[parent_name])
-                normalized_priors[parent_name] = parent_priors
-
-            # Make sure mutation of Prior objects within update_priors does not have side effects.
-            normalized_priors = deepcopy(normalized_priors)
-
-            for name, component in parameters.items():
-                prior = normalized_priors.get(name)
-                if prior is not None:
-                    component.update_priors(prior)
 
     def _set_family(self, family, link):
         """Set the Family of the model
