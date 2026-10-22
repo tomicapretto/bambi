@@ -1,6 +1,5 @@
 from typing import Any, Callable, NamedTuple
 
-import numpy as np
 import xarray as xr
 from pandas import DataFrame, Series
 from pandas.core.groupby import DataFrameGroupBy, SeriesGroupBy
@@ -170,38 +169,6 @@ def aggregate(
             by = [by] if isinstance(by, str) else list(by)
             all_groups = list(dict.fromkeys(preserve + by))
             return agg_fn(data.groupby(by=all_groups, observed=True)[selector_cols]).reset_index()
-
-
-def get_model_terms(model: Model) -> dict:
-    """Loop through the conditional parameters of a Bambi model and return terms.
-
-    Parameters
-    ----------
-    model : Model
-        The fitted Bambi model.
-
-    Returns
-    -------
-    dict
-        A dictionary containing all terms from the model's conditional parameters.
-    """
-    return model.get_terms()
-
-
-def get_model_covariates(model: Model) -> np.ndarray:
-    """Return covariates specified in the model.
-
-    Parameters
-    ----------
-    model : Model
-        The fitted Bambi model.
-
-    Returns
-    -------
-    np.ndarray
-        An array of unique covariate names present in the model.
-    """
-    return model.get_covariates()
 
 
 def identity(x: Any) -> Any:

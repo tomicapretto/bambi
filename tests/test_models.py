@@ -11,7 +11,7 @@ from scipy.special import expit, ndtr, gamma
 
 import bambi as bmb
 from bambi.families.types import DimType, ParamSpec, ResponseType
-from bambi.parameters import MarginalCoefficient
+from bambi.parameters import ConditionalCoefficient, MarginalCoefficient
 from bambi.terms import GroupSpecificTerm
 
 from helpers import (
@@ -2956,13 +2956,16 @@ def test_omitted_constant_formulas_match_explicit_intercepts():
     )
     predictions = []
 
-    for formula in formulas:
+    for index, formula in enumerate(formulas):
+        coefficient_draws = draws
+        if index == 1:
+            coefficient_draws = draws.rename({"a": "a_Intercept", "b": "b_Intercept"})
         model = bmb.Model(formula, data, center_predictors=False)
         model.build()
         with model.backend.model:
             predictions.append(
                 pm.compute_deterministics(
-                    draws,
+                    coefficient_draws,
                     var_names=["mu"],
                     progressbar=False,
                 )["mu"]
@@ -3144,9 +3147,9 @@ def test_nonlinear_ordinal_probabilities_and_predictions(family, link):
     alpha_value = np.array([0.2, -0.35])
     delta_value = np.array([0.3, 0.7])
     values = (
-        {"rate": rate_value, "alpha": alpha_value, "delta": delta_value}
+        {"rate_Intercept": rate_value, "alpha": alpha_value, "delta": delta_value}
         if family == "osm"
-        else {"rate": rate_value, "threshold": threshold_value}
+        else {"rate_Intercept": rate_value, "threshold": threshold_value}
     )
     eta = rate_value * data.x.to_numpy()
     expected = ordinal_probabilities(
@@ -3332,8 +3335,8 @@ def test_prediction_rejects_incomplete_inputs(column):
 
 
 @pytest.mark.parametrize("auto_scale", [False, True])
-@pytest.mark.parametrize("prior", [None, bmb.Prior("Normal", mu=0.3, sigma=1.2)])
-def test_marginal_coefficient_matches_explicit_intercept_density(auto_scale, prior):
+def test_marginal_coefficient_matches_explicit_intercept_density(auto_scale):
+    prior = bmb.Prior("Normal", mu=0.3, sigma=1.2)
     models = [
         bmb.Model(
             bmb.Formula("y ~ a * x", *additionals, nlpars=("a",)),
@@ -3343,13 +3346,13 @@ def test_marginal_coefficient_matches_explicit_intercept_density(auto_scale, pri
         )
         for additionals, prior in [
             ((), prior),
-            (("a ~ 1",), prior),
+            (("a ~ 1",), {"Intercept": prior}),
         ]
     ]
     for model in models:
         model.build()
     for value in (-0.5, 0.0, 1.3):
-        points = [{"a": value}, {"a": value}]
+        points = [{"a": value}, {"a_Intercept": value}]
         logps = [model.backend.model.compile_logp()(point) for model, point in zip(models, points)]
         gradients = [
             model.backend.model.compile_dlogp()(point) for model, point in zip(models, points)
@@ -3359,11 +3362,8 @@ def test_marginal_coefficient_matches_explicit_intercept_density(auto_scale, pri
 
 
 @pytest.mark.parametrize("prior", [normal_prior(), 0.5])
-@pytest.mark.parametrize("additionals", [(), ("a ~ 1",), ("a ~ 0 + 1",)])
-def test_marginal_coefficient_prior_alias_and_output(prior, additionals, mock_pymc_sample):
-    model = bmb.Model(
-        bmb.Formula("y ~ a * x", *additionals, nlpars=("a",)), linear_data(), priors={"a": prior}
-    )
+def test_marginal_coefficient_prior_alias_and_output(prior, mock_pymc_sample):
+    model = bmb.Model(bmb.Formula("y ~ a * x", nlpars=("a",)), linear_data(), priors={"a": prior})
     coefficient = model.parameters["mu"].nonlinear_coefficients["a"]
     assert isinstance(coefficient, MarginalCoefficient)
     model.set_alias({"a": "slope"})
@@ -3675,9 +3675,7 @@ def test_nonlinear_vector_parent_matches_pymc(family, mixed):
     parent = "a" if family == "dirichlet_multinomial" else "p"
     size = 3 if family == "dirichlet_multinomial" else 2
     rhs = "z + nl(shared + rate * x)" if mixed else "shared + rate * x"
-    formula = bmb.Formula(
-        f"{response} ~ {rhs}", "rate ~ 1 + z", "shared ~ 1", nlpars=("rate", "shared")
-    )
+    formula = bmb.Formula(f"{response} ~ {rhs}", "rate ~ 1 + z", nlpars=("rate", "shared"))
     priors = {"shared": normal_prior(), "rate": {"Intercept": normal_prior(), "z": normal_prior()}}
     if mixed:
         priors[parent] = {"Intercept": normal_prior(), "z": normal_prior()}
@@ -3687,7 +3685,7 @@ def test_nonlinear_vector_parent_matches_pymc(family, mixed):
     dim = next(iter(backend.__bambi_attrs__["response_coords"]))
     coord_key = "response_coords" if size == 3 else "response_coords_reduced"
     coef_dim = next(iter(backend.__bambi_attrs__[coord_key]))
-    assert backend.named_vars_to_dims["rate"] == ("__obs__", coef_dim)
+    assert backend.named_vars_to_dims["rate"] == ("__obs__",)
     assert backend.named_vars_to_dims[parent] == ("__obs__", dim)
     assert backend.named_vars_to_dims["shared"] == ()
     levels = ["middle", "first", "last"] if family == "categorical" else ["c1", "c2", "c3"]
@@ -3696,14 +3694,15 @@ def test_nonlinear_vector_parent_matches_pymc(family, mixed):
         assert list(backend.coords[coef_dim]) == levels[1:]
     point = {
         "shared": np.array(0.4),
-        "rate_Intercept": np.linspace(-0.3, 0.5, size),
-        "rate_z": np.linspace(0.2, -0.1, size),
+        "rate_Intercept": np.array(0.3),
+        "rate_z": np.array(-0.2),
     }
     with pm.Model() as direct:
         shared = pm.Normal("shared", 0, 2)
-        intercept = pm.Normal("rate_Intercept", 0, 2, shape=size)
-        slope = pm.Normal("rate_z", 0, 2, shape=size)
+        intercept = pm.Normal("rate_Intercept", 0, 2)
+        slope = pm.Normal("rate_z", 0, 2)
         eta = shared + (intercept + data.z.to_numpy()[:, None] * slope) * data.x.to_numpy()[:, None]
+        eta = pt.broadcast_to(eta, (len(data), size))
         if mixed:
             base = pm.Normal("Intercept", 0, 2, shape=size)
             linear = pm.Normal("z", 0, 2, shape=size)
@@ -3767,11 +3766,11 @@ def test_nonlinear_vector_prediction(family, expression):
         elif family == "multinomial":
             eta = np.broadcast_to(posterior.shared.values[:, :, None, None] * x, (1, 3, count, 2))
         else:
-            rate = posterior.rate_Intercept_centered.values[:, :, None, :]
-            rate = rate + posterior.rate_z.values[:, :, None, :] * centered_z
+            rate = posterior.rate_Intercept_centered.values[:, :, None, None]
+            rate = rate + posterior.rate_z.values[:, :, None, None] * centered_z
             eta = rate * x + posterior.shared.values[:, :, None, None]
         if family == "dirichlet_multinomial":
-            expected = np.exp(eta)
+            expected = np.broadcast_to(np.exp(eta), (1, 3, count, 3))
         else:
             reference = np.zeros_like(eta[..., :1])
             expected = softmax(np.concatenate([reference, eta], axis=-1), axis=-1)
@@ -3808,7 +3807,6 @@ def test_nonlinear_vector_group_prediction(monkeypatch, sparse_dot, family):
     data = vector_parent_data()
     response = "y" if family == "categorical" else "counts(c1, c2, c3, n=n)"
     parent = "a" if family == "dirichlet_multinomial" else "p"
-    dim = "y_dim_reduced" if family == "categorical" else "c1_c2_c3_dim"
     model = bmb.Model(
         bmb.Formula(f"{response} ~ rate * x", "rate ~ 0 + z + (1 | group)", nlpars=("rate",)),
         data,
@@ -3817,7 +3815,7 @@ def test_nonlinear_vector_group_prediction(monkeypatch, sparse_dot, family):
     )
     model.set_alias({"rate": {"rate": "r", "1|group": "group_effect", "z": "slope"}})
     idata = model.fit(draws=3, chains=1, random_seed=103)
-    assert idata.posterior["group_effect"].dims == ("chain", "draw", "group_dim", dim)
+    assert idata.posterior["group_effect"].dims == ("chain", "draw", "group_dim")
     for groups in (["g", "h"], ["g"], ["new", "new"]):
         new_data = pd.DataFrame(
             {"x": [0.3] * len(groups), "z": [0.2] * len(groups), "group": groups, "n": 4}
@@ -3831,8 +3829,10 @@ def test_nonlinear_vector_group_prediction(monkeypatch, sparse_dot, family):
             np.testing.assert_allclose(values[:, :, 0], values[:, :, 1])
         else:
             effects = idata.posterior.group_effect.sel(group_dim=groups).values
-            slope = idata.posterior.slope.values[:, :, None, :]
+            slope = idata.posterior.slope.values[:, :, None]
             eta = (effects + 0.2 * slope) * 0.3
+            size = 2 if parent == "p" else 3
+            eta = np.broadcast_to(eta[..., None], (*eta.shape, size))
             weights = np.exp(np.concatenate([np.zeros((*eta.shape[:-1], 1)), eta], axis=-1))
             expected = weights / weights.sum(axis=-1, keepdims=True)
             if parent == "a":
@@ -3841,7 +3841,9 @@ def test_nonlinear_vector_group_prediction(monkeypatch, sparse_dot, family):
         population = model.predict(
             idata, data=new_data, include_group_specific=False, inplace=False
         )
-        eta = idata.posterior.slope.values[:, :, None, :] * 0.2 * 0.3
+        eta = idata.posterior.slope.values[:, :, None, None] * 0.2 * 0.3
+        size = 2 if parent == "p" else 3
+        eta = np.broadcast_to(eta, (*eta.shape[:-1], size))
         weights = np.exp(np.concatenate([np.zeros((*eta.shape[:-1], 1)), eta], axis=-1))
         expected = weights / weights.sum(axis=-1, keepdims=True)
         if parent == "a":
@@ -4059,7 +4061,7 @@ def test_nonlinear_vector_dependencies_and_offsets(categories):
         new_data = data.iloc[:count]
         result = model.predict(idata, data=new_data, inplace=False)
         eta = (
-            idata.posterior.rate_z.values[:, :, None, :]
+            idata.posterior.rate_z.values[:, :, None, None]
             * new_data.z.to_numpy()[None, None, :, None]
             * new_data.x.to_numpy()[None, None, :, None]
             + idata.posterior.shared.values[:, :, None, None]
@@ -4131,7 +4133,7 @@ def test_nonlinear_competing_risks_predictions_and_log_likelihood():
     )
     model.set_alias({"mu": {"mu": "event_rate"}})
     model.build()
-    assert model.backend.model.named_vars_to_dims["rate"] == ("__obs__", "cause_dim")
+    assert model.backend.model.named_vars_to_dims["rate"] == ("__obs__",)
     assert model.backend.model.named_vars_to_dims["event_rate"] == ("__obs__", "cause_dim")
 
     original_data = {
@@ -4140,8 +4142,8 @@ def test_nonlinear_competing_risks_predictions_and_log_likelihood():
     }
     idata = model.fit(draws=3, chains=2)
     coefficient_values = {
-        "rate_Intercept": np.array([0.25, -0.15]),
-        "rate_z": np.array([0.1, 0.2]),
+        "rate_Intercept": 0.25,
+        "rate_z": 0.1,
         "z": np.array([0.3, -0.2]),
     }
     posterior = idata.posterior.to_dataset().copy(deep=True)
@@ -4230,8 +4232,8 @@ def test_nonlinear_competing_risks_marginal_cause_parameter_dependency():
     posterior = idata.posterior.to_dataset().copy(deep=True)
     values = {
         "alpha": np.array([0.5, 1.2]),
-        "rate_Intercept": np.array([0.1, 0.3]),
-        "rate_z": np.array([0.05, -0.1]),
+        "rate_Intercept": 0.1,
+        "rate_z": 0.05,
     }
     for name, value in values.items():
         posterior[name] = posterior[name].copy(data=np.broadcast_to(value, posterior[name].shape))
@@ -4267,7 +4269,7 @@ def test_nonlinear_competing_risks_group_prediction(monkeypatch, sparse_dot):
         }
     )
     idata = model.fit(draws=3, chains=1, random_seed=126)
-    assert idata.posterior.group_effect.dims == ("chain", "draw", "group_dim", "cause_dim")
+    assert idata.posterior.group_effect.dims == ("chain", "draw", "group_dim")
     fixed_eta = 0.2 * idata.posterior.slope.values * 0.3
     for groups in (["g", "h"], ["g"], ["new", "new"]):
         new_data = pd.DataFrame({"x": 0.3, "z": 0.2, "group": groups})
@@ -4279,12 +4281,12 @@ def test_nonlinear_competing_risks_group_prediction(monkeypatch, sparse_dot):
             np.testing.assert_allclose(values[:, :, 0], values[:, :, 1])
         else:
             effects = idata.posterior.group_effect.sel(group_dim=groups).values
-            expected = np.exp(fixed_eta[:, :, None, :] + effects * 0.3)
-            np.testing.assert_allclose(values, expected)
+            expected = np.exp(fixed_eta[:, :, None] + effects * 0.3)
+            np.testing.assert_allclose(values, np.broadcast_to(expected[..., None], values.shape))
         population = model.predict(
             idata, data=new_data, include_group_specific=False, inplace=False
         )
-        expected = np.exp(fixed_eta[:, :, None, :])
+        expected = np.exp(fixed_eta[:, :, None, None])
         np.testing.assert_allclose(
             population.predictions.event_scale, np.broadcast_to(expected, values.shape)
         )
@@ -4339,18 +4341,18 @@ def test_nonlinear_numeric_vector_response_fixed_values_and_predictions():
     event_dim = f"{model.response_term.name}_dim"
     assert response_name == "outcome"
     assert backend.named_vars_to_dims["mean"] == ("__obs__", event_dim)
-    assert backend.named_vars_to_dims["rate"] == ("__obs__", event_dim)
+    assert backend.named_vars_to_dims["rate"] == ("__obs__",)
     np.testing.assert_array_equal(backend.coords[event_dim], [0, 1])
 
     coefficients = {
-        "rate_Intercept": np.array([0.3, -0.2]),
-        "rate_z": np.array([0.1, 0.25]),
+        "rate_Intercept": 0.3,
+        "rate_z": 0.1,
         "z": np.array([-0.15, 0.2]),
     }
     z = data.z.to_numpy()[:, None]
     x = data.x.to_numpy()[:, None]
     expected_mu = (coefficients["rate_Intercept"] + coefficients["rate_z"] * z) * x
-    expected_mu += coefficients["z"] * z
+    expected_mu = expected_mu + coefficients["z"] * z
     actual_mu = backend.compile_fn(backend["mean"], inputs=backend.free_RVs)(coefficients)
     np.testing.assert_allclose(actual_mu, expected_mu)
 
@@ -4507,6 +4509,47 @@ def test_nonlinear_numeric_vector_response_with_vector_auxiliary(coefs_dim):
     assert draws.predictions[model.response_term.label].shape == (2, 3, 2, 2)
 
 
+def test_nonlinear_coefficient_dimensions_follow_expression_inputs():
+    class VectorNormalFamily(bmb.Family):
+        RESPONSE_NDIM = 1
+        PARAMETERS = {
+            "mu": ParamSpec(links=["identity"], ndim=1, coefs_dim=DimType.RESPONSE),
+            "sigma": ParamSpec(links=["log"], ndim=1, coefs_dim=DimType.RESPONSE),
+        }
+
+    family = VectorNormalFamily(
+        "vector_normal",
+        bmb.Likelihood("Normal", params=["mu", "sigma"], parent="mu"),
+        {"mu": "identity", "sigma": "log"},
+    )
+    data = vector_normal_data()
+    model = bmb.Model(
+        bmb.Formula(
+            "join(y1, y2) ~ 0 + nl(curve)",
+            "sigma ~ 0 + z",
+            "curve ~ 0 + x + nl(sigma*x)",
+            nlpars=("curve",),
+        ),
+        data,
+        family=family,
+        extra_namespace={"join": join_vector_response},
+        center_predictors=False,
+    )
+    model.build()
+    backend = model.backend.model
+    event_dim = f"{model.response_term.name}_dim"
+    assert backend.named_vars_to_dims["curve_x"] == ()
+    assert backend.named_vars_to_dims["curve"] == ("__obs__", event_dim)
+    point = {"curve_x": 0.3, "sigma_z": np.array([0.2, 0.4])}
+    expected_sigma = np.exp(data.z.to_numpy()[:, None] * point["sigma_z"])
+    expected_curve = (0.3 + expected_sigma) * data.x.to_numpy()[:, None]
+    curve, mu = backend.compile_fn([backend["curve"], backend["mu"]], inputs=backend.free_RVs)(
+        point
+    )
+    np.testing.assert_allclose(curve, expected_curve)
+    np.testing.assert_allclose(mu, expected_curve)
+
+
 def test_nonlinear_numeric_vector_response_constant_expression():
     from scipy.stats import multivariate_normal
 
@@ -4569,8 +4612,7 @@ def test_nonlinear_numeric_vector_response_group_prediction(monkeypatch, sparse_
         }
     )
     idata = model.fit(draws=3, chains=1, random_seed=134)
-    event_dim = f"{model.response_term.name}_dim"
-    assert idata.posterior.group_effect.dims == ("chain", "draw", "group_dim", event_dim)
+    assert idata.posterior.group_effect.dims == ("chain", "draw", "group_dim")
     fixed_mean = 0.2 * idata.posterior.slope.values * 0.3
     for groups in (["g", "h"], ["g"], ["new", "new"]):
         new_data = pd.DataFrame({"x": 0.3, "z": 0.2, "group": groups})
@@ -4584,13 +4626,14 @@ def test_nonlinear_numeric_vector_response_group_prediction(monkeypatch, sparse_
             np.testing.assert_allclose(values[:, :, 0], values[:, :, 1])
         else:
             effects = idata.posterior.group_effect.sel(group_dim=groups).values
-            expected = fixed_mean[:, :, None, :] + effects * 0.3
-            np.testing.assert_allclose(values, expected)
+            expected = fixed_mean[:, :, None] + effects * 0.3
+            np.testing.assert_allclose(values, np.broadcast_to(expected[..., None], values.shape))
         population = model.predict(
             idata, data=new_data, include_group_specific=False, inplace=False
         )
         np.testing.assert_allclose(
-            population.predictions["mean"], np.broadcast_to(fixed_mean[:, :, None, :], values.shape)
+            population.predictions["mean"],
+            np.broadcast_to(fixed_mean[:, :, None, None], values.shape),
         )
 
 
@@ -4624,8 +4667,6 @@ def test_conditional_coefficient_uses_scalar_auxiliary_dimension():
     )
     model.build()
     backend = model.backend.model
-    coefficient = model.parameters["nu"].nonlinear_coefficients["rate"]
-    assert coefficient.get_coefs_dim() is None
     assert backend.named_vars_to_dims["rate"] == ("__obs__",)
 
     point = {"rate0": 0.3, "rate_z": -0.2}
@@ -4724,8 +4765,6 @@ def test_scalar_auxiliary_coefficient_chain_stops_at_likelihood_parameter():
         center_predictors=False,
     )
     chained.build()
-    j_coefficient = chained.parameter_graph.nodes["k"].nonlinear_coefficients["j"]
-    assert j_coefficient.get_coefs_dim() is None
     assert chained.backend.model.named_vars_to_dims["j"] == ("__obs__",)
     assert chained.backend.model.named_vars_to_dims["k"] == ("__obs__",)
     chained_point = {"j_z": 0.2, "k_z": 0.1}
@@ -4741,47 +4780,48 @@ def test_scalar_auxiliary_coefficient_chain_stops_at_likelihood_parameter():
     np.testing.assert_allclose(actual_mu, expected_mu)
 
 
-def test_marginal_coefficient_remains_shared_across_scalar_and_vector_consumers():
+@pytest.mark.parametrize("coefficient_formula", [None, "shared ~ 1", "shared ~ 1 + z"])
+def test_coefficient_is_shared_across_scalar_and_vector_consumers(coefficient_formula):
     family = vector_student_t_family()
     data = vector_normal_data()
+    additionals = ()
+    prior = 0.7
+    point = {}
+    expected_shared = np.full(len(data), 0.7)
+    if coefficient_formula is not None:
+        additionals = (coefficient_formula,)
+        prior = {"Intercept": normal_prior()}
+        point["shared_Intercept"] = 0.7
+        if coefficient_formula == "shared ~ 1 + z":
+            prior["z"] = normal_prior()
+            point["shared_z"] = 0.2
+            expected_shared += 0.2 * data.z.to_numpy()
     model = bmb.Model(
         bmb.Formula(
             "join(y1, y2) ~ 0 + nl(shared)",
             "nu ~ 0 + nl(shared)",
+            *additionals,
             nlpars=("shared",),
         ),
         data,
         family=family,
-        priors={"shared": 0.7},
+        priors={"shared": prior},
         extra_namespace={"join": join_vector_response},
+        center_predictors=False,
     )
     model.build()
     coefficient = model.parameter_graph.nonlinear_coefficients["shared"]
-    assert isinstance(coefficient, MarginalCoefficient)
-    np.testing.assert_allclose(model.backend.model["mu"].eval(), 0.7)
-    np.testing.assert_allclose(model.backend.model["nu"].eval(), 0.7)
-
-    explicit = bmb.Model(
-        bmb.Formula(
-            "join(y1, y2) ~ 0 + nl(shared)",
-            "nu ~ 0 + nl(shared)",
-            "shared ~ 1",
-            nlpars=("shared",),
-        ),
-        data,
-        family=vector_student_t_family(),
-        priors={"shared": bmb.Prior("Normal", mu=0.7, sigma=0.1)},
-        extra_namespace={"join": join_vector_response},
-    )
-    explicit.build()
-    explicit_coefficient = explicit.parameter_graph.nonlinear_coefficients["shared"]
-    assert isinstance(explicit_coefficient, MarginalCoefficient)
-    actual_mu, actual_nu = explicit.backend.model.compile_fn(
-        [explicit.backend.model["mu"], explicit.backend.model["nu"]],
-        inputs=explicit.backend.model.free_RVs,
-    )({"shared": 0.5})
-    np.testing.assert_allclose(actual_mu, 0.5)
-    np.testing.assert_allclose(actual_nu, 0.5)
+    if coefficient_formula is None:
+        assert isinstance(coefficient, MarginalCoefficient)
+    else:
+        assert isinstance(coefficient, ConditionalCoefficient)
+        assert model.backend.model.named_vars_to_dims["shared"] == ("__obs__",)
+    mu, nu = model.backend.model.compile_fn(
+        [model.backend.model["mu"], model.backend.model["nu"]],
+        inputs=model.backend.model.free_RVs,
+    )(point)
+    np.testing.assert_allclose(mu, np.broadcast_to(expected_shared[:, None], (len(data), 2)))
+    np.testing.assert_allclose(nu, expected_shared)
 
 
 @pytest.mark.usefixtures("mock_pymc_sample")

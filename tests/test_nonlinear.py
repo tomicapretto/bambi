@@ -11,7 +11,6 @@ from bambi.backend.pymc.nonlinear import evaluate_expression
 from bambi.nonlinear import (
     NonlinearExpression,
     parameter_dependency_order,
-    resolve_nonlinear_symbols,
     split_predictor,
 )
 
@@ -43,32 +42,11 @@ def test_parameter_dependency_order_is_stable_and_topological():
             {"mu": ("scale",), "scale": ("sigma",), "sigma": ("mu",)},
             "mu -> scale -> sigma -> mu",
         ),
-        ({"mu": ("missing",)}, "Unknown nonlinear parameter reference.*missing"),
     ],
 )
 def test_parameter_dependency_order_errors(dependencies, message):
     with pytest.raises(ValueError, match=message):
-        parameter_dependency_order(dependencies)
-
-
-def test_resolve_nonlinear_symbols_separates_parameters_and_data():
-    expression = NonlinearExpression.parse("sqrt(mu * (1 - mu) / attempts + sigma_y ** 2)")
-    data = pd.DataFrame({"attempts": [10, 20]})
-
-    dependencies, data_names = resolve_nonlinear_symbols(
-        expression, ("mu", "sigma", "sigma_y"), data
-    )
-
-    assert dependencies == ("mu", "sigma_y")
-    assert data_names == ("attempts",)
-
-
-def test_resolve_nonlinear_symbols_rejects_ambiguous_name():
-    expression = NonlinearExpression.parse("mu + x")
-    data = pd.DataFrame({"mu": [0.2], "x": [1.0]})
-
-    with pytest.raises(ValueError, match="both modeled parameters and data columns.*mu"):
-        resolve_nonlinear_symbols(expression, ("mu",), data)
+        parameter_dependency_order(dependencies, tuple(dependencies))
 
 
 def evaluate_nonlinear_expression(expression, data):

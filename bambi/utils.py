@@ -1,15 +1,12 @@
-from typing import Collection, Sequence
+from typing import Sequence
 
 import ast
-import logging
 import textwrap
 
 import formulae as fm
 import numpy as np
 import pandas as pd
 from xarray import DataTree
-
-_log = logging.getLogger("bambi")
 
 
 def listify(obj):
@@ -159,113 +156,6 @@ def remove_common_intercept(dm: fm.matrices.DesignMatrices) -> fm.matrices.Desig
 def as_dataset(group):
     """Return a Dataset from either a DataTree group or a Dataset."""
     return group.to_dataset() if isinstance(group, DataTree) else group
-
-
-def prepare_data(
-    data: pd.DataFrame,
-    formula,
-    linear_formulas: Collection[str | None],
-    categorical: str | list[str] | None = None,
-    dropna: bool = False,
-    parameters: Collection[str] = (),
-    nonlinear_exprs=(),
-) -> pd.DataFrame:
-    """Convert categorical columns and align complete observations across model formulas.
-
-    Parameters
-    ----------
-    data : pandas.DataFrame
-        Original model data.
-    formula : Formula
-        Response and parameter formulas, with or without nonlinear expressions.
-    linear_formulas : Collection of str or None
-        Linear predictors already separated from nonlinear expressions.
-    categorical : str or list of str, optional
-        Columns to convert to categorical, in addition to all object columns.
-    dropna : bool, optional
-        Whether to remove rows with missing values in model inputs instead of raising an error.
-    parameters : Collection of str, optional
-        Names of likelihood parameters and nonlinear coefficients.
-    nonlinear_exprs : Collection of NonlinearExpression, optional
-        Already parsed nonlinear expressions.
-
-    Returns
-    -------
-    pandas.DataFrame
-        Prepared data. The supplied DataFrame is not modified.
-
-    Raises
-    ------
-    ValueError
-        If data is not a DataFrame, a required response is not specified, inputs contain missing
-        values with `dropna=False`, or no complete observations remain.
-
-    Examples
-    --------
-    Missing values in any parameter formula remove the same rows from the whole model:
-
-    >>> from bambi import Formula
-    >>> data = pd.DataFrame({"y": [1, 2, 3], "x": [0, 1, 2], "z": [0.1, None, 0.3]})
-    >>> formula = Formula("y ~ x", "sigma ~ z")
-    >>> prepared = prepare_data(data, formula, ("x", "z"), dropna=True)
-    >>> prepared.index.tolist()
-    [0, 2]
-    """
-    if not isinstance(data, pd.DataFrame):
-        raise ValueError("'data' must be a pandas DataFrame.")
-
-    # Convert object columns and requested categorical columns to categorical
-    object_columns = list(data.select_dtypes("object").columns)
-    to_convert = list(set(object_columns + listify(categorical)))
-    if to_convert:
-        data = data.copy()
-        data[to_convert] = data[to_convert].apply(lambda x: x.astype("category"))
-
-    parameter_names = set(parameters) | set(formula.nlpars)
-
-    # Collect all data variables needed for the model
-    data_vars = set()
-    for nlexpr in nonlinear_exprs:
-        data_vars.update(nlexpr.symbols - parameter_names)
-
-    response_formula = formula.main
-    if formula.is_nonlinear:
-        response_formula, _ = split_formula(response_formula)
-
-    response = fm.model_description(response_formula).response
-    if response is None:
-        raise ValueError(
-            "No outcome variable is set! "
-            "Please specify an outcome variable using the formula interface."
-        )
-    # `var_names` could have multiple names (i.e. counts(y1, y2, y3))
-    data_vars.update(response.var_names)
-
-    for linear_formula in linear_formulas:
-        if linear_formula is None:
-            # Skip formulas with only nonlinear expressions
-            continue
-
-        predictor_variables = fm.model_description(linear_formula).var_names
-        if formula.is_nonlinear:
-            predictor_variables = predictor_variables - parameter_names
-
-        data_vars.update(predictor_variables)
-
-    columns = list(data_vars & set(data.columns))
-    incomplete = data[columns].isna().any(axis=1)
-    if incomplete.any():
-        if not dropna:
-            raise ValueError(f"'data' contains {incomplete.sum()} incomplete rows.")
-        _log.info(
-            "Automatically removing %s/%s rows from the dataset.", incomplete.sum(), len(data)
-        )
-        data = data.loc[~incomplete].copy()
-
-    if len(data) == 0:
-        raise ValueError("'data' does not contain any complete observation.")
-
-    return data
 
 
 def prepare_new_data(

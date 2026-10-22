@@ -16,7 +16,8 @@ from scipy.special import expit, ndtr
 from scipy.stats import norm
 
 import bambi as bmb
-from bambi.utils import prepare_data, prepare_new_data
+from bambi.models import prepare_data
+from bambi.utils import prepare_new_data
 from bambi.nonlinear import NonlinearExpression
 from bambi.backend.pymc.parameters import remove_group_specific_contributions
 from bambi.backend.pymc.terms.response import _untruncate_response
@@ -57,6 +58,12 @@ from helpers import (
 def init_data():
     """Data used to test initialization method"""
     return pd.read_csv(pathlib.Path(__file__).parent / "data" / "obs.csv")
+
+
+@pytest.mark.parametrize("data", [None, {}, [], np.zeros((2, 2))])
+def test_model_rejects_invalid_data_before_processing_formula(data):
+    with pytest.raises(ValueError, match="'data' must be a pandas DataFrame"):
+        bmb.Model("invalid formula", data)
 
 
 def test_term_init(data_diabetes):
@@ -2109,6 +2116,33 @@ def test_exponential_log_likelihood_matches_normal(nonlinear_exponential_model, 
     assert "log_likelihood" not in idata
 
 
+@pytest.mark.parametrize("coefficient_formula", [None, "a ~ 1", "a ~ 0 + 1"])
+def test_nonlinear_coefficient_type_depends_on_formula(coefficient_formula):
+    prior = normal_prior()
+    additionals = ()
+    coefficient_prior = prior
+    if coefficient_formula is not None:
+        additionals = (coefficient_formula,)
+        coefficient_prior = {"Intercept": prior}
+    model = bmb.Model(
+        bmb.Formula("y ~ a * x", *additionals, nlpars=("a",)),
+        linear_data(),
+        priors={"a": coefficient_prior},
+    )
+    coefficient = model.parameter_graph.nonlinear_coefficients["a"]
+    if coefficient_formula is None:
+        assert isinstance(coefficient, MarginalCoefficient)
+    else:
+        assert isinstance(coefficient, ConditionalCoefficient)
+        assert set(coefficient.terms) == {"Intercept"}
+        assert coefficient.terms["Intercept"].prior.args == prior.args
+    model.build()
+    if coefficient_formula is None:
+        assert "a_Intercept" not in model.backend.model.named_vars
+    else:
+        assert "a_Intercept" in model.backend.model.named_vars
+
+
 def test_zero_predictor_broadcasts_for_new_observations():
     data = pd.DataFrame({"x": [0.0, 1.0, 2.0], "y": [0.1, 1.2, 2.1]})
     model = bmb.Model(bmb.Formula("y ~ 0 + nl(a + x)", "a ~ 0", nlpars=("a",)), data)
@@ -2129,9 +2163,6 @@ def test_multiple_nonlinear_summands_share_parameter(out_of_sample):
     data = pd.DataFrame({"x": [0.0, 0.5, 1.5, 3.0], "y": [2.0, 1.5, 1.0, 0.8]})
     formula = bmb.Formula(
         "y ~ a * exp(-k * x) + b * exp(-2 * k * x)",
-        "a ~ 1",
-        "b ~ 1",
-        "k ~ 1",
         nlpars=("a", "b", "k"),
     )
     model = bmb.Model(formula, data)
@@ -2455,7 +2486,7 @@ def test_intercept_only_prediction_accepts_row_only_data(family, inverse_link, p
     value = 0.5 if predictor == "a ~ 1" else 0.0
     draws = xr.Dataset({"b": (("chain", "draw"), [[0.2]])})
     if predictor == "a ~ 1":
-        draws["a"] = (("chain", "draw"), [[value]])
+        draws["a_Intercept"] = (("chain", "draw"), [[value]])
     idata = xr.DataTree.from_dict({"posterior": draws})
     result = model.predict(idata, data=pd.DataFrame(index=range(3)), inplace=False)
     np.testing.assert_allclose(
@@ -2602,7 +2633,7 @@ def test_mixed_predictor_missing_rows_are_aligned():
         (
             "y ~ a * x",
             ("a ~ sigma", "sigma ~ mu + 1"),
-            "a -> sigma -> mu -> a",
+            "mu -> a -> sigma -> mu",
         ),
         (
             "y ~ a * x",
@@ -2617,11 +2648,12 @@ def test_parameter_dependency_validation(main, additionals, message):
         bmb.Model(formula, linear_data())
 
 
-def test_likelihood_parameter_and_expression_data_collision_is_rejected():
-    data = linear_data().assign(mu=0.5)
+@pytest.mark.parametrize("mu", [0.5, np.nan])
+def test_likelihood_parameter_and_expression_data_collision_is_rejected(mu):
+    data = linear_data().assign(mu=mu)
     formula = bmb.Formula("y ~ a * x", "sigma ~ mu + z", nlpars=("a",))
 
-    with pytest.raises(ValueError, match="both modeled parameters and data columns.*mu"):
+    with pytest.raises(ValueError, match="parameter names must not also be data columns.*mu"):
         bmb.Model(formula, data)
 
 
@@ -2683,13 +2715,18 @@ def test_malformed_expression():
         bmb.Model(formula, linear_data())
 
 
-def test_nonnumeric_expression_data():
+@pytest.mark.parametrize("unknown", [False, True])
+def test_nonnumeric_expression_data(unknown):
     data = linear_data()
     data["label"] = "a"
-    formula = bmb.Formula("y ~ 0 + nl(a + label)", nlpars=("a",))
+    expression = "a + label + unknown" if unknown else "a + label"
+    formula = bmb.Formula(f"y ~ 0 + nl({expression})", nlpars=("a",))
 
-    with pytest.raises(ValueError, match="Nonlinear expression data must be numeric"):
+    with pytest.raises(ValueError, match="Nonlinear expression data must be numeric") as error:
         bmb.Model(formula, data)
+    if unknown:
+        assert "No nonlinear parameter formula or data column" in str(error.value)
+        assert "unknown" in str(error.value)
 
 
 def test_nested_priors_are_assigned():
@@ -2730,18 +2767,24 @@ def test_prepare_data_aligns_formulas_and_converts_categories(nonlinear):
         formula = bmb.Formula("y ~ x + treatment", "sigma ~ z + (1 | group)")
 
     if nonlinear:
-        linear_formulas = ("treatment", "z + (1 | group)")
-        nonlinear_exprs = (NonlinearExpression.parse("rate*x"),)
+        parameters_config = {
+            "mu": {
+                "linear": {"formula": "treatment"},
+                "nonlinear": {"expr": NonlinearExpression.parse("rate*x")},
+            },
+            "rate": {"linear": {"formula": "z + (1 | group)"}, "nonlinear": {"expr": None}},
+        }
     else:
-        linear_formulas = ("x + treatment", "z + (1 | group)")
-        nonlinear_exprs = ()
+        parameters_config = {
+            "mu": {"linear": {"formula": "x + treatment"}, "nonlinear": {"expr": None}},
+            "sigma": {"linear": {"formula": "z + (1 | group)"}, "nonlinear": {"expr": None}},
+        }
     prepared = prepare_data(
         data,
         formula,
-        linear_formulas,
+        parameters_config,
         categorical="treatment",
         dropna=True,
-        nonlinear_exprs=nonlinear_exprs,
     )
 
     assert prepared.index.tolist() == [3, 4]
@@ -2749,17 +2792,14 @@ def test_prepare_data_aligns_formulas_and_converts_categories(nonlinear):
     assert prepared.treatment.dtype == "category"
     pd.testing.assert_frame_equal(data, original)
     with pytest.raises(ValueError, match="3 incomplete rows"):
-        prepare_data(data, formula, linear_formulas, nonlinear_exprs=nonlinear_exprs)
+        prepare_data(data, formula, parameters_config)
 
 
-def test_prepare_data_linear_covariate_can_share_a_parameter_name():
+def test_linear_covariate_cannot_share_a_likelihood_parameter_name():
     data = pd.DataFrame({"y": [1, 2], "sigma": [np.nan, 0.5]})
 
-    prepared = prepare_data(
-        data, bmb.Formula("y ~ sigma"), ("sigma",), parameters=("mu", "sigma"), dropna=True
-    )
-
-    pd.testing.assert_frame_equal(prepared, data.iloc[1:])
+    with pytest.raises(ValueError, match="parameter names must not also be data columns.*sigma"):
+        bmb.Model("y ~ sigma", data, dropna=True)
 
 
 @pytest.mark.parametrize(
@@ -2955,6 +2995,15 @@ def test_nonlinear_numeric_vector_response_accepts_one_hot_encoding():
             bmb.Formula(
                 "join(y1, y2) ~ 0 + nl(rate*x)",
                 "nu ~ 0 + nl(rate*z)",
+                "rate ~ 1",
+                nlpars=("rate",),
+            ),
+            "rate",
+        ),
+        (
+            bmb.Formula(
+                "join(y1, y2) ~ 0 + nl(rate*x)",
+                "nu ~ 0 + nl(rate*z)",
                 "rate ~ 1 + z",
                 nlpars=("rate",),
             ),
@@ -2983,14 +3032,14 @@ def test_nonlinear_numeric_vector_response_accepts_one_hot_encoding():
         ),
     ],
 )
-def test_conditional_coefficient_rejects_incompatible_consumer_dimensions(formula, coefficient):
-    with pytest.raises(
-        ValueError,
-        match=rf"{coefficient}.*incompatible coefficient dimensions.*mu \(response\).*nu \(scalar\)",
-    ):
-        bmb.Model(
-            formula,
-            vector_normal_data(),
-            family=vector_student_t_family(),
-            extra_namespace={"join": join_vector_response},
-        )
+def test_conditional_coefficient_is_shared_across_scalar_and_vector_consumers(formula, coefficient):
+    model = bmb.Model(
+        formula,
+        vector_normal_data(),
+        family=vector_student_t_family(),
+        extra_namespace={"join": join_vector_response},
+    )
+    model.build()
+    assert model.backend.model.named_vars_to_dims[coefficient] == ("__obs__",)
+    assert model.backend.model["mu"].ndim == 2
+    assert model.backend.model["nu"].ndim == 1

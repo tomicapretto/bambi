@@ -78,12 +78,12 @@ def nonlinear_data_name(parameter_label: str, symbol: str) -> str:
 def nonlinear_predictor_spec(
     parameter: ConditionalParameter | ConditionalCoefficient, family: Family
 ) -> ParamSpec:
-    """Use family coefficient dimensions without applying a likelihood transformation."""
+    """Use family dimensions for likelihood parameters and scalar coefficient terms."""
     if isinstance(parameter, ConditionalParameter):
         spec = family.get_param_spec(parameter.name)
         coefs_dim = spec.coefs_dim
     else:
-        coefs_dim = parameter.get_coefs_dim()
+        coefs_dim = None
     return ParamSpec(links=["identity"], ndim=int(coefs_dim is not None), coefs_dim=coefs_dim)
 
 
@@ -149,9 +149,17 @@ def build_nonlinear_parameter(
 
     spec = nonlinear_predictor_spec(parameter, family)
     dims = nonlinear_predictor_dims(spec, model)
+    if isinstance(parameter, ConditionalCoefficient):
+        for name in sorted(parameter.expression.symbols):
+            value = values[name]
+            value_dims = model.named_vars_to_dims.get(value.name, ())
+            extra_dims = tuple(dim for dim in value_dims if dim != "__obs__")
+            if extra_dims:
+                dims = ("__obs__",) + extra_dims
+                break
     # Align observation and response vectors before elementwise arithmetic.
-    if spec.ndim:
-        response_dims = set(model.__bambi_attrs__["response_coords"])
+    if len(dims) > 1:
+        response_dims = set(dims[1:])
         for name, value in values.items():
             if value.ndim != 1:
                 continue
@@ -160,6 +168,9 @@ def build_nonlinear_parameter(
                 values[name] = value[:, None]
             elif response_dims.intersection(value_dims):
                 values[name] = value[None, :]
+        additive_value = pt.as_tensor_variable(additive_value)
+        if additive_value.ndim == 1:
+            additive_value = additive_value[:, None]
     value = _broadcast_predictor(
         additive_value + evaluate_expression(parameter.expression.root, values), dims, model
     )

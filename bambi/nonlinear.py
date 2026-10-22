@@ -3,14 +3,13 @@ from __future__ import annotations
 import ast
 import re
 from dataclasses import dataclass
-from typing import Collection
+from typing import Collection, Sequence
 
-import pandas as pd
 import formulae as fm
 from formulae.parser import ParseError
 from formulae.scanner import ScanError, Scanner
 
-from bambi.parameters import Conditional, Marginal
+from bambi.parameters import Conditional, ConditionalCoefficient, Marginal, MarginalCoefficient
 
 FUNCTION_ARITIES = {
     "exp": 1,
@@ -123,7 +122,7 @@ class NonlinearExpression:
     root : ExpressionNode
         Root of the parsed expression tree.
     symbols : frozenset of str
-        Nonlinear parameter and observed data names used by the expression.
+        Variable names referenced by the expression, excluding function names.
     """
 
     source: str
@@ -249,12 +248,12 @@ def split_predictor(
     tokens = _PredictorScanner(source).scan(add_intercept=False)[:-1]
     linear_terms = []
     nl_terms = []
-    explicit = has_nl_wrapper(source)
+    explicit = False
     only_constants = True
     parameter_names = set(parameters)
 
     def collect(part, sign=1):
-        nonlocal only_constants
+        nonlocal explicit, only_constants
         depth = 0
         start = 0
         current_sign = sign
@@ -301,7 +300,10 @@ def split_predictor(
                 return
 
         text = " ".join(str(token.lexeme) for token in part)
-        if has_nl_wrapper(text):
+        if any(
+            token.lexeme == "nl" and following.kind == "LEFT_PAREN"
+            for token, following in zip(part, part[1:])
+        ):
             try:
                 node = ast.parse(text, mode="eval").body
             except SyntaxError as error:
@@ -315,6 +317,7 @@ def split_predictor(
             ):
                 raise ValueError("'nl(...)' must be a separate additive term with one argument.")
             text = ast.unparse(node.args[0])
+            explicit = True
             nl_terms.append((sign, text))
         elif nonlinear_symbol_names(text) & parameter_names:
             nl_terms.append((sign, text))
@@ -368,17 +371,12 @@ class ParameterDependencyGraph:
 
     @property
     def nonlinear_coefficients(self):
-        """Return the canonical coefficients owned by the graph's parameter nodes.
+        """Return nonlinear coefficient nodes keyed by their original names.
 
         Returns
         -------
         dict of str to ConditionalCoefficient or MarginalCoefficient
             Coefficients keyed by their original names.
-
-        Raises
-        ------
-        ValueError
-            If multiple parameter nodes define different coefficients with the same name.
 
         Examples
         --------
@@ -391,86 +389,22 @@ class ParameterDependencyGraph:
         >>> set(model.parameter_graph.nonlinear_coefficients)
         {'a'}
         """
-        coefficients = {}
-        for parameter in self.expression_nodes.values():
-            for name, coefficient in parameter.nonlinear_coefficients.items():
-                if name in coefficients and coefficients[name] is not coefficient:
-                    raise ValueError(f"Nonlinear coefficient '{name}' has multiple definitions.")
-                coefficients[name] = coefficient
-        return coefficients
+        return {
+            name: quantity
+            for name, quantity in self.nodes.items()
+            if isinstance(quantity, (ConditionalCoefficient, MarginalCoefficient))
+        }
 
 
-def resolve_nonlinear_symbols(
-    nlexpr: NonlinearExpression, parameters: Collection[str], data: pd.DataFrame
-) -> tuple[tuple[str, ...], tuple[str, ...]]:
-    """Separate nonlinear expression symbols into parameter and data names.
-
-    Parameters
-    ----------
-    nlexpr : NonlinearExpression
-        Parsed nonlinear expression.
-    parameters : Collection of str
-        Names of likelihood parameters and nonlinear coefficients.
-    data : pandas.DataFrame
-        Model data containing observed expression inputs.
-
-    Returns
-    -------
-    dependencies : tuple of str
-        Parameter names referenced by the expression, sorted alphabetically.
-    data_names : tuple of str
-        Data column names referenced by the expression, sorted alphabetically.
-
-    Raises
-    ------
-    ValueError
-        If a symbol names both a parameter and a data column, names neither, or refers to
-        a non-numeric data column.
-
-    Examples
-    --------
-    >>> nlexpr = NonlinearExpression.parse("sigma + rate * x")
-    >>> data = pd.DataFrame({"x": [0.0, 1.0]})
-    >>> resolve_nonlinear_symbols(nlexpr, ("sigma", "rate"), data)
-    (('rate', 'sigma'), ('x',))
-    """
-    parameter_names = set(parameters)
-    data_columns = set(data.columns)
-    collisions = nlexpr.symbols & parameter_names & data_columns
-    if collisions:
-        raise ValueError(
-            "Nonlinear expression symbols must not be both modeled parameters and data columns: "
-            f"{sorted(collisions)}."
-        )
-
-    dependencies = nlexpr.symbols & parameter_names
-    data_names = nlexpr.symbols - dependencies
-    unknown = data_names - data_columns
-    if unknown:
-        raise ValueError(
-            "No nonlinear parameter formula or data column was found for symbol(s): "
-            f"{sorted(unknown)}."
-        )
-
-    nonnumeric = [
-        name for name in sorted(data_names) if not pd.api.types.is_numeric_dtype(data[name])
-    ]
-    if nonnumeric:
-        raise ValueError(
-            f"Nonlinear expression data must be numeric. Invalid column(s): {nonnumeric}."
-        )
-    return tuple(sorted(dependencies)), tuple(sorted(data_names))
-
-
-def parameter_dependency_order(dependencies, declaration_order=None) -> tuple[str, ...]:
+def parameter_dependency_order(dependencies, declaration_order: Sequence[str]) -> tuple[str, ...]:
     """Return a deterministic topological order for modeled parameters.
 
     Parameters
     ----------
-    dependencies : Mapping of str to Collection of str
-        Direct dependencies for every modeled parameter node.
-    declaration_order : Collection of str, optional
-        Preferred order between otherwise independent nodes.
+    dependencies : Mapping of str to tuple of str
+        Direct dependencies for every modeled parameter node. All referenced nodes must be keys.
+    declaration_order : Sequence of str
+        Every node exactly once, in preferred order between otherwise independent nodes.
 
     Returns
     -------
@@ -480,29 +414,21 @@ def parameter_dependency_order(dependencies, declaration_order=None) -> tuple[st
     Raises
     ------
     ValueError
-        If a dependency is unknown, a node references itself, or the graph contains a cycle.
+        If a node references itself or the graph contains a cycle.
 
     Examples
     --------
-    >>> parameter_dependency_order({"mu": (), "sigma": ("mu",)})
+    >>> parameter_dependency_order({"mu": (), "sigma": ("mu",)}, ("mu", "sigma"))
     ('mu', 'sigma')
     """
-    dependencies = {name: tuple(values) for name, values in dependencies.items()}
-    names = set(dependencies)
-    unknown = {value for values in dependencies.values() for value in values if value not in names}
-    if unknown:
-        raise ValueError(f"Unknown nonlinear parameter reference(s): {sorted(unknown)}.")
-
     self_dependencies = sorted(name for name, values in dependencies.items() if name in values)
     if self_dependencies:
         raise ValueError(
             "Nonlinear parameters cannot depend on themselves: " f"{self_dependencies}."
         )
 
-    preferred = list(dict.fromkeys(declaration_order or ()))
-    preferred.extend(sorted(names - set(preferred)))
-    rank = {name: index for index, name in enumerate(preferred)}
-    state = {name: 0 for name in names}
+    rank = {name: index for index, name in enumerate(declaration_order)}
+    state = {name: 0 for name in dependencies}
     order = []
     path = []
 
@@ -524,8 +450,9 @@ def parameter_dependency_order(dependencies, declaration_order=None) -> tuple[st
         state[name] = 2
         order.append(name)
 
-    for name in sorted(names, key=rank.__getitem__):
+    for name in declaration_order:
         visit(name)
+
     return tuple(order)
 
 

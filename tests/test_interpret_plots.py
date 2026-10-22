@@ -10,7 +10,6 @@ import bambi as bmb
 from bambi.interpret import plot_comparisons, plot_predictions, plot_slopes
 from bambi.interpret.effects import comparisons, predictions, slopes
 from bambi.interpret.plots import PlottingConfig, plot
-from bambi.interpret.utils import get_model_covariates
 
 # Render plots to a buffer instead of rendering to stddout
 matplotlib.use("Agg")
@@ -54,7 +53,7 @@ class TestNonlinearModels:
     ):
         model, _ = nonlinear_interpret_fixture
 
-        assert set(get_model_covariates(model)) == {"x", "z"}
+        assert set(model.get_covariates()) == {"x", "z"}
 
     @pytest.mark.parametrize(
         "function, kwargs",

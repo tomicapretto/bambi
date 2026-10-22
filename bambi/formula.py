@@ -30,8 +30,8 @@ class Formula:
         A formula consisting entirely of unwrapped arithmetic terms and numeric constants
         retains its expression-only interpretation, with no implicit intercept.
         An additional formula can describe how a nonlinear coefficient varies. Coefficients
-        without an additional formula, or with an intercept-only formula, have a direct prior
-        and are sampled under their own names.
+        without an additional formula have a direct prior and are sampled under their own names.
+        Coefficients with a formula use priors for its terms, including intercept-only formulas.
         Additional formulas can also describe ordinary auxiliary likelihood parameters,
         such as `sigma ~ z`.
         The expression is on the parent parameter's link scale. The family's inverse link is
@@ -42,12 +42,10 @@ class Formula:
 
     Notes
     -----
-    Conditional nonlinear coefficients use the predictor dimensions of the likelihood
-    parameter that consumes them, including through intermediate coefficients. A coefficient
-    used by a scalar auxiliary parameter remains scalar per observation even if the parent
-    parameter is a vector. A conditional coefficient cannot be shared across parameters with
-    incompatible predictor dimensions; use separate conditional coefficients in that case.
-    Direct-prior and intercept-only coefficients are scalar and can be shared.
+    Nonlinear coefficients are scalar by default and do not inherit dimensions from the
+    likelihood parameters that use them. Additive coefficient formulas produce one value per
+    observation, shared across response categories. Nonlinear coefficient expressions can
+    reference vector-valued modeled parameters and retain those dimensions.
 
     Nonlinear formulas support categorical, count-vector, ordinal, and compatible custom
     numeric vector families. Weighted, censored, truncated, and constrained scalar responses
@@ -188,6 +186,8 @@ def check_ordinal_formula(formula: Formula) -> Formula:
     """
     if len(formula.additionals) > 0:
         raise ValueError("Ordinal families don't accept multiple formulas")
+
     if formula_has_intercept(formula.main):
         warnings.warn("The intercept is omitted in ordinal families")
+
     return formula
