@@ -72,7 +72,7 @@ def build_conditional_parameter(
             value = value[:, None]
         value = value + nonlinear_value
 
-    if is_likelihood_parameter and (not parameter.is_nonlinear or parameter.is_parent):
+    if is_likelihood_parameter:
         link = family.link[parameter.name]
         inverse_link = INVERSE_LINKS.get(link.name, link.inverse_link)
         transform_predictor = transforms_registry.get_predictor_transform(family, parameter.name)

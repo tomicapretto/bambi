@@ -91,37 +91,6 @@ def extract_argument_names(expr, accepted_funcs):
     return None
 
 
-def split_formula(formula: str) -> tuple[str, str]:
-    """Separate a formula into an intercept-only response formula and its predictor.
-
-    Parameters
-    ----------
-    formula : str
-        Formula in the form `response ~ predictor`.
-
-    Returns
-    -------
-    response_formula : str
-        Intercept-only formula used to build the response design.
-    rhs : str
-        Predictor from the right-hand side.
-
-    Raises
-    ------
-    ValueError
-        If the formula does not contain one response and one predictor.
-
-    Examples
-    --------
-    >>> split_formula("y ~ x + z")
-    ('y ~ 1', 'x + z')
-    """
-    lhs, separator, rhs = formula.partition("~")
-    if not separator or not lhs.strip() or not rhs.strip() or "~" in rhs:
-        raise ValueError("A formula must have the form 'response ~ predictor'.")
-    return f"{lhs.strip()} ~ 1", rhs.strip()
-
-
 def clean_formula_lhs(x):
     """Remove the left hand side of a model formula and the tilde
 

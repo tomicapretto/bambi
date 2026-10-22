@@ -104,8 +104,8 @@ class Model:
         `"softmax"`. Not all the link functions can be used with all the families.
         If a dictionary, keys are the names of the target parameters and the values are the names
         of the link functions.
-        For nonlinear formulas, the parent inverse link is applied once to the complete predictor.
-        Dependent auxiliary-parameter expressions define their parameter on the response scale.
+        For nonlinear formulas, each parameter's inverse link is applied once to its complete
+        predictor. Auxiliary expressions use their parameter's link scale as well.
     categorical : str or list of str, optional
         The names of any variables to treat as categorical. Can be either a single variable
         name, or a list of names. If categorical is `None`, the data type of the columns in
@@ -217,12 +217,6 @@ class Model:
                 f"{sorted(nonlinear_params & likelihood_params)}."
             )
 
-        if likelihood_params & data_names:
-            raise ValueError(
-                "Observational model parameter names must not also be data columns: "
-                f"{sorted(likelihood_params & data_names)}."
-            )
-
         if invalid_lhs:
             raise ValueError(
                 f"Additional formulas contain invalid parameter names: {sorted(invalid_lhs)}."
@@ -234,13 +228,20 @@ class Model:
             zip(self.formula.additionals_lhs, self.formula.additionals)
         )
 
-        parameter_names = nonlinear_params | likelihood_params
+        parameter_names = nonlinear_params | (likelihood_params - data_names)
         parameters_config = {}
 
         for param_name, param_formula in formulas.items():
             linear_formula, nonlinear_expr = split_predictor(
                 param_formula.split("~", 1)[-1], parameter_names
             )
+            if nonlinear_expr is not None:
+                ambiguous = nonlinear_expr.symbols & likelihood_params & data_names
+                if ambiguous:
+                    raise ValueError(
+                        "Observational model parameter names must not also be data columns "
+                        f"in nonlinear expressions: {sorted(ambiguous)}."
+                    )
             parameters_config[param_name] = {
                 "linear": {"formula": linear_formula},
                 "nonlinear": {
@@ -764,24 +765,11 @@ class Model:
         # Arguments `common` and `group_specific` only affect the parent parameter.
         parent_name = self.family.likelihood.parent
 
-        if self.parameters[parent_name].design is None:
-            if common is not None or group_specific is not None:
-                raise ValueError(
-                    "Set priors by coefficient name instead of 'common' or 'group_specific'."
-                )
-            if priors is not None:
-                normalized_priors = deepcopy(priors)
-                quantities_with_terms = self._quantities_with_terms()
-                for name, parameter in quantities_with_terms.items():
-                    if name in normalized_priors:
-                        parameter.update_priors(normalized_priors[name])
-                for name, parameter in self._marginal_quantities.items():
-                    if name in normalized_priors:
-                        parameter.update_priors(normalized_priors[name])
-            return
-
-        # 'common' and 'group_specific' only apply to the parent parameter
-        parent_parameter = self.parameters[self.family.likelihood.parent]
+        parent_parameter = self.parameters[parent_name]
+        if parent_parameter.design is None and (common is not None or group_specific is not None):
+            raise ValueError(
+                "Set priors by coefficient name instead of 'common' or 'group_specific'."
+            )
         if common is not None:
             for term in parent_parameter.common_terms.values():
                 term.prior = common
@@ -796,14 +784,15 @@ class Model:
             #   - a single prior for marginal parameters.
             # Bare term priors are merged into the parent component, with explicitly nested
             # parent priors taking precedence.
-            parameters = self._quantities
+            parameters = self._quantities_with_terms() | self._marginal_quantities
             normalized_priors = {name: priors[name] for name in parameters if name in priors}
-            parent_priors = {
-                name: prior for name, prior in priors.items() if name not in parameters
-            }
-            if parent_name in normalized_priors:
-                parent_priors.update(normalized_priors[parent_name])
-            normalized_priors[parent_name] = parent_priors
+            if parent_parameter.design is not None:
+                parent_priors = {
+                    name: prior for name, prior in priors.items() if name not in parameters
+                }
+                if parent_name in normalized_priors:
+                    parent_priors.update(normalized_priors[parent_name])
+                normalized_priors[parent_name] = parent_priors
 
             # Make sure mutation of Prior objects within update_priors does not have side effects.
             normalized_priors = deepcopy(normalized_priors)
@@ -914,7 +903,7 @@ class Model:
         #     * There's unavoidable redundancy in the response name
         #       "sigma": {"sigma": "alias"}}
         # pylint: disable=too-many-nested-blocks
-        if len(self.conditional_parameters) == 1 and not self.formula.is_nonlinear:
+        if len(self.conditional_parameters) == 1 and not self.parameter_graph.expression_nodes:
             parent_parameter = self.parameters[self.family.likelihood.parent]
             for name, alias in aliases.items():
                 assert isinstance(alias, str)
@@ -1514,7 +1503,7 @@ class Model:
             output_list.append(key.rjust(width) + spacer.join(listify(value)))
 
         # Build priors section. Make sure the parent parameter goes first.
-        if self.formula.is_nonlinear:
+        if self.parameter_graph.expression_nodes:
             quantities_with_terms = self._quantities_with_terms()
             priors_dict = {
                 parameter.label: make_priors_summary(parameter)
@@ -1537,7 +1526,7 @@ class Model:
                 [prior_repr(parameter) for parameter in self.marginal_parameters.values()]
             )
             aux_str = "Auxiliary parameters\n" + wrapify(indentify(aux_str, 4), 100, 4)
-            key = parent_parameter.label if self.formula.is_nonlinear else parent_name
+            key = parent_parameter.label if self.parameter_graph.expression_nodes else parent_name
             if key in priors_dict:
                 priors_dict[key] += "\n\n" + aux_str
             else:

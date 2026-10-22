@@ -2867,6 +2867,70 @@ def test_mixed_predictor_group_contributions(monkeypatch, sparse_dot):
         np.testing.assert_allclose(result.predictions.mu, expected[None, None, :])
 
 
+@pytest.mark.parametrize("dependent_auxiliary", [False, True])
+@pytest.mark.parametrize("aliased", [False, True])
+def test_parameter_dependencies_without_nonlinear_declarations(dependent_auxiliary, aliased):
+    data = pd.DataFrame({"y": [1.0, 2.0, 3.0], "x": [1.0, 2.0, 3.0]})
+    if dependent_auxiliary:
+        formula = bmb.Formula("y ~ x", "sigma ~ mu * x")
+        values = {"Intercept": 0.0, "x": 0.2}
+    else:
+        formula = bmb.Formula("y ~ sigma * x")
+        values = {"sigma": 2.0}
+    model = bmb.Model(formula, data, center_predictors=False)
+    mean_name = "mean" if aliased else "mu"
+    if aliased:
+        model.set_alias({"mu": {"mu": mean_name}})
+    model.build()
+    assert f"target = {mean_name}" in str(model)
+    posterior = xr.Dataset({name: (("chain", "draw"), [[value]]) for name, value in values.items()})
+    idata = xr.DataTree.from_dict({"posterior": posterior})
+    for count in (3, 2, 1):
+        new_data = data.iloc[:count].assign(x=np.linspace(0.3, 1.0, count))
+        result = model.predict(idata, data=new_data, inplace=False)
+        mu = (0.2 if dependent_auxiliary else 2.0) * new_data.x.to_numpy()
+        sigma = np.exp(mu * new_data.x.to_numpy()) if dependent_auxiliary else 2.0
+        np.testing.assert_allclose(result.predictions[mean_name], mu[None, None, :])
+        if dependent_auxiliary:
+            np.testing.assert_allclose(result.predictions.sigma, sigma[None, None, :])
+        likelihood = model.compute_log_likelihood(idata, data=new_data, inplace=False)
+        expected = stats.norm.logpdf(new_data.y, loc=mu, scale=sigma)
+        np.testing.assert_allclose(likelihood.log_likelihood.y, expected[None, None, :])
+    np.testing.assert_array_equal(model.data.x, data.x)
+
+
+def test_null_nonlinear_contribution_preserves_auxiliary_link():
+    data = linear_data(4)
+    posterior = xr.Dataset(
+        {
+            name: (("chain", "draw"), [[value]])
+            for name, value in {
+                "Intercept": 0.5,
+                "x": 0.2,
+                "sigma_Intercept": 0.7,
+                "sigma_z": 0.3,
+            }.items()
+        }
+    )
+    idata = xr.DataTree.from_dict({"posterior": posterior})
+    for rhs in ("z", "z + nl(0)"):
+        model = bmb.Model(
+            bmb.Formula("y ~ x", f"sigma ~ {rhs}"),
+            data,
+            center_predictors=False,
+        )
+        model.build()
+        for new_data in (None, data.iloc[:2].assign(z=[0.4, 0.8])):
+            inputs = data if new_data is None else new_data
+            result = model.predict(idata, data=new_data, inplace=False)
+            group = result.posterior if new_data is None else result.predictions
+            sigma = np.exp(0.7 + 0.3 * inputs.z.to_numpy())
+            np.testing.assert_allclose(group.sigma, sigma[None, None, :])
+            likelihood = model.compute_log_likelihood(idata, data=new_data, inplace=False)
+            expected = stats.norm.logpdf(inputs.y, loc=0.5 + 0.2 * inputs.x, scale=sigma)
+            np.testing.assert_allclose(likelihood.log_likelihood.y, expected[None, None, :])
+
+
 def test_mixed_coefficient_and_auxiliary_predictors():
     data = pd.DataFrame(
         {"y": [1.0, 2.0, 3.0, 4.0], "x": [0.0, 1.0, 2.0, 3.0], "z": [1.0, 0.0, 3.0, 2.0]}
@@ -2889,7 +2953,7 @@ def test_mixed_coefficient_and_auxiliary_predictors():
     new_data = data.iloc[:2].drop(columns="y")
     result = model.predict(idata, data=new_data, inplace=False)
     expected_mu = (0.5 + 0.3 * new_data.z + 0.2 * new_data.x) * new_data.x
-    expected_sigma = np.exp(0.2) + 0.1 * new_data.z
+    expected_sigma = np.exp(np.exp(0.2) + 0.1 * new_data.z)
     np.testing.assert_allclose(result.predictions.mu, expected_mu.to_numpy()[None, None, :])
     np.testing.assert_allclose(result.predictions.sigma, expected_sigma.to_numpy()[None, None, :])
 
@@ -4342,7 +4406,7 @@ def test_conditional_coefficient_uses_scalar_auxiliary_dimension():
     data = vector_normal_data()
     formula = bmb.Formula(
         "join(y1, y2) ~ 0 + nl(0.7)",
-        "nu ~ 0 + nl(2 + exp(rate*x))",
+        "nu ~ 0 + nl(log(2 + exp(rate*x)))",
         "rate ~ 1 + z",
         nlpars=("rate",),
     )
@@ -4450,7 +4514,7 @@ def test_scalar_auxiliary_coefficient_chain_stops_at_likelihood_parameter():
     chained = bmb.Model(
         bmb.Formula(
             "join(y1, y2) ~ 0 + nl(nu*x)",
-            "nu ~ 0 + nl(2 + exp(k*x))",
+            "nu ~ 0 + nl(log(2 + exp(k*x)))",
             "k ~ 0 + z + nl(j*x)",
             "j ~ 0 + z",
             nlpars=("k", "j"),
@@ -4496,7 +4560,7 @@ def test_coefficient_is_shared_across_scalar_and_vector_consumers(coefficient_fo
     model = bmb.Model(
         bmb.Formula(
             "join(y1, y2) ~ 0 + nl(shared)",
-            "nu ~ 0 + nl(shared)",
+            "nu ~ 0 + nl(log(shared))",
             *additionals,
             nlpars=("shared",),
         ),
@@ -4529,7 +4593,7 @@ def test_scalar_auxiliary_mixed_coefficient_group_prediction(monkeypatch, sparse
     model = bmb.Model(
         bmb.Formula(
             "join(y1, y2) ~ 0 + nl(0.7)",
-            "nu ~ 0 + nl(2 + exp(k*x))",
+            "nu ~ 0 + nl(log(2 + exp(k*x)))",
             "k ~ 0 + z + nl(j*x) + (1 | group)",
             "j ~ 0 + x",
             nlpars=("k", "j"),

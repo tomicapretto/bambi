@@ -1768,7 +1768,7 @@ def test_additional_nonlinear_arithmetic(
         draws["sigma"] = (("chain", "draw"), [[1.0]])
     result = model.predict(xr.DataTree.from_dict({"posterior": draws}), inplace=False)
     if parameter == "sigma":
-        np.testing.assert_allclose(result.posterior.sigma, expected)
+        np.testing.assert_allclose(result.posterior.sigma, np.exp(expected))
     else:
         np.testing.assert_allclose(result.posterior.mu, expected * data.x.to_numpy()[None, None, :])
 
@@ -1851,7 +1851,7 @@ def test_additive_parent_with_nonlinear_auxiliary(
     nonlinear_ownership_data, predictor, dependent_scale
 ):
     data = nonlinear_ownership_data
-    sigma_formula = "sigma ~ sqrt(mu ** 2 + a ** 2)" if dependent_scale else "sigma ~ exp(a)"
+    sigma_formula = "sigma ~ 0.5 * log(mu ** 2 + a ** 2)" if dependent_scale else "sigma ~ a"
     model = bmb.Model(
         bmb.Formula(f"y ~ {predictor}", sigma_formula, nlpars=("a",)),
         data,
@@ -1915,7 +1915,7 @@ def test_one_edge_parameter_dependency_matches_direct_calculation():
     with model.backend.model:
         actual = pm.compute_deterministics(draws, var_names=["sigma"], progressbar=False)
 
-    expected = (draws.a**2 + 0.1).values[..., None]
+    expected = np.exp(draws.a**2 + 0.1).values[..., None]
     np.testing.assert_allclose(actual.sigma, np.broadcast_to(expected, actual.sigma.shape))
 
 
@@ -1945,7 +1945,7 @@ def nonlinear_parameter_dag_model():
     )
     formula = bmb.Formula(
         "success_rate ~ p_angle * p_distance",
-        "sigma ~ sqrt(mu * (1 - mu) / attempts + sigma_y ** 2)",
+        "sigma ~ 0.5 * log(mu * (1 - mu) / attempts + sigma_y ** 2)",
         "p_distance ~ 1 + distance",
         nlpars=("p_angle", "p_distance", "sigma_y"),
     )
@@ -2651,7 +2651,7 @@ def test_parameter_dependency_validation(main, additionals, message):
 @pytest.mark.parametrize("mu", [0.5, np.nan])
 def test_likelihood_parameter_and_expression_data_collision_is_rejected(mu):
     data = linear_data().assign(mu=mu)
-    formula = bmb.Formula("y ~ a * x", "sigma ~ mu + z", nlpars=("a",))
+    formula = bmb.Formula("y ~ a * x", "sigma ~ nl(mu) + z", nlpars=("a",))
 
     with pytest.raises(ValueError, match="parameter names must not also be data columns.*mu"):
         bmb.Model(formula, data)
@@ -2795,11 +2795,23 @@ def test_prepare_data_aligns_formulas_and_converts_categories(nonlinear):
         prepare_data(data, formula, parameters_config)
 
 
-def test_linear_covariate_cannot_share_a_likelihood_parameter_name():
-    data = pd.DataFrame({"y": [1, 2], "sigma": [np.nan, 0.5]})
+@pytest.mark.parametrize("formula", ["y ~ x", "y ~ log(sigma)"])
+def test_additive_model_accepts_likelihood_parameter_names_in_data(formula):
+    data = linear_data().assign(sigma=np.linspace(0.1, 1, 30), mu=np.nan)
+    model = bmb.Model(formula, data)
+    model.build()
+    assert not model.parameter_graph.expression_nodes
+    assert len(model.data) == len(data)
 
-    with pytest.raises(ValueError, match="parameter names must not also be data columns.*sigma"):
-        bmb.Model("y ~ sigma", data, dropna=True)
+
+def test_likelihood_parameter_covariate_respects_dropna():
+    data = pd.DataFrame({"y": [1.0, 2.0, 3.0], "sigma": [np.nan, 0.5, 1.0]})
+    model = bmb.Model("y ~ log(sigma)", data, dropna=True)
+    model.build()
+    assert model.data.index.tolist() == [1, 2]
+    np.testing.assert_allclose(
+        model.parameters["mu"].terms["log(sigma)"].data.ravel(), np.log([0.5, 1.0])
+    )
 
 
 @pytest.mark.parametrize(

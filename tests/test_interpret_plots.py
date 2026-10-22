@@ -36,7 +36,7 @@ def nonlinear_interpret_fixture(mock_pymc_sample):
         },
         "b": bmb.Prior("Normal", mu=0, sigma=1),
     }
-    model = bmb.Model(formula, data, priors=priors)
+    model = bmb.Model(formula, data, priors=priors, center_predictors=False)
     idata = model.fit(draws=4, chains=2)
     return model, idata
 
@@ -60,16 +60,27 @@ class TestNonlinearModels:
         [
             (predictions, {"conditional": {"x": [0.0, 1.0], "z": [-1.0, 1.0]}}),
             (comparisons, {"contrast": {"x": [0.0, 1.0]}, "conditional": "z"}),
-            (slopes, {"wrt": {"x": 1.0}, "conditional": "z"}),
+            (slopes, {"wrt": {"x": 1.0}, "conditional": "z", "eps": 1e-6}),
         ],
     )
     def test_effects(self, nonlinear_interpret_fixture, function, kwargs):
         model, idata = nonlinear_interpret_fixture
+        posterior = idata.posterior.to_dataset().copy(deep=True)
+        for name, value in {"a_Intercept": 1.0, "a_z": 0.4, "b": 2.0}.items():
+            posterior[name] = posterior[name] * 0 + value
+        idata["posterior"] = posterior
 
-        result = function(model, idata, **kwargs)
-
-        assert not result.summary.empty
-        assert "z" in result.summary
+        summary = function(model, idata, **kwargs).summary
+        if function is predictions:
+            expected = 1.0 + 0.4 * summary.z + 2.0 * np.exp(-summary.x)
+            assert len(summary) == 4
+        elif function is comparisons:
+            expected = 2.0 * (np.exp(-1.0) - 1.0)
+        else:
+            expected = -2.0 * np.exp(-1.0)
+        np.testing.assert_allclose(summary.estimate, expected, rtol=1e-6)
+        for column in summary.filter(regex="^(lower_|upper_)"):
+            np.testing.assert_allclose(summary[column], expected, rtol=1e-6)
 
     @pytest.mark.parametrize(
         "function, kwargs",

@@ -34,11 +34,13 @@ class Formula:
         Coefficients with a formula use priors for its terms, including intercept-only formulas.
         Additional formulas can also describe ordinary auxiliary likelihood parameters,
         such as `sigma ~ z`.
-        The expression is on the parent parameter's link scale. The family's inverse link is
-        applied once to the complete predictor. An additional formula that references a modeled
-        parameter is also treated as a nonlinear expression and evaluated after its dependencies;
-        these dependent expressions define their parameter on the response scale. Separately
-        modeled nonlinear coefficients use identity links.
+        Each expression is on its parameter's link scale. The family's inverse link is applied
+        once to the complete predictor, including auxiliary parameters. An additional formula
+        that references a modeled parameter is evaluated after its dependencies, using their
+        values on the response scale. For example, with the log link for Gaussian `sigma`,
+        write ``sigma ~ 0 + nl(0.5 * log(variance))`` for a known variance column. The inverse
+        link produces its square root.
+        Separately modeled nonlinear coefficients use identity links.
 
     Notes
     -----

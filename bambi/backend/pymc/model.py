@@ -661,9 +661,8 @@ class PyMCModel:
             new_data.update(parameter_data)
             factor_plans.extend(parameter_factor_plans)
 
-        if self.spec.formula.is_nonlinear:
-            for parameter in self.spec.parameter_graph.expression_nodes.values():
-                new_data.update(build_new_nonlinear_data(parameter, data))
+        for parameter in self.spec.parameter_graph.expression_nodes.values():
+            new_data.update(build_new_nonlinear_data(parameter, data))
 
         return new_data, new_coords, factor_plans
 
