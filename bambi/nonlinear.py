@@ -149,8 +149,9 @@ class NonlinearExpression:
             If the expression is malformed or contains unsupported syntax.
         """
         try:
+            _PredictorScanner(source).scan(add_intercept=False)
             parsed = ast.parse(source, mode="eval")
-        except SyntaxError as error:
+        except (SyntaxError, ScanError) as error:
             raise ValueError(f"Malformed nonlinear expression: {source!r}.") from error
 
         symbols = set()
@@ -181,7 +182,7 @@ def nonlinear_symbol_names(source: str) -> frozenset[str]:
 
 
 class _PredictorScanner(Scanner):
-    """Formula tokens with Python numeric literals and underscore-prefixed names."""
+    """Formula tokens with decimal numeric literals and underscore-prefixed names."""
 
     def scan_token(self):
         if self.peek() == "_":
@@ -196,6 +197,10 @@ class _PredictorScanner(Scanner):
             self.code[self.start :],
         )
         self.current = self.start + match.end()
+        if self.peek().isalnum() or self.peek() == "_":
+            self.identifier()
+            name = self.code[self.start : self.current]
+            raise ValueError(f"Invalid variable name: {name!r}.")
         self.add_token("NUMBER", float(match.group()))
 
     floatnum = number
@@ -284,6 +289,7 @@ def split_predictor(
             collect(part[1:], sign if part[0].kind == "PLUS" else -sign)
             return
 
+        text = " ".join(str(token.lexeme) for token in part)
         if part[0].kind == "LEFT_PAREN" and part[-1].kind == "RIGHT_PAREN":
             depth = 0
             enclosed = True
@@ -296,10 +302,18 @@ def split_predictor(
                     enclosed = False
                     break
             if enclosed and not group_specific:
+                first_linear = len(linear_terms)
                 collect(part[1:-1], sign)
+                grouped_terms = linear_terms[first_linear:]
+                if grouped_terms and not (len(grouped_terms) == 1 and grouped_terms[0][0] == sign):
+                    # Formula subtraction removes terms rather than distributing signs.
+                    grouped = " ".join(
+                        ("+" if term_sign == sign else "-") + f" {term}"
+                        for term_sign, term in grouped_terms
+                    ).lstrip("+ ")
+                    linear_terms[first_linear:] = [(sign, f"({grouped})")]
                 return
 
-        text = " ".join(str(token.lexeme) for token in part)
         if any(
             token.lexeme == "nl" and following.kind == "LEFT_PAREN"
             for token, following in zip(part, part[1:])

@@ -118,30 +118,9 @@ class Conditional(ABC):
         if self.design is not None and self.design.group:
             self.add_group_specific_terms(priors)
 
-    @classmethod
-    def from_design(cls, name, design, priors, spec, **kwargs):
-        """Create a conditional quantity backed by additive design matrices."""
-        return cls(name, design, priors, spec, **kwargs)
-
-    @classmethod
-    def from_expression(cls, name, expression, data_names, spec, **kwargs):
-        """Create a conditional quantity backed by a nonlinear expression."""
-        return cls(name, None, {}, spec, expression=expression, data_names=data_names, **kwargs)
-
     @property
     def is_nonlinear(self):
-        """Whether this quantity includes a nonlinear expression.
-
-        Returns
-        -------
-        bool
-            ``True`` when the predictor includes an arithmetic contribution.
-
-        Examples
-        --------
-        ``model.conditional_parameters["mu"].is_nonlinear`` distinguishes a nonlinear parent
-        from one constructed with an ordinary additive formula.
-        """
+        """Whether this quantity includes a nonlinear expression."""
         return self.expression is not None
 
     @property

@@ -295,3 +295,60 @@ def test_split_linear_formula_and_nlexpr(source, linear_formula, nlexpr):
 def test_invalid_nl_wrapper(source):
     with pytest.raises(ValueError):
         split_predictor(source, ("a",))
+
+
+@pytest.mark.parametrize("predictor", ["a*x", "nl(a*x)"])
+@pytest.mark.parametrize("linear", ["z - (x - w)", "z - (x + w - 1)", "(z - (x - w))"])
+def test_split_predictor_preserves_formula_subtraction(predictor, linear):
+    data = pd.DataFrame(
+        {
+            "y": [1.0, 2.0, 3.0, 4.0],
+            "x": [1.0, 2.0, 3.0, 4.0],
+            "z": [2.0, 4.0, 1.0, 3.0],
+            "w": [4.0, 1.0, 3.0, 2.0],
+        }
+    )
+    ordinary = bmb.Model(f"y ~ {linear}", data)
+    nonlinear = bmb.Model(bmb.Formula(f"y ~ {predictor} + {linear}", nlpars=("a",)), data)
+
+    expected = ordinary.parameters["mu"].terms
+    actual = nonlinear.parameters["mu"].terms
+    assert actual.keys() == expected.keys()
+    for name in expected:
+        np.testing.assert_array_equal(actual[name].data, expected[name].data)
+
+
+@pytest.mark.parametrize("predictor", ["a*x", "nl(a*x)"])
+def test_split_predictor_preserves_subtraction_of_mixed_group(predictor):
+    linear, expression = split_predictor(f"z - ({predictor} + x - w)", ("a",))
+    assert linear.replace(" ", "") == "z-(x-w)"
+    values = {"a": pt.as_tensor_variable(1.0), "x": pt.as_tensor_variable(2.0)}
+    np.testing.assert_allclose(evaluate_expression(expression.root, values).eval(), -2.0)
+
+
+@pytest.mark.parametrize("name", ["0x10", "0XFF", "0o17", "0b10", "123abc", "1e"])
+@pytest.mark.parametrize("source", ["a*x + {name}", "nl(a*x + {name})", "a*x + z + {name}"])
+def test_digit_prefixed_variable_names_are_rejected(name, source):
+    with pytest.raises(ValueError, match=f"Invalid variable name: '{name}'"):
+        split_predictor(source.format(name=name), ("a",))
+
+
+@pytest.mark.parametrize("name", ["0x10", "0XFF", "0o17", "0b10", "123abc", "1e"])
+def test_nonlinear_expression_rejects_digit_prefixed_names(name):
+    with pytest.raises(ValueError, match=f"Invalid variable name: '{name}'"):
+        NonlinearExpression.parse(f"a*x + {name}")
+
+
+@pytest.mark.parametrize(
+    "literal", ["0", "1", "15", "1.5", "0.3", ".5", "1.", "1e-3", "1E+3", "1_000.25"]
+)
+@pytest.mark.parametrize("wrapper", [False, True])
+def test_decimal_numeric_literals(literal, wrapper):
+    assert NonlinearExpression.parse(literal).root.value == float(literal)
+    source = f"a*x + {literal}"
+    if wrapper:
+        source = f"nl({source})"
+    _, expression = split_predictor(source, ("a",))
+    values = {"a": pt.as_tensor_variable(1.0), "x": pt.as_tensor_variable(2.0)}
+    result = evaluate_expression(expression.root, values).eval()
+    np.testing.assert_allclose(result, 2 + float(literal))
