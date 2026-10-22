@@ -7,14 +7,32 @@ import xarray as xr
 from scipy.special import erf, erfc, expit, logit, ndtr, ndtri
 
 import bambi as bmb
-from bambi.backend.pymc.nonlinear import evaluate_expression
+from bambi.backend.pymc.nonlinear import build_nonlinear_predictor, evaluate_expression
 from bambi.nonlinear import (
     NonlinearExpression,
     parameter_dependency_order,
     split_predictor,
 )
+from bambi.parameters import ConditionalCoefficient
 
 from helpers import assert_ip_dlogp, linear_data, normal_prior
+
+
+def test_nonlinear_coefficient_rejects_incompatible_input_dimensions():
+    parameter = ConditionalCoefficient(
+        "curve",
+        design=None,
+        priors={},
+        spec=None,
+        expression=NonlinearExpression.parse("a + b"),
+    )
+    with pm.Model(coords={"__obs__": range(3), "first": range(2), "second": range(2)}) as model:
+        values = {
+            "a": pm.Data("a", [1.0, 2.0], dims="first"),
+            "b": pm.Data("b", [3.0, 4.0], dims="second"),
+        }
+        with pytest.raises(ValueError, match="incompatible input dimensions"):
+            build_nonlinear_predictor(parameter, values, pd.DataFrame(), model, dims=None)
 
 
 def test_parameter_dependency_order_is_stable_and_topological():

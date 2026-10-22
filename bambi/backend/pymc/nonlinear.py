@@ -6,11 +6,7 @@ import numpy as np
 import pymc as pm
 import pytensor.tensor as pt
 
-from bambi.backend.pymc.transform import transforms_registry
-from bambi.backend.pymc.utils import INVERSE_LINKS
-from bambi.families import Family
-from bambi.families.types import ParamSpec
-from bambi.parameters import Conditional, ConditionalCoefficient, ConditionalParameter
+from bambi.parameters import Conditional
 from bambi.nonlinear import (
     BinaryOperation,
     FUNCTION_ALIASES,
@@ -75,46 +71,14 @@ def nonlinear_data_name(parameter_label: str, symbol: str) -> str:
     return f"{parameter_label}__{symbol}_data"
 
 
-def nonlinear_predictor_spec(
-    parameter: ConditionalParameter | ConditionalCoefficient, family: Family
-) -> ParamSpec:
-    """Use family dimensions for likelihood parameters and scalar coefficient terms."""
-    if isinstance(parameter, ConditionalParameter):
-        spec = family.get_param_spec(parameter.name)
-        coefs_dim = spec.coefs_dim
-    else:
-        coefs_dim = None
-    return ParamSpec(links=["identity"], ndim=int(coefs_dim is not None), coefs_dim=coefs_dim)
-
-
-def nonlinear_predictor_dims(spec: ParamSpec, model: pm.Model) -> tuple[str, ...]:
-    """Return observation and coefficient axes, before any family transformation."""
-    dims = ("__obs__",)
-    if spec.coefs_dim is not None:
-        key = (
-            "response_coords_reduced" if spec.coefs_dim == "response_reduced" else "response_coords"
-        )
-        dims += tuple(model.__bambi_attrs__[key])
-    return dims
-
-
-def _broadcast_predictor(value, dims, model):
-    value = pt.as_tensor_variable(value)
-    if value.ndim == 1 and len(dims) == 2:
-        value = value[:, None]
-    return pt.broadcast_to(value, tuple(model.dim_lengths[dim] for dim in dims))
-
-
-def build_nonlinear_parameter(
+def build_nonlinear_predictor(
     parameter: Conditional,
     parameter_values: dict[str, pt.Variable],
     data,
     model: pm.Model,
-    family: Family,
-    parameters: dict[str, pt.Variable],
-    additive_value=0,
-) -> pt.Variable:
-    """Build an expression-defined parameter or coefficient in a PyMC model.
+    dims: tuple[str, ...] | None,
+) -> tuple[pt.Variable, tuple[str, ...]]:
+    """Build a nonlinear contribution on the predictor scale.
 
     Parameters
     ----------
@@ -125,20 +89,22 @@ def build_nonlinear_parameter(
     data : pandas.DataFrame
         Observed data containing the expression inputs.
     model : pymc.Model
-        Model in which to create data and deterministic variables.
-    family : Family
-        Family providing the parent link and predictor transformation.
-    parameters : dict of str to TensorVariable
-        Other built likelihood parameters used by predictor transformations.
-    additive_value : TensorVariable or int, optional
-        Contribution of ordinary formula terms on the predictor scale.
+        Model in which to create expression data variables.
+    dims : tuple of str or None
+        Predictor dimensions, or ``None`` to inherit dimensions from expression inputs.
 
     Returns
     -------
     TensorVariable
-        Deterministic quantity, with the inverse link applied only to the likelihood parent.
+        Expression value before applying a parameter's inverse link.
+    tuple of str
+        Predictor dimensions, including the observation axis.
     """
-    values = parameter_values.copy()
+    values = {
+        name: parameter_values[name]
+        for name in parameter.expression.symbols
+        if name not in parameter.data_names
+    }
     for name in parameter.data_names:
         values[name] = pm.Data(
             nonlinear_data_name(parameter.label, name),
@@ -147,16 +113,16 @@ def build_nonlinear_parameter(
             model=model,
         )
 
-    spec = nonlinear_predictor_spec(parameter, family)
-    dims = nonlinear_predictor_dims(spec, model)
-    if isinstance(parameter, ConditionalCoefficient):
-        for name in sorted(parameter.expression.symbols):
-            value = values[name]
-            value_dims = model.named_vars_to_dims.get(value.name, ())
-            extra_dims = tuple(dim for dim in value_dims if dim != "__obs__")
-            if extra_dims:
-                dims = ("__obs__",) + extra_dims
-                break
+    if dims is None:
+        input_dims = {
+            tuple(dim for dim in model.named_vars_to_dims.get(value.name, ()) if dim != "__obs__")
+            for value in values.values()
+        } - {()}
+        if len(input_dims) > 1:
+            raise ValueError(
+                f"Nonlinear coefficient '{parameter.name}' has incompatible input dimensions."
+            )
+        dims = ("__obs__",) + next(iter(input_dims), ())
     # Align observation and response vectors before elementwise arithmetic.
     if len(dims) > 1:
         response_dims = set(dims[1:])
@@ -168,30 +134,11 @@ def build_nonlinear_parameter(
                 values[name] = value[:, None]
             elif response_dims.intersection(value_dims):
                 values[name] = value[None, :]
-        additive_value = pt.as_tensor_variable(additive_value)
-        if additive_value.ndim == 1:
-            additive_value = additive_value[:, None]
-    value = _broadcast_predictor(
-        additive_value + evaluate_expression(parameter.expression.root, values), dims, model
-    )
-    if isinstance(parameter, ConditionalParameter) and parameter.is_parent:
-        dims = ("__obs__",)
-        if family.get_param_spec(parameter.name).ndim:
-            dims += tuple(model.__bambi_attrs__["response_coords"])
-        link = family.link[parameter.name]
-        inverse_link = INVERSE_LINKS.get(link.name, link.inverse_link)
-        transform_predictor = transforms_registry.get_predictor_transform(family, parameter.name)
-        if transform_predictor:
-            value = transform_predictor(value, parameters, inverse_link)
-        else:
-            value = inverse_link(value)
-    value = pt.as_tensor_variable(value)
-    if any(value is variable for variable in model.deterministics):
-        # Keep the parent distinct when PyMC clones direct deterministic views.
-        value = value.copy()
-    if value.ndim == 0:
-        value = pt.broadcast_to(value, tuple(model.dim_lengths[dim] for dim in dims))
-    return pm.Deterministic(parameter.label, value, dims=dims, model=model)
+    value = evaluate_expression(parameter.expression.root, values)
+    if value.ndim == 1 and len(dims) > 1:
+        value = value[:, None]
+    value = pt.broadcast_to(value, tuple(model.dim_lengths[dim] for dim in dims))
+    return value, dims
 
 
 def build_new_nonlinear_data(parameter: Conditional, data) -> dict[str, np.ndarray]:

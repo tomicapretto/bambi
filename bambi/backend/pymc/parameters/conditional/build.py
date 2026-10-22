@@ -5,7 +5,7 @@ import pytensor.sparse as ps
 import pytensor.tensor as pt
 import scipy.sparse as sp
 
-from bambi.backend.pymc.nonlinear import nonlinear_predictor_dims, nonlinear_predictor_spec
+from bambi.backend.pymc.nonlinear import build_nonlinear_predictor
 from bambi.backend.pymc.terms import (
     build_common_term,
     build_group_specific_term_dot,
@@ -21,6 +21,7 @@ from bambi.backend.pymc.utils import INVERSE_LINKS
 from bambi.config import config as bmb_config
 from bambi.families import Family
 from bambi.families.types import ParamSpec
+from bambi.parameters import ConditionalParameter
 from bambi.terms import CommonTerm
 
 from .state import (
@@ -38,84 +39,51 @@ def build_conditional_parameter(
     family: Family,
     group_specific_state: GroupSpecificGraphState,
     model: pm.Model,
+    parameter_values: dict[str, pt.Variable],
+    data,
 ) -> pt.Variable:
     parameter = parameter_info.parameter
-    param_spec = family.get_param_spec(parameter.name)
-    link = family.link[parameter.name]
-    inverse_link = INVERSE_LINKS.get(link.name, link.inverse_link)
-    transform_predictor = transforms_registry.get_predictor_transform(family, parameter.name)
-    transform_parameters = {}
-    if transform_predictor:
-        transform_parameters = {
-            name: model[name] for name in family.likelihood.params if name != parameter.name
-        }
-    return build_additive_parameter(
-        parameter_info,
-        param_spec,
-        inverse_link,
-        transform_predictor,
-        transform_parameters,
-        group_specific_state,
-        model,
+    is_likelihood_parameter = isinstance(parameter, ConditionalParameter)
+    param_spec = (
+        family.get_param_spec(parameter.name)
+        if is_likelihood_parameter
+        else ParamSpec(links=["identity"])
     )
+    dims = ("__obs__",)
+    if param_spec.coefs_dim is not None:
+        key = (
+            "response_coords_reduced"
+            if param_spec.coefs_dim == "response_reduced"
+            else "response_coords"
+        )
+        dims += tuple(model.__bambi_attrs__[key])
 
+    predictor_spec = param_spec
+    if parameter.is_nonlinear:
+        # Ordinal probabilities have a response axis, but their predictor is scalar.
+        predictor_spec = param_spec._replace(ndim=int(param_spec.coefs_dim is not None))
+    value = build_additive_predictor(parameter_info, predictor_spec, group_specific_state, model)
+    if parameter.is_nonlinear:
+        nonlinear_value, dims = build_nonlinear_predictor(
+            parameter, parameter_values, data, model, dims if is_likelihood_parameter else None
+        )
+        value = pt.as_tensor_variable(value)
+        if value.ndim == 1 and len(dims) > 1:
+            value = value[:, None]
+        value = value + nonlinear_value
 
-def build_nonlinear_coefficient(
-    parameter_info: ConditionalParameterInfo,
-    group_specific_state: GroupSpecificGraphState,
-    model: pm.Model,
-) -> pt.Variable:
-    """Build an additive coefficient used by a nonlinear expression.
+    if is_likelihood_parameter and (not parameter.is_nonlinear or parameter.is_parent):
+        link = family.link[parameter.name]
+        inverse_link = INVERSE_LINKS.get(link.name, link.inverse_link)
+        transform_predictor = transforms_registry.get_predictor_transform(family, parameter.name)
+        if transform_predictor:
+            value = transform_predictor(value, parameter_values, inverse_link)
+        else:
+            value = inverse_link(value)
+        dims = ("__obs__",)
+        if param_spec.ndim > 0:
+            dims += tuple(model.__bambi_attrs__["response_coords"])
 
-    Parameters
-    ----------
-    parameter_info : ConditionalParameterInfo
-        Description of the coefficient and its terms.
-    group_specific_state : GroupSpecificGraphState
-        State shared by group-specific coefficient terms.
-    model : pymc.Model
-        PyMC model that owns the coefficient.
-
-    Returns
-    -------
-    pytensor.tensor.variable.TensorVariable
-        Coefficient value on its untransformed scale.
-
-    Examples
-    --------
-    ``Model.build()`` uses this function to create the graph variable ``a`` for
-    ``Formula("y ~ a * x", "a ~ 1 + z", nlpars=("a",))``.
-    """
-    parameter = parameter_info.parameter
-    param_spec = nonlinear_predictor_spec(parameter, parameter.spec.family)
-    value = build_additive_predictor(parameter_info, param_spec, group_specific_state, model)
-    dims = nonlinear_predictor_dims(param_spec, model)
-    value = pt.broadcast_to(value, tuple(model.dim_lengths[dim] for dim in dims))
-    return pm.Deterministic(parameter.label, value, dims=dims, model=model)
-
-
-def build_additive_parameter(
-    parameter_info: ConditionalParameterInfo,
-    param_spec: ParamSpec,
-    inverse_link,
-    transform_predictor,
-    transform_parameters,
-    group_specific_state: GroupSpecificGraphState,
-    model: pm.Model,
-) -> pt.Variable:
-    parameter = parameter_info.parameter
-    value = build_additive_predictor(parameter_info, param_spec, group_specific_state, model)
-
-    if transform_predictor:
-        value = transform_predictor(value, transform_parameters, inverse_link)
-    else:
-        value = inverse_link(value)
-
-    coords = model.__bambi_attrs__["response_coords_data"]
-    if param_spec.ndim > 0:
-        coords = coords | model.__bambi_attrs__["response_coords"]
-
-    dims = tuple(coords)
     only_intercept = (
         parameter.intercept_term
         and not parameter.common_terms
@@ -125,6 +93,9 @@ def build_additive_parameter(
         and not parameter.smooth_terms
     )
     value = pt.as_tensor_variable(value)
+    if any(value is variable for variable in model.deterministics):
+        # Keep direct deterministic views distinct when PyMC clones the graph.
+        value = value.copy()
     if value.ndim < len(dims) or only_intercept:
         value = pt.broadcast_to(value, tuple(model.dim_lengths[dim] for dim in dims))
     return pm.Deterministic(parameter.label, value, dims=dims, model=model)
