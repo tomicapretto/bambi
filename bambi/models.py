@@ -36,7 +36,7 @@ from bambi.families.builtin import (
     StoppingRatio,
 )
 from bambi.families.types import DimType
-from bambi.formula import Formula, check_ordinal_formula
+from bambi.formula import Formula, formula_has_intercept
 from bambi.nonlinear import (
     ParameterDependencyGraph,
     SUPPORTED_FUNCTIONS,
@@ -100,19 +100,19 @@ class Model:
         A nonlinear coefficient expression can depend on a vector-valued modeled parameter.
     link : str or dict of str to str, optional
         The name of the link function to use. Valid names are `"cloglog"`, `"identity"`,
-        `"inverse_squared"`, `"inverse"`, `"log"`, `"logit"`, `"probit"`, and
-        `"softmax"`. Not all the link functions can be used with all the families.
+        `"inverse_squared"`, `"inverse"`, `"log"`, `"logit"`, `"probit"`, and `"softmax"`.
+        Not all the link functions can be used with all the families.
         If a dictionary, keys are the names of the target parameters and the values are the names
         of the link functions.
         For nonlinear formulas, each parameter's inverse link is applied once to its complete
-        predictor. Auxiliary expressions use their parameter's link scale as well.
+        predictor.
     categorical : str or list of str, optional
         The names of any variables to treat as categorical. Can be either a single variable
         name, or a list of names. If categorical is `None`, the data type of the columns in
         the `data` will be used to infer handling. In cases where numeric columns are
         to be treated as categorical (e.g., group specific factors coded as numerical IDs),
         explicitly passing variable names via this argument is recommended.
-    potentials : A list of 2-tuples, optional
+    potentials : list of 2-tuples, optional
         Optional specification of potentials. A potential is an arbitrary expression added to the
         likelihood, this is generally useful to add constraints to models, that are difficult to
         express otherwise. The first term of a 2-tuple is the name of a variable in the model, the
@@ -123,7 +123,7 @@ class Model:
     dropna : bool, optional
         When `True`, rows with any missing values in either the predictors or outcome are
         automatically dropped from the dataset in a listwise manner, optional.
-    auto_scale : bool
+    auto_scale : bool, optional
         If `True` (default), priors are automatically rescaled to the data
         (to be weakly informative) any time default priors are used. Note that any priors
         explicitly set by the user will always take precedence over default priors.
@@ -180,7 +180,7 @@ class Model:
         self.potentials = potentials
         self.center_predictors = center_predictors
 
-        # Handle priors
+        # Prevent modification of user-suplied priors.
         priors = {} if priors is None else deepcopy(priors)
 
         # Obtain design matrices and related objects.
@@ -202,8 +202,9 @@ class Model:
         likelihood_params = set(self.family.likelihood.params)
         auxiliary_params = set(self.family.auxiliary_parameters)
         data_names = set(data.columns)
-        invalid_lhs = set(self.formula.additionals_lhs) - nonlinear_params - auxiliary_params
         marginal_params = auxiliary_params - set(self.formula.additionals_lhs)
+        invalid_lhs = set(self.formula.additionals_lhs) - nonlinear_params - auxiliary_params
+        invalid_nlpars = nonlinear_params & (SUPPORTED_FUNCTIONS | {"nl"})
 
         if nonlinear_params & data_names:
             raise ValueError(
@@ -220,6 +221,12 @@ class Model:
         if invalid_lhs:
             raise ValueError(
                 f"Additional formulas contain invalid parameter names: {sorted(invalid_lhs)}."
+            )
+
+        if invalid_nlpars:
+            raise ValueError(
+                "Nonlinear parameter names must not be supported function names: "
+                f"{sorted(invalid_nlpars)}."
             )
 
         # Start processing model formulas
@@ -299,39 +306,28 @@ class Model:
                 f"{sorted(unused)}."
             )
 
-        is_ordinal_family = isinstance(self.family, ORDINAL_FAMILIES)
         response_name = self.formula.main.partition("~")[0].strip()
         parent_linear_formula = parameters_config[parent_name]["linear"]["formula"]
-        response_predictor = parent_linear_formula or "1"
-        response_formula = f"{response_name} ~ {response_predictor}"
+        response_formula = f"{response_name} ~ {parent_linear_formula or '1'}"
 
-        if is_ordinal_family:
-            additional_formulas = []
-            for name, additional_formula in zip(
-                self.formula.additionals_lhs, self.formula.additionals
-            ):
-                if name not in nonlinear_params:
-                    # Do not add nonlinear parameters formulas to `additional_formulas` because
-                    # they will be rejected by `check_ordinal_formula`.
-                    additional_formulas.append(additional_formula)
+        if isinstance(self.family, ORDINAL_FAMILIES):
+            if parent_linear_formula is not None and formula_has_intercept(parent_linear_formula):
+                warnings.warn("The intercept is omitted in ordinal families")
 
-            ordinal_predictor = parent_linear_formula or "0"
-            check_ordinal_formula(
-                Formula(f"{response_name} ~ {ordinal_predictor}", *additional_formulas)
-            )
-
-            # Make sure the intercept is included to constrain categorical predictors,
-            # it's then removed.
+            # The temporary intercept constrains categorical predictors, and it's then removed.
             response_formula = response_formula + " + 1"
 
         response_design = fm.design_matrices(
             response_formula, self.data, na_action, 1, additional_namespace
         )
 
-        if is_ordinal_family:
+        if isinstance(self.family, ORDINAL_FAMILIES):
             response_design = remove_common_intercept(response_design)
 
         self.response_term = ResponseTerm(response_design.response)
+        if isinstance(self.family, OrderedStereotype) and len(self.response_term.levels or []) < 3:
+            raise ValueError("The 'osm' family requires at least three response categories.")
+
         self._response_component = _ResponseComponentAdapter(
             self.response_term, response_design.response, self
         )
@@ -344,23 +340,22 @@ class Model:
                 for name in self.family.likelihood.params
             }
 
-        function_names = nonlinear_params & (SUPPORTED_FUNCTIONS | {"nl"})
-        if function_names:
-            raise ValueError(
-                "Nonlinear parameter names must not be supported function names: "
-                f"{sorted(function_names)}."
-            )
-
         dependencies = dict.fromkeys(self.family.likelihood.params, ())
         dependencies.update(dict.fromkeys(self.formula.nlpars, ()))
         for name, parameter_info in parameters_config.items():
             dependencies[name] = tuple(sorted(parameter_info["nonlinear"]["dependencies"]))
 
+        if isinstance(self.family, ORDINAL_FAMILIES):
+            dependencies[parent_name] = tuple(
+                sorted(set(dependencies[parent_name]) | auxiliary_params)
+            )
+
+        # Sorting allows reproduciblity
         declaration_order = (
             tuple(sorted(marginal_params))
             + (parent_name,)
             + tuple(sorted(auxiliary_params - marginal_params))
-            + tuple(self.formula.nlpars)
+            + tuple(sorted(self.formula.nlpars))
         )
         parameter_order = parameter_dependency_order(dependencies, declaration_order)
 
@@ -601,7 +596,7 @@ class Model:
             A dictionary of NUTS sampler settings passed directly to `pm.sample(nuts=...)`, e.g.
             `model.fit(nuts={"target_accept": 0.9, "max_treedepth": 12})`.
         kwargs : dict
-            For other kwargs see the documentation for ``pm.sample()``.
+            For other kwargs see the documentation for `pm.sample()`.
 
         Returns
         -------
@@ -878,8 +873,8 @@ class Model:
             dictionaries keyed by modeled parameter names. Inside each dictionary, map term names
             or the parameter's own name to strings. Response and marginal parameter aliases use
             strings directly, as do marginal coefficients. For example,
-            ``{"a": {"a": "baseline", "Intercept": "a0"},
-            "mu": {"mu": "mean"}, "y": "response"}`` aliases a nonlinear coefficient, its
+            `{"a": {"a": "baseline", "Intercept": "a0"},
+            "mu": {"mu": "mean"}, "y": "response"}` aliases a nonlinear coefficient, its
             intercept, the parent, and the response. Formulas and prior dictionaries continue to
             use original names. The model must be rebuilt after setting aliases.
 
@@ -1605,7 +1600,7 @@ class Model:
         Examples
         --------
         For a Gaussian model with an ordinary formula, the mapping contains the formula-defined
-        parent ``mu``. The unmodeled auxiliary ``sigma`` remains a marginal parameter.
+        parent `mu`. The unmodeled auxiliary `sigma` remains a marginal parameter.
 
         >>> import bambi as bmb
         >>> import pandas as pd

@@ -5,6 +5,7 @@ import pytensor.sparse as ps
 import pytensor.tensor as pt
 import scipy.sparse as sp
 
+from bambi.backend.pymc.coords import coords_for_coefficients
 from bambi.backend.pymc.nonlinear import build_nonlinear_predictor
 from bambi.backend.pymc.terms import (
     build_common_term,
@@ -49,14 +50,8 @@ def build_conditional_parameter(
         if is_likelihood_parameter
         else ParamSpec(links=["identity"])
     )
-    dims = ("__obs__",)
-    if param_spec.coefs_dim is not None:
-        key = (
-            "response_coords_reduced"
-            if param_spec.coefs_dim == "response_reduced"
-            else "response_coords"
-        )
-        dims += tuple(model.__bambi_attrs__[key])
+    coefficient_coords = coords_for_coefficients(param_spec, model)
+    dims = ("__obs__", *coefficient_coords)
 
     predictor_spec = param_spec
     if parameter.is_nonlinear:
@@ -72,6 +67,9 @@ def build_conditional_parameter(
             value = value[:, None]
         value = value + nonlinear_value
 
+    if param_spec.coefs_dim is not None:
+        value = pt.broadcast_to(value, tuple(model.dim_lengths[dim] for dim in dims))
+
     if is_likelihood_parameter:
         link = family.link[parameter.name]
         inverse_link = INVERSE_LINKS.get(link.name, link.inverse_link)
@@ -81,7 +79,12 @@ def build_conditional_parameter(
         else:
             value = inverse_link(value)
         dims = ("__obs__",)
-        if param_spec.ndim > 0:
+
+        if param_spec.coefs_dim == "response_cutpoints_reduced":
+            dims += tuple(model.__bambi_attrs__["response_coords_cutpoints"])
+        elif param_spec.coefs_dim is not None and parameter.name != family.likelihood.parent:
+            dims += tuple(coords_for_coefficients(param_spec, model))
+        elif param_spec.ndim > 0:
             dims += tuple(model.__bambi_attrs__["response_coords"])
 
     only_intercept = (
@@ -225,10 +228,7 @@ def _build_group_specific(
     terms = parameter_info.group_specific_terms
     contribution_dims = ("__obs__",)
 
-    if param_spec.coefs_dim == "response":
-        contribution_dims += tuple(model.__bambi_attrs__["response_coords"])
-    elif param_spec.coefs_dim == "response_reduced":
-        contribution_dims += tuple(model.__bambi_attrs__["response_coords_reduced"])
+    contribution_dims += tuple(coords_for_coefficients(param_spec, model))
 
     if bmb_config["SPARSE_DOT"]:
         return _build_sparse_group_specific(

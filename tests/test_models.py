@@ -1238,16 +1238,6 @@ class TestOrdinal(FitPredictParent):
         idata = self.fit(model, random_seed=1234)
         self.predict_oos(model, idata)
 
-    def test_ordered_stereotype_binary(self, data_inhaler):
-        data = data_inhaler[data_inhaler["rating"].isin([1, 2])].copy()
-        data["rating"] = data["rating"].cat.remove_unused_categories()
-        model = bmb.Model("rating ~ period", data, family="osm")
-        idata = self.fit(model, random_seed=1234)
-        prediction = self.predict_oos(model, idata)
-
-        np.testing.assert_allclose(idata.posterior["delta"], 1)
-        assert set(np.unique(prediction.predictions["rating"])).issubset({0, 1})
-
     def test_cumulative_accepts_pymc_ordered_transform(self, data_inhaler):
         prior = bmb.Prior(
             "Normal",
@@ -3152,6 +3142,145 @@ def ordinal_nonlinear_data():
     )
 
 
+@pytest.mark.parametrize(
+    "family, auxiliary",
+    [
+        ("cumulative", "threshold"),
+        ("sratio", "threshold"),
+        ("cratio", "threshold"),
+        ("acat", "threshold"),
+        ("osm", "alpha"),
+        ("osm", "delta"),
+    ],
+)
+@pytest.mark.parametrize(
+    "parent_predictor, auxiliary_predictor",
+    [
+        ("x", "x"),
+        ("a*x", "x"),
+        ("0", "0"),
+        ("0", "1"),
+        ("0", "a*x"),
+        ("0", "x + (1 + x|group)"),
+    ],
+)
+def test_ordinal_auxiliary_formulas(family, auxiliary, parent_predictor, auxiliary_predictor):
+    data = ordinal_nonlinear_data()
+    data["group"] = ["a", "a", "b", "b", "c", "c"]
+    nonlinear = "a*x" in (parent_predictor, auxiliary_predictor)
+    formula = bmb.Formula(
+        f"y ~ {parent_predictor}",
+        f"{auxiliary} ~ {auxiliary_predictor}",
+        *(("a ~ 1 + z",) if nonlinear else ()),
+        nlpars=("a",) if nonlinear else (),
+    )
+    model = bmb.Model(formula, data, family=family)
+    assert auxiliary in model.conditional_parameters
+    if auxiliary_predictor == "x":
+        assert "x" in model.parameters[auxiliary].terms
+    model.build()
+    backend = model.backend.model
+    auxiliary_value, probabilities = pm.draw([backend[auxiliary], backend["p"]], draws=3)
+    assert auxiliary_value.shape == (3, len(data), 2)
+    assert probabilities.shape == (3, len(data), 3)
+    assert np.all(np.isfinite(probabilities))
+    assert np.all(probabilities >= 0)
+    np.testing.assert_allclose(probabilities.sum(axis=-1), 1)
+    if family == "cumulative":
+        assert np.all(np.diff(auxiliary_value, axis=-1) > 0)
+    if auxiliary == "delta":
+        assert np.all(auxiliary_value > 0)
+        np.testing.assert_allclose(auxiliary_value.sum(axis=-1), 1)
+    assert np.isfinite(backend.compile_logp()(backend.initial_point()))
+
+
+def test_osm_marginal_delta_uses_default_prior():
+    model = bmb.Model("y ~ 0 + x", ordinal_nonlinear_data(), family="osm")
+    assert model.family.link["delta"].name == "softmax"
+    assert model.parameters["delta"].prior.name == "Dirichlet"
+    model.build()
+    delta = model.backend.model["delta"]
+    assert model.backend.model.named_vars_to_dims["delta"] == ("delta_dim",)
+    assert delta in model.backend.model.free_RVs
+    assert delta not in model.backend.model.deterministics
+
+
+@pytest.mark.parametrize("categories", [3, 4])
+@pytest.mark.parametrize("explicit_link", [False, True])
+def test_osm_delta_reference_logit(categories, explicit_link):
+    from scipy.special import softmax
+
+    data = ordinal_nonlinear_data()
+    data["y"] = pd.Categorical(np.arange(len(data)) % categories, ordered=True)
+    model = bmb.Model(
+        bmb.Formula("y ~ 0 + nl(0.4*x)", "delta ~ 0 + x"),
+        data,
+        family="osm",
+        link={"delta": "softmax"} if explicit_link else None,
+    )
+    assert model.family.link["delta"].name == "softmax"
+    assert model.family.get_param_spec("delta").links == ["softmax"]
+    model.build()
+    backend = model.backend.model
+    slopes = np.linspace(-0.3, 0.5, categories - 2)
+    values = {"alpha": np.zeros(categories - 1), "delta_x": slopes}
+    assert backend.named_vars_to_dims["delta_x"] == ("delta_dim_reduced",)
+    assert backend.eval_rv_shapes()["delta_x"] == (categories - 2,)
+    actual_delta, actual_probability = backend.compile_fn(
+        [backend["delta"], backend["p"]], inputs=backend.free_RVs
+    )(values)
+    logits = np.column_stack([np.zeros(len(data)), data.x.to_numpy()[:, None] * slopes])
+    expected_delta = softmax(logits, axis=-1)
+    np.testing.assert_allclose(actual_delta, expected_delta)
+    phi = np.column_stack(
+        [np.zeros(len(data)), np.cumsum(expected_delta[:, :-1], axis=-1), np.ones(len(data))]
+    )
+    expected_probability = softmax(0.4 * data.x.to_numpy()[:, None] * phi, axis=-1)
+    np.testing.assert_allclose(actual_probability, expected_probability)
+    assert_ip_dlogp(model)
+
+
+@pytest.mark.usefixtures("mock_pymc_sample")
+@pytest.mark.parametrize("sparse_dot", [False, True])
+@pytest.mark.parametrize(
+    "family, binary", [("cumulative", False), ("cumulative", True), ("osm", False)]
+)
+def test_ordinal_auxiliary_predictions(monkeypatch, sparse_dot, family, binary):
+    monkeypatch.setattr(bmb.config, "SPARSE_DOT", sparse_dot)
+    data = ordinal_nonlinear_data()
+    if binary:
+        data = data[data.y != "high"].copy()
+        data["y"] = data.y.cat.remove_unused_categories()
+    data["group"] = np.resize(["a", "b"], len(data))
+    data["category"] = data["group"]
+    auxiliaries = ("alpha", "delta") if family == "osm" else ("threshold",)
+    formula = bmb.Formula(
+        "y ~ x",
+        *(f"{name} ~ 1 + category + z + (1|group)" for name in auxiliaries),
+    )
+    model = bmb.Model(formula, data, family=family)
+    model.set_alias({name: {name: f"{name}_value"} for name in auxiliaries})
+    idata = model.fit(draws=2, chains=1, random_seed=120)
+    for count in (2, 1):
+        new_data = data.iloc[:count].copy()
+        for groups in (["a"] * count, ["new"] * count):
+            new_data["group"] = groups
+            result = model.predict(
+                idata, data=new_data, kind="response", inplace=False, random_seed=121
+            )
+            probability = result.predictions["p"]
+            assert probability.shape == (1, 2, count, len(data.y.cat.categories))
+            assert (probability >= 0).all()
+            np.testing.assert_allclose(probability.sum(axis=-1), 1)
+            assert np.isfinite(result.predictions["y"]).all()
+        log_likelihood = model.compute_log_likelihood(idata, data=data.iloc[:count], inplace=False)
+        assert np.isfinite(log_likelihood.log_likelihood["y"]).all()
+        population = model.predict(
+            idata, data=data.iloc[:count], include_group_specific=False, inplace=False
+        )
+        np.testing.assert_allclose(population.predictions["p"].sum(axis=-1), 1)
+
+
 def test_nonlinear_ordinal_hsgp_uses_a_scalar_predictor():
     data = ordinal_nonlinear_data()
     model = bmb.Model(bmb.Formula("y ~ hsgp(x, m=3, c=1.5) + nl(0.2*x)"), data, family="cumulative")
@@ -3277,7 +3406,7 @@ def test_nonlinear_ordinal_probabilities_and_predictions(family, link):
 
 
 @pytest.mark.usefixtures("mock_pymc_sample")
-@pytest.mark.parametrize("family", ["cumulative", "sratio", "cratio", "acat", "osm"])
+@pytest.mark.parametrize("family", ["cumulative", "sratio", "cratio", "acat"])
 def test_nonlinear_ordinal_binary_constant_expression(family):
     data = ordinal_nonlinear_data()
     data = data[data.y != "high"].copy()
@@ -3285,11 +3414,9 @@ def test_nonlinear_ordinal_binary_constant_expression(family):
     model = bmb.Model(bmb.Formula("y ~ 0 + nl(0.4)"), data, family=family)
     model.build()
     backend = model.backend.model
-    values = {"alpha": np.array([0.2])} if family == "osm" else {"threshold": np.array([0.3])}
+    values = {"threshold": np.array([0.3])}
     actual = backend.compile_fn(backend["p"], inputs=backend.free_RVs)(values)
-    expected = ordinal_probabilities(
-        family, np.full(len(data), 0.4), np.array([0.3]), alpha=np.array([0.2]), delta=np.ones(1)
-    )
+    expected = ordinal_probabilities(family, np.full(len(data), 0.4), np.array([0.3]))
     np.testing.assert_allclose(actual, expected)
     idata = model.fit(draws=2, chains=1, random_seed=115)
     for count in (2, 1):
