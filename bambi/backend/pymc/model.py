@@ -507,15 +507,12 @@ class PyMCModel:
             prediction_model = replace_response_variables(
                 self.spec.response_term, prediction_model, kind
             )
-            parameter_aliases = {
-                name: parameter.label for name, parameter in self.spec.parameters.items()
-            }
             interventions = build_response_interventions(
                 self.spec.response_term,
                 prediction_model,
                 self.spec.family,
                 kind,
-                parameter_aliases,
+                self.spec.parameters,
             )
             if interventions:
                 prediction_model = pm.do(prediction_model, interventions)
@@ -524,7 +521,7 @@ class PyMCModel:
                 prediction_model,
                 self.spec.family,
                 kind,
-                parameter_aliases,
+                self.spec.parameters,
             )
 
             with _suppress_logging(), prediction_model:
@@ -577,15 +574,12 @@ class PyMCModel:
                     factor_plans, group_specific_state, model
                 )
 
-        parameter_aliases = {
-            name: parameter.label for name, parameter in self.spec.parameters.items()
-        }
         interventions = build_response_interventions(
             self.spec.response_term,
             model,
             self.spec.family,
             kind,
-            parameter_aliases,
+            self.spec.parameters,
         )
         if interventions:
             model = pm.do(model, interventions)
@@ -594,7 +588,7 @@ class PyMCModel:
             model,
             self.spec.family,
             kind,
-            parameter_aliases,
+            self.spec.parameters,
         )
 
         with _suppress_logging(), model:
